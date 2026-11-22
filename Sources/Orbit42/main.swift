@@ -1,5 +1,6 @@
 import AppKit
 import WebKit
+import ShoWorkApp
 
 // Orbit42: the sphere is the home screen; every AI worker is a satellite with its own real terminal.
 // Web UI (Web/index.html: three.js sphere + xterm.js) talks to this host through `webkit.messageHandlers.orbit`.
@@ -17,6 +18,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private let pendLock = NSLock()
     private var flushTimer: Timer?
     private var tick: Timer?
+    var onShow: (Bool) -> Void = { _ in }       // 終端機面板要顯示／收起（嵌在 Orbit42 主視窗右邊）
 
     override init() {
         let cfg = WKWebViewConfiguration()
@@ -30,9 +32,9 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         web.setValue(false, forKey: "drawsBackground")
     }
 
-    func load() {
+    func load(termOnly: Bool = false) {
         guard Self.webDir != nil else { return }
-        web.load(URLRequest(url: URL(string: "orbit://app/index.html")!))
+        web.load(URLRequest(url: URL(string: "orbit://app/index.html" + (termOnly ? "?term=1" : ""))!))
         flushTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushSats() } }
     }
@@ -56,13 +58,14 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let n = (counter[brain] ?? 0) + 1; counter[brain] = n
             let cwd = (m["cwd"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
             let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: "\(brain.label) \(n)", brain: brain, cwd: cwd, command: brain.command)
-            add(s); js("window.orbitOpened", s.id)
+            add(s); js("window.orbitOpened", s.id); onShow(true)
         case "attach":
             guard let job = m["job"] as? String else { return }
-            if let existing = sats.values.first(where: { $0.attachedJob == job }) { js("window.orbitOpened", existing.id); return }
+            if let existing = sats.values.first(where: { $0.attachedJob == job }) { js("window.orbitOpened", existing.id); onShow(true); return }
             let s = Satellite(id: "bg-" + job, name: m["name"] as? String ?? job, brain: .claude, cwd: m["cwd"] as? String ?? NSHomeDirectory(),
                               command: "claude attach \(job)", attachedJob: job)
-            add(s); js("window.orbitOpened", s.id)
+            add(s); js("window.orbitOpened", s.id); onShow(true)
+        case "hide": onShow(false)
         case "open":
             guard let s = sats[id] else { return }
             if s.pty == nil || s.exited != nil { start(s, cols: cols, rows: rows) }
@@ -80,6 +83,29 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     private func add(_ s: Satellite) { sats[s.id] = s; order.append(s.id); pushSats() }
+
+    // MARK: 球體（ShoWork 完整球體）→ 這裡
+    /// ＋ 新衛星
+    func newSatellite(_ brain: String) {
+        userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "new", "brain": brain]))
+    }
+    /// 點到球上的衛星：Orbit42 開的（終端機是我們的）就打開它；背景 session 就 attach 進來看；其他回 false（照舊跳 Ghostty）
+    func open(_ ref: SphereEmbed.SessionRef) -> Bool {
+        if let s = sats.values.first(where: { sat in sat.pty.map { $0.pid == ref.pid || Self.parent(of: ref.pid) == $0.pid } ?? false }) {
+            js("window.orbitOpened", s.id); onShow(true); return true
+        }
+        if ref.kind == "bg", let job = ref.jobId {
+            userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": ref.name, "cwd": ref.cwd ?? NSHomeDirectory()]))
+            return true
+        }
+        return false
+    }
+    nonisolated static func parent(of pid: Int32) -> Int32? {
+        var info = kinfo_proc(), size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        return info.kp_eproc.e_ppid
+    }
 
     private func start(_ s: Satellite, cols: Int, rows: Int) {
         s.exited = nil
@@ -159,6 +185,13 @@ final class WebFiles: NSObject, WKURLSchemeHandler {
     func webView(_ w: WKWebView, stop task: any WKURLSchemeTask) {}
 }
 
+/// 從原生端呼叫同一套訊息處理（跟網頁送來的一樣）
+final class FakeMessage: WKScriptMessage {
+    private let payload: [String: Any]
+    init(_ p: [String: Any]) { payload = p; super.init() }
+    override var body: Any { payload }
+}
+
 /// WKUserContentController keeps a strong reference to its handlers.
 final class WeakHandler: NSObject, WKScriptMessageHandler {
     weak var target: (any WKScriptMessageHandler)?
@@ -166,35 +199,78 @@ final class WeakHandler: NSObject, WKScriptMessageHandler {
     func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) { target?.userContentController(u, didReceive: m) }
 }
 
+/// Orbit42 主視窗：整個 ShoWork 球體（播報、空白鍵講話、量表、自檢、cool42…）＋右邊滑出的衛星終端機
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class OrbitWindow: NSObject, NSWindowDelegate {
+    static let shared = OrbitWindow()
     var window: NSWindow!
     let host = Host()
+    private var termWidth: CGFloat { max(420, (window.contentView?.bounds.width ?? 1200) * 0.56) }
+    private var termShown = false
 
-    func applicationDidFinishLaunching(_ n: Notification) {
+    func show(test: Bool) {
         let env = ProcessInfo.processInfo.environment
-        let size = NSSize(width: Double(env["ORBIT_TEST_W"] ?? "") ?? 1280, height: Double(env["ORBIT_TEST_H"] ?? "") ?? 820)
+        let size = NSSize(width: Double(env["ORBIT_TEST_W"] ?? "") ?? 1440, height: Double(env["ORBIT_TEST_H"] ?? "") ?? 900)
         window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         window.title = "Orbit42"
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = NSColor(calibratedRed: 0.043, green: 0.043, blue: 0.047, alpha: 1)
-        window.contentView = host.web
-        if env["ORBIT_OFFSCREEN"] != nil {
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        root.wantsLayer = true
+        window.contentView = root
+        let sphere = SphereEmbed.makeView()
+        sphere.frame = root.bounds; sphere.autoresizingMask = [.width, .height]
+        root.addSubview(sphere)
+        host.web.autoresizingMask = [.height, .minXMargin]
+        host.web.isHidden = true
+        root.addSubview(host.web)
+        layoutTerm()
+        host.onShow = { [weak self] on in self?.setTerm(on) }
+        host.load(termOnly: true)
+        SphereEmbed.openSession = { [weak self] ref in self?.host.open(ref) ?? false }
+        SphereEmbed.newSatellite = { [weak self] brain in self?.host.newSatellite(brain) }
+        if test {
             window.setFrameOrigin(NSPoint(x: -6000, y: -6000)); window.orderBack(nil)
         } else {
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
         }
-        host.load()
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
-    func applicationWillTerminate(_ n: Notification) { host.shutdown() }
+
+    private func layoutTerm() {
+        guard let root = window.contentView else { return }
+        let w = termWidth
+        host.web.frame = NSRect(x: root.bounds.width - w, y: 0, width: w, height: root.bounds.height - 28)
+    }
+    func setTerm(_ on: Bool) {
+        termShown = on; layoutTerm(); host.web.isHidden = !on
+        if on { window.makeFirstResponder(host.web) }
+    }
+    func windowDidResize(_ n: Notification) { layoutTerm() }
+    func windowWillClose(_ n: Notification) { host.shutdown(); NSApp.terminate(nil) }
 }
 
+/// Orbit42 取代 ShoWorkAgent：兩個不能同時跑（播報講兩次、權限卡兩邊搶、socket 打架）。
+/// 開 Orbit42 時先停掉 launchd 的 ShoWorkAgent，結束時再把它開回來。
+enum AgentSwap {
+    static let label = "ai.okle42.showork.agent"
+    static var plist: String { NSHomeDirectory() + "/Library/LaunchAgents/\(label).plist" }
+    static func launchctl(_ args: [String]) { let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/launchctl"); p.arguments = args; try? p.run(); p.waitUntilExit() }
+    static func stop() { launchctl(["bootout", "gui/\(getuid())/\(label)"]) }
+    static func start() { if FileManager.default.fileExists(atPath: plist) { launchctl(["bootstrap", "gui/\(getuid())", plist]) } }
+}
+
+let orbitEnv = ProcessInfo.processInfo.environment
+let orbitTest = orbitEnv["ORBIT_OFFSCREEN"] != nil
+if !orbitTest {
+    AgentSwap.stop()
+    atexit { AgentSwap.start() }
+}
 MainActor.assumeIsolated {
-    let app = NSApplication.shared
-    let delegate = AppDelegate()
-    app.delegate = delegate
-    app.setActivationPolicy(ProcessInfo.processInfo.environment["ORBIT_OFFSCREEN"] != nil ? .accessory : .regular)
-    app.run()
+    NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+        MainActor.assumeIsolated { OrbitWindow.shared.host.shutdown() }
+    }
+    ShoWorkAgentMain.run(AgentOptions(regularApp: !orbitTest, waitForAccessibility: false, testOnly: orbitTest,
+                                      onLaunch: { OrbitWindow.shared.show(test: orbitTest) }))
 }

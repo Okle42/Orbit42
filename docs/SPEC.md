@@ -27,10 +27,13 @@ Orbit42（這個 App）
 | S2 大腦接口 | adapter：啟動、續接、狀態（忙／等你／做完）、額度；Claude → Codex → Antigravity（Gemini）→ Grok | 同一顆球上同時有 Claude 和 ChatGPT 的衛星 | |
 | S3 登入 | 第一次開：選大腦 → 走各家官方登入，之後記住 | 新電腦裝好就能登入使用 | |
 | S4 cool42 併入 | 閘門（AI 開重工作前先問）與風扇守護程式改由系統管理 | 不另外裝 cool42 也有完整功能 | |
-| S5 取代戰情中心 | 球體分頁、播報、自檢、額度全部搬過來 | 只開 Orbit42 就能工作 | |
+| S5 取代戰情中心 | 球體分頁、播報、自檢、額度全部搬過來 | 只開 Orbit42 就能工作 | 進行中：完整球體已嵌入（ShoWorkApp.SphereEmbed），Orbit42 開著時停掉 ShoWorkAgent、關掉再開回 |
 
 ## 決定紀錄
 
 - 2026-11-23：衛星點開＝真的終端機畫面；終端機元件＝xterm.js（網頁型，跟球體同頁、之後 Windows 共用）；Grok＝xAI 的 Grok；也要接 Google 的 Gemini（走 Antigravity CLI，Gemini CLI 已被取代）
 - 2026-11-23：AI 專用虛擬機（原本 v0 構想）先不做
 - 2026-11-23：公開 repo（42 系列），授權與 ShoWork42 相同（原始碼公開、非開源）
+
+- 2026-11-23：Orbit42 取代 ShoWorkAgent（同一顆引擎 `ShoWorkAgentMain.run`，Orbit42 加主視窗：完整球體＋右側衛星終端機）；ShoWork42 拆出函式庫 ShoWorkApp
+- 2026-11-23：Claude Code 的對話框（okle42 樣式）改黑白灰紅、終端機色票分深淺兩套，跟系統外觀切換

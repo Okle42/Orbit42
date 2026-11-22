@@ -5,3 +5,4 @@ DerivedData/
 vm/
 *.img
 *.ipsw
+/Packages
