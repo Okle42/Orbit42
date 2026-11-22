@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit42</title>
+<link rel="stylesheet" href="vendor/xterm-5.5.0/xterm.css">
+<style>
+  :root { --bg:#0b0b0c; --panel:rgba(18,18,20,.92); --line:#2a2a2d; --ink:#ededed; --dim:#8a8a8f; --acc:#ff3b30; --gold:#d9b45a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px -apple-system, "PingFang TC", sans-serif; overflow: hidden; }
+  #gl { position: fixed; inset: 0; }
+  #bar { position: fixed; top: 0; left: 0; right: 0; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 14px 0 84px;
+         -webkit-app-region: drag; border-bottom: 1px solid var(--line); background: rgba(11,11,12,.6); backdrop-filter: blur(8px); z-index: 5; }
+  .brand { font: 600 11px ui-monospace, Menlo, monospace; letter-spacing: .26em; }
+  .brand b { color: var(--gold); font-weight: 600; }
+  .sp { flex: 1; }
+  button { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 14px; padding: 4px 11px; cursor: pointer; }
+  button:hover { border-color: var(--dim); }
+  button.acc { border-color: var(--acc); color: var(--acc); }
+  #menu, #bgMenu { position: fixed; top: 44px; right: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: none; z-index: 6; min-width: 220px; }
+  #menu.on, #bgMenu.on { display: block; }
+  .mi { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 5px; cursor: pointer; }
+  .mi:hover { background: #1d1d20; }
+  .mi small { color: var(--dim); }
+  .label { position: fixed; transform: translate(-50%, -150%); font-size: 11px; white-space: nowrap; pointer-events: none; color: var(--ink); text-shadow: 0 0 6px #000; }
+  .label i { font-style: normal; color: var(--dim); margin-left: 4px; }
+  .label.busy { color: #fff; } .label.exited { color: var(--dim); text-decoration: line-through; }
+  #hint { position: fixed; bottom: 18px; left: 0; right: 0; text-align: center; color: var(--dim); font-size: 12px; pointer-events: none; }
+  #panel { position: fixed; top: 40px; right: 0; bottom: 0; width: min(62vw, 980px); background: #0d0d0f; border-left: 1px solid var(--line);
+           transform: translateX(100%); transition: transform .28s ease; display: flex; flex-direction: column; z-index: 4; }
+  #panel.on { transform: none; }
+  #phead { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  #phead .nm { font-weight: 600; } #phead .st { color: var(--dim); font-size: 12px; }
+  #terms { flex: 1; position: relative; }
+  .term { position: absolute; inset: 8px 4px 4px 10px; display: none; }
+  .term.on { display: block; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="bar">
+  <span class="brand">ORBIT<b>42</b></span>
+  <span class="sp"></span>
+  <button id="bBg" title="把正在背景跑的 Claude session 拉進來看">背景 session</button>
+  <button id="bNew" class="acc" title="開一顆新衛星（新的 AI 工作者）">＋ 新衛星</button>
+</div>
+<div id="menu" role="menu">
+  <div class="mi" data-brain="claude"><span>Claude</span><small>Claude Code</small></div>
+  <div class="mi" data-brain="gemini"><span>Gemini</span><small>Antigravity CLI</small></div>
+  <div class="mi" data-brain="codex"><span>ChatGPT</span><small>Codex CLI</small></div>
+</div>
+<div id="bgMenu" role="menu"></div>
+<div id="labels"></div>
+<div id="hint">按「＋ 新衛星」開一個 AI 工作者 · 點衛星打開它的終端機</div>
+<div id="panel" aria-label="衛星終端機">
+  <div id="phead"><span class="nm" id="pName"></span><span class="st" id="pState"></span><span class="sp"></span>
+    <button id="bEnd" title="結束這顆衛星（Orbit42 開的會關掉；拉進來看的背景 session 只關檢視，它照常跑）">結束</button>
+    <button id="bClose" title="收起終端機（衛星繼續跑）">收起</button></div>
+  <div id="terms"></div>
+</div>
+
+<script src="vendor/xterm-5.5.0/xterm.js"></script>
+<script src="vendor/xterm-5.5.0/addon-fit.js"></script>
+<script src="vendor/xterm-5.5.0/addon-unicode11.js"></script>
+<script src="vendor/xterm-5.5.0/addon-webgl.js"></script>
+<script type="importmap">{ "imports": { "three": "./vendor/three-r170/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from "three";
+const $ = id => document.getElementById(id);
+const post = o => { try { window.webkit?.messageHandlers?.orbit?.postMessage(o); } catch {} };
+
+/* ---------- 球體與衛星 ---------- */
+const canvas = $("gl");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+camera.position.set(0, 0, 11);
+const root = new THREE.Group(); scene.add(root);
+const ink = new THREE.Color("#ededed"), red = new THREE.Color("#ff3b30");
+const lm = op => new THREE.LineBasicMaterial({ color: ink, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false });
+root.add(new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(1.4, 3)), lm(0.12)));
+const shell = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.75, 1)), lm(0.28)); root.add(shell);
+const orbits = [];
+for (let k = 0; k < 3; k++) {
+  const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(new THREE.EllipseCurve(0, 0, 2.6 + k * 0.55, 2.6 + k * 0.55).getPoints(128)), lm(0.18));
+  const pv = new THREE.Group(); pv.rotation.set(1.2 + k * 0.18, k * 0.9, k * 0.5); pv.add(ring); root.add(pv); orbits.push(pv);
+}
+const sats = new Map();      // id → { data, mesh, halo, label, slot }
+function satMesh() {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.13, 20, 14), new THREE.MeshBasicMaterial({ color: ink }));
+  const h = new THREE.Mesh(new THREE.SphereGeometry(0.26, 20, 14), new THREE.MeshBasicMaterial({ color: ink, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }));
+  m.add(h); return { m, h };
+}
+window.orbitSats = list => {
+  const keep = new Set(list.map(s => s.id));
+  for (const [id, s] of sats) if (!keep.has(id)) { s.pv.removeFromParent(); s.label.remove(); sats.delete(id); dropTerm(id); }
+  list.forEach((d, i) => {
+    let s = sats.get(d.id);
+    if (!s) {
+      const { m, h } = satMesh(), pv = new THREE.Group();
+      pv.rotation.copy(orbits[i % 3].rotation); pv.add(m); root.add(pv);
+      const label = document.createElement("div"); label.className = "label"; $("labels").appendChild(label);
+      s = { mesh: m, halo: h, pv, label, r: 2.6 + (i % 3) * 0.55, a: i * 2.4 };
+      m.userData.id = d.id; sats.set(d.id, s);
+    }
+    s.data = d;
+    s.label.className = "label " + d.state;
+    s.label.innerHTML = `${esc(d.name)}<i>${{ busy: "工作中", open: "開著", idle: "還沒開", exited: "已結束" }[d.state] || ""}</i>`;
+    if (d.id === active) paintHead();
+  });
+  $("hint").style.display = list.length ? "none" : "";
+};
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener("resize", () => { resize(); fitActive(); }); resize();
+const clock = new THREE.Clock(), v = new THREE.Vector3();
+(function frame() {
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  root.rotation.y = Math.sin(t * 0.15) * 0.2; shell.rotation.y += dt * 0.12;
+  // 終端機打開時球往左讓位
+  const want = $("panel").classList.contains("on") ? -Math.min(3.2, camera.aspect * 2.2) : 0;
+  root.position.x += (want - root.position.x) * Math.min(1, dt * 5);
+  for (const s of sats.values()) {
+    const busy = s.data.state === "busy";
+    s.a += dt * (busy ? 0.9 : 0.35);
+    s.mesh.position.set(Math.cos(s.a) * s.r, Math.sin(s.a) * s.r, 0);
+    s.mesh.material.color.copy(s.data.state === "exited" ? new THREE.Color("#555") : busy ? red : ink);
+    s.halo.material.opacity = busy ? 0.3 + 0.15 * Math.sin(t * 6) : s.data.id === active ? 0.3 : 0.12;
+    s.mesh.getWorldPosition(v).project(camera);
+    s.label.style.left = ((v.x + 1) / 2 * innerWidth) + "px"; s.label.style.top = ((1 - v.y) / 2 * innerHeight) + "px";
+    s.label.style.display = v.z > 1 ? "none" : "";
+  }
+  renderer.render(scene, camera);
+})();
+
+/* 點衛星 → 打開它的終端機 */
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+canvas.addEventListener("click", e => {
+  mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(mouse, camera);
+  const hit = ray.intersectObjects([...sats.values()].flatMap(s => [s.mesh, s.halo]), false)[0];
+  const id = hit && (hit.object.userData.id || hit.object.parent?.userData.id);
+  if (id) openTerm(id);
+});
+canvas.addEventListener("mousemove", e => {
+  mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(mouse, camera);
+  canvas.style.cursor = ray.intersectObjects([...sats.values()].flatMap(s => [s.mesh, s.halo]), false).length ? "pointer" : "";
+});
+
+/* ---------- 終端機（每顆衛星一個 xterm，收起時保留畫面） ---------- */
+const terms = new Map();     // id → { term, fit, el }
+let active = null;
+const THEME = { background: "#0d0d0f", foreground: "#ededed", cursor: "#ff3b30", cursorAccent: "#0d0d0f", selectionBackground: "#3a1a19",
+  black: "#1a1a1b", red: "#ff3b30", green: "#9fbf9a", yellow: "#d9c38a", blue: "#8fa3bf", magenta: "#c49ab8", cyan: "#9ec3c6", white: "#d4d4d4",
+  brightBlack: "#5c5c5c", brightRed: "#ff6b61", brightGreen: "#b8d4b3", brightYellow: "#ead9a6", brightBlue: "#aebcd4", brightMagenta: "#d8b7cf", brightCyan: "#b9d7d9", brightWhite: "#ffffff" };
+function makeTerm(id) {
+  const el = document.createElement("div"); el.className = "term"; $("terms").appendChild(el);
+  const term = new Terminal({ fontFamily: '"SF Mono", Menlo, "PingFang TC", monospace', fontSize: 13, lineHeight: 1.15, theme: THEME,
+    cursorBlink: true, allowProposedApi: true, scrollback: 10000, macOptionIsMeta: true });
+  const fit = new FitAddon.FitAddon(); term.loadAddon(fit);
+  try { term.loadAddon(new Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion = "11"; } catch {}
+  term.open(el);
+  try { term.loadAddon(new WebglAddon.WebglAddon()); } catch {}
+  term.onData(data => post({ action: "input", id, data }));
+  term.onResize(({ cols, rows }) => post({ action: "resize", id, cols, rows }));
+  const t = { term, fit, el, started: false }; terms.set(id, t); return t;
+}
+function dropTerm(id) { const t = terms.get(id); if (!t) return; t.term.dispose(); t.el.remove(); terms.delete(id); if (active === id) closePanel(); }
+function openTerm(id) {
+  const t = terms.get(id) || makeTerm(id);
+  for (const x of terms.values()) x.el.classList.toggle("on", x === t);
+  active = id; $("panel").classList.add("on"); paintHead();
+  requestAnimationFrame(() => { t.fit.fit(); t.term.focus();
+    if (!t.started || sats.get(id)?.data.state === "exited") { t.started = true; post({ action: "open", id, cols: t.term.cols, rows: t.term.rows }); }
+  });
+}
+function fitActive() { const t = active && terms.get(active); if (t) t.fit.fit(); }
+function paintHead() {
+  const s = sats.get(active)?.data; if (!s) return;
+  $("pName").textContent = s.name; $("pState").textContent = `${s.brainLabel}${s.job ? " · 背景 session（關掉只關檢視）" : ""} · ${s.cwd}`;
+}
+function closePanel() { $("panel").classList.remove("on"); active = null; }
+$("bClose").onclick = closePanel;
+$("bEnd").onclick = () => { if (active) post({ action: "remove", id: active }); };
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+window.orbitData = (id, data) => { (terms.get(id) || makeTerm(id)).term.write(b64(data)); };
+window.orbitReplay = (id, data) => { const t = terms.get(id); if (t && !t.term.buffer.active.length) t.term.write(b64(data)); };
+window.orbitExit = (id, code) => { terms.get(id)?.term.write(`\r\n\x1b[90m[已結束 ${code}] 點衛星可以重新開\x1b[0m\r\n`); const t = terms.get(id); if (t) t.started = false; };
+window.orbitOpened = id => openTerm(id);
+
+/* ---------- 工具列 ---------- */
+$("bNew").onclick = e => { e.stopPropagation(); $("bgMenu").classList.remove("on"); $("menu").classList.toggle("on"); };
+$("menu").onclick = e => { const mi = e.target.closest("[data-brain]"); if (!mi) return; $("menu").classList.remove("on"); post({ action: "new", brain: mi.dataset.brain }); };
+$("bBg").onclick = e => { e.stopPropagation(); $("menu").classList.remove("on"); post({ action: "bgList" }); $("bgMenu").classList.toggle("on"); };
+window.orbitBg = list => {
+  $("bgMenu").innerHTML = list.length ? list.map(b => `<div class="mi" data-job="${esc(b.job)}" data-name="${esc(b.name)}" data-cwd="${esc(b.cwd)}"><span>${esc(b.name)}</span><small>${esc(b.status)}</small></div>`).join("")
+    : `<div class="mi"><small>沒有正在背景跑的 Claude session</small></div>`;
+};
+$("bgMenu").onclick = e => { const mi = e.target.closest("[data-job]"); if (!mi) return; $("bgMenu").classList.remove("on"); post({ action: "attach", job: mi.dataset.job, name: mi.dataset.name, cwd: mi.dataset.cwd }); };
+document.addEventListener("click", () => { $("menu").classList.remove("on"); $("bgMenu").classList.remove("on"); });
+// 測試用：在目前打開的終端機打字（跟手打一樣走 input）
+window.orbitTest = { type: text => active && post({ action: "input", id: active, data: text }), active: () => active,
+  screen: () => { const t = terms.get(active); if (!t) return ""; const b = t.term.buffer.active, out = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true)); return out.join("\n"); } };
+post({ action: "ready" });
+</script>
+</body>
+</html>

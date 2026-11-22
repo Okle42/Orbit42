@@ -1,0 +1,200 @@
+import AppKit
+import WebKit
+
+// Orbit42: the sphere is the home screen; every AI worker is a satellite with its own real terminal.
+// Web UI (Web/index.html: three.js sphere + xterm.js) talks to this host through `webkit.messageHandlers.orbit`.
+//
+// Test hooks (window off-screen, never on the user's display):
+//   ORBIT_OFFSCREEN=1  ORBIT_TEST_JS=<js run 1.5 s after load>  ORBIT_TEST_SHOT=<png> ORBIT_TEST_SHOT_DELAY=<s>  ORBIT_TEST_QUIT=1
+
+@MainActor
+final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    let web: WKWebView
+    private var sats: [String: Satellite] = [:]
+    private var order: [String] = []
+    private var counter: [Brain: Int] = [:]
+    private var pending: [String: Data] = [:]
+    private let pendLock = NSLock()
+    private var flushTimer: Timer?
+    private var tick: Timer?
+
+    override init() {
+        let cfg = WKWebViewConfiguration()
+        cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        // ES modules (three.js) don't load from file:// in WKWebView ⇒ serve Web/ through our own scheme
+        if let dir = Self.webDir { cfg.setURLSchemeHandler(WebFiles(root: dir), forURLScheme: "orbit") }
+        web = WKWebView(frame: .zero, configuration: cfg)
+        super.init()
+        cfg.userContentController.add(WeakHandler(self), name: "orbit")
+        web.navigationDelegate = self
+        web.setValue(false, forKey: "drawsBackground")
+    }
+
+    func load() {
+        guard Self.webDir != nil else { return }
+        web.load(URLRequest(url: URL(string: "orbit://app/index.html")!))
+        flushTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
+        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushSats() } }
+    }
+
+    static var webDir: URL? {
+        var c: [URL] = []
+        if let r = Bundle.main.resourceURL { c.append(r.appendingPathComponent("Web")) }
+        c.append(URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Web"))
+        return c.first { FileManager.default.fileExists(atPath: $0.appendingPathComponent("index.html").path) }
+    }
+
+    // MARK: web → host
+    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let m = message.body as? [String: Any], let a = m["action"] as? String else { return }
+        let id = m["id"] as? String ?? ""
+        let cols = m["cols"] as? Int ?? 100, rows = m["rows"] as? Int ?? 30
+        switch a {
+        case "ready": pushSats(); js("window.orbitBg", BackgroundSessions.list())
+        case "new":
+            let brain = Brain(rawValue: m["brain"] as? String ?? "claude") ?? .claude
+            let n = (counter[brain] ?? 0) + 1; counter[brain] = n
+            let cwd = (m["cwd"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+            let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: "\(brain.label) \(n)", brain: brain, cwd: cwd, command: brain.command)
+            add(s); js("window.orbitOpened", s.id)
+        case "attach":
+            guard let job = m["job"] as? String else { return }
+            if let existing = sats.values.first(where: { $0.attachedJob == job }) { js("window.orbitOpened", existing.id); return }
+            let s = Satellite(id: "bg-" + job, name: m["name"] as? String ?? job, brain: .claude, cwd: m["cwd"] as? String ?? NSHomeDirectory(),
+                              command: "claude attach \(job)", attachedJob: job)
+            add(s); js("window.orbitOpened", s.id)
+        case "open":
+            guard let s = sats[id] else { return }
+            if s.pty == nil || s.exited != nil { start(s, cols: cols, rows: rows) }
+            else { js("window.orbitReplay", id, s.snapshot().base64EncodedString()); s.pty?.resize(cols: cols, rows: rows) }
+        case "input":
+            if let d = (m["data"] as? String)?.data(using: .utf8) { sats[id]?.pty?.write(d) }
+        case "resize": sats[id]?.pty?.resize(cols: cols, rows: rows)
+        case "remove":
+            // Satellites Orbit42 started: hang up (like closing a terminal window).
+            // Attached background sessions: only the viewer closes; the session keeps running.
+            if let s = sats[id] { s.pty?.hangup(); sats[id] = nil; order.removeAll { $0 == id }; pushSats() }
+        case "bgList": js("window.orbitBg", BackgroundSessions.list())
+        default: break
+        }
+    }
+
+    private func add(_ s: Satellite) { sats[s.id] = s; order.append(s.id); pushSats() }
+
+    private func start(_ s: Satellite, cols: Int, rows: Int) {
+        s.exited = nil
+        guard let p = Pty(command: s.command, cwd: s.cwd, cols: cols, rows: rows) else {
+            js("window.orbitData", s.id, Data("\r\n[Orbit42] could not start a terminal\r\n".utf8).base64EncodedString()); return
+        }
+        let id = s.id
+        p.onData = { [weak self, weak s] d in
+            s?.append(d)
+            guard let self else { return }
+            self.pendLock.lock(); self.pending[id, default: Data()].append(d); self.pendLock.unlock()
+        }
+        p.onExit = { [weak self] code in
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                guard let self, let s = self.sats[id] else { return }
+                s.exited = code; s.pty = nil
+                self.flush(); self.js("window.orbitExit", id, Int(code)); self.pushSats()
+            } }
+        }
+        s.pty = p
+        pushSats()
+    }
+
+    private func flush() {
+        pendLock.lock(); let out = pending; pending = [:]; pendLock.unlock()
+        for (id, d) in out where !d.isEmpty { js("window.orbitData", id, d.base64EncodedString()) }
+    }
+
+    private func pushSats() { js("window.orbitSats", order.compactMap { sats[$0]?.json }) }
+
+    func js(_ fn: String, _ args: Any...) {
+        guard let d = try? JSONSerialization.data(withJSONObject: args) else { return }
+        web.evaluateJavaScript("\(fn) && \(fn)(...\(String(decoding: d, as: UTF8.self)))")
+    }
+
+    // MARK: test hooks
+    func webView(_ w: WKWebView, didFinish n: WKNavigation!) {
+        let env = ProcessInfo.processInfo.environment
+        if let code = env["ORBIT_TEST_JS"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.web.evaluateJavaScript(code) }
+        }
+        if let out = env["ORBIT_TEST_SHOT"] {
+            let delay = Double(env["ORBIT_TEST_SHOT_DELAY"] ?? "8") ?? 8
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.web.takeSnapshot(with: nil) { img, _ in
+                    if let img, let t = img.tiffRepresentation, let r = NSBitmapImageRep(data: t), let png = r.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: out))
+                        self?.web.evaluateJavaScript("document.title") { t, _ in print("orbit shot saved \(out) \(t ?? "")"); fflush(stdout) }
+                    }
+                    if env["ORBIT_TEST_QUIT"] != nil {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { self?.shutdown(); NSApp.terminate(nil) } }
+                    }
+                }
+            }
+        }
+    }
+
+    func shutdown() { for s in sats.values { s.pty?.hangup() } }
+}
+
+/// Serves files under Web/ as orbit://app/<path>
+final class WebFiles: NSObject, WKURLSchemeHandler {
+    let root: URL
+    init(root: URL) { self.root = root.standardizedFileURL }
+    func webView(_ w: WKWebView, start task: any WKURLSchemeTask) {
+        let rel = task.request.url?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
+        let file = root.appendingPathComponent(rel.isEmpty ? "index.html" : rel).standardizedFileURL
+        guard file.path.hasPrefix(root.path), let data = try? Data(contentsOf: file) else {
+            task.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist)); return
+        }
+        let types = ["html": "text/html", "js": "text/javascript", "css": "text/css", "json": "application/json", "png": "image/png", "svg": "image/svg+xml"]
+        let mime = types[file.pathExtension.lowercased()] ?? "application/octet-stream"
+        let resp = HTTPURLResponse(url: task.request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                   headerFields: ["Content-Type": mime + "; charset=utf-8", "Cache-Control": "no-store"])!
+        task.didReceive(resp); task.didReceive(data); task.didFinish()
+    }
+    func webView(_ w: WKWebView, stop task: any WKURLSchemeTask) {}
+}
+
+/// WKUserContentController keeps a strong reference to its handlers.
+final class WeakHandler: NSObject, WKScriptMessageHandler {
+    weak var target: (any WKScriptMessageHandler)?
+    init(_ t: any WKScriptMessageHandler) { target = t }
+    func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) { target?.userContentController(u, didReceive: m) }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var window: NSWindow!
+    let host = Host()
+
+    func applicationDidFinishLaunching(_ n: Notification) {
+        let env = ProcessInfo.processInfo.environment
+        let size = NSSize(width: Double(env["ORBIT_TEST_W"] ?? "") ?? 1280, height: Double(env["ORBIT_TEST_H"] ?? "") ?? 820)
+        window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                          backing: .buffered, defer: false)
+        window.title = "Orbit42"
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(calibratedRed: 0.043, green: 0.043, blue: 0.047, alpha: 1)
+        window.contentView = host.web
+        if env["ORBIT_OFFSCREEN"] != nil {
+            window.setFrameOrigin(NSPoint(x: -6000, y: -6000)); window.orderBack(nil)
+        } else {
+            window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+        }
+        host.load()
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
+    func applicationWillTerminate(_ n: Notification) { host.shutdown() }
+}
+
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.setActivationPolicy(ProcessInfo.processInfo.environment["ORBIT_OFFSCREEN"] != nil ? .accessory : .regular)
+    app.run()
+}

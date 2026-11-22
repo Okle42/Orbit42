@@ -1,0 +1,15 @@
+{
+  "originHash" : "823af3baa1a4c63be277a69e384da911fbfe42b812e613aaa5bf7821a3b22579",
+  "pins" : [
+    {
+      "identity" : "showork42",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Okle42/ShoWork42.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "0eccc9cf9d956007b274cf8346567ad62d64cc18"
+      }
+    }
+  ],
+  "version" : 3
+}

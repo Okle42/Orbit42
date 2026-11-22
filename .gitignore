@@ -1,0 +1,7 @@
+.DS_Store
+.build/
+DerivedData/
+*.xcuserstate
+vm/
+*.img
+*.ipsw
