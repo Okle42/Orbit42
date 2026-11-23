@@ -271,6 +271,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                           backing: .buffered, defer: false)
         window.title = "Orbit42"
         window.titlebarAppearsTransparent = true
+        window.collectionBehavior = [.fullScreenPrimary, .managed]
         window.isReleasedWhenClosed = false
         window.delegate = self
         let root = NSView(frame: NSRect(origin: .zero, size: size))
@@ -292,6 +293,14 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         host.onShow = { [weak self] on in self?.setTerm(on) }
         host.load(termOnly: true)
         SphereEmbed.openSession = { [weak self] ref in self?.host.open(ref) ?? false }
+        SphereEmbed.command = { [weak self] cmd in if cmd == "fullscreen" { self?.window.toggleFullScreen(nil) } }
+        // ⌃⌘F：全螢幕桌面模式切換（macOS 標準快捷鍵）
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            if e.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.control, .command], e.charactersIgnoringModifiers?.lowercased() == "f" {
+                self?.window.toggleFullScreen(nil); return nil
+            }
+            return e
+        }
         SphereEmbed.newSatellite = { [weak self] brain in brain == "accounts" ? self?.showLogin() : self?.host.newSatellite(brain) }
         if let out = env["ORBIT_TEST_LOGIN_SHOT"] {        // 測試：登入畫面截圖（等狀態查完）
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
@@ -307,8 +316,19 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             window.setFrameOrigin(NSPoint(x: -6000, y: -6000)); window.orderBack(nil)
         } else {
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+            // 11-23 Keng：Orbit42 像系統一樣佔滿整個畫面（全螢幕桌面模式，預設開；切掉會記住）
+            if UserDefaults.standard.object(forKey: "orbit.desktop") as? Bool ?? true {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.window.toggleFullScreen(nil) }
+            }
         }
     }
+
+    // 全螢幕時 Dock、選單列自動藏起來（滑到邊緣才出現），整個畫面就是 Orbit42
+    func window(_ w: NSWindow, willUseFullScreenPresentationOptions o: NSApplication.PresentationOptions) -> NSApplication.PresentationOptions {
+        [.fullScreen, .autoHideDock, .autoHideMenuBar, .autoHideToolbar]
+    }
+    func windowDidEnterFullScreen(_ n: Notification) { UserDefaults.standard.set(true, forKey: "orbit.desktop"); layoutTerm() }
+    func windowDidExitFullScreen(_ n: Notification) { UserDefaults.standard.set(false, forKey: "orbit.desktop"); layoutTerm() }
 
     /// 進入：收起登入畫面，球體的「＋ 新衛星」只列登入過的大腦
     func enter(_ list: [Provider]) {
