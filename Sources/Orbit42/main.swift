@@ -84,6 +84,13 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private func add(_ s: Satellite) { sats[s.id] = s; order.append(s.id); pushSats() }
 
+    /// 登入／安裝：在終端機面板跑那一家的官方指令（結束後回呼，讓登入畫面重查狀態）
+    var onExited: (String) -> Void = { _ in }
+    func runCommand(name: String, brain: Brain, command: String) {
+        let s = Satellite(id: "cmd-" + UUID().uuidString.prefix(6).lowercased(), name: name, brain: brain, cwd: NSHomeDirectory(), command: command)
+        add(s); js("window.orbitOpened", s.id); onShow(true)
+    }
+
     // MARK: 球體（ShoWork 完整球體）→ 這裡
     /// ＋ 新衛星
     func newSatellite(_ brain: String) {
@@ -122,7 +129,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard let self, let s = self.sats[id] else { return }
                 s.exited = code; s.pty = nil
-                self.flush(); self.js("window.orbitExit", id, Int(code)); self.pushSats()
+                self.flush(); self.js("window.orbitExit", id, Int(code)); self.pushSats(); self.onExited(id)
             } }
         }
         s.pty = p
@@ -199,12 +206,61 @@ final class WeakHandler: NSObject, WKScriptMessageHandler {
     func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) { target?.userContentController(u, didReceive: m) }
 }
 
+/// 登入畫面（Orbit42 一打開先出現）：列出各家 AI 帳號的安裝／登入狀態，按登入走各家官方登入
+@MainActor
+final class LoginPanel: NSObject, WKScriptMessageHandler {
+    let web: WKWebView
+    var onEnter: ([Provider]) -> Void = { _ in }
+    var runInTerminal: (String, Brain, String) -> Void = { _, _, _ in }
+    private(set) var providers: [Provider] = []
+    private var poll: Timer?
+
+    override init() {
+        let cfg = WKWebViewConfiguration()
+        if let dir = Host.webDir { cfg.setURLSchemeHandler(WebFiles(root: dir), forURLScheme: "orbit") }
+        web = WKWebView(frame: .zero, configuration: cfg)
+        super.init()
+        cfg.userContentController.add(WeakHandler(self), name: "login")
+        web.setValue(false, forKey: "drawsBackground")
+        web.load(URLRequest(url: URL(string: "orbit://app/login.html")!))
+        // 登入多半在瀏覽器完成：登入畫面開著時每 3 秒重查一次
+        poll = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in MainActor.assumeIsolated { if self?.web.isHidden == false { self?.check() } } }
+    }
+
+    func check() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let list = Accounts.check()
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                self.providers = list
+                if let d = try? JSONSerialization.data(withJSONObject: list.map(\.json)) {
+                    self.web.evaluateJavaScript("window.orbitAccounts && window.orbitAccounts(\(String(decoding: d, as: UTF8.self)))")
+                }
+            } }
+        }
+    }
+
+    func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard let b = m.body as? [String: Any], let a = b["action"] as? String else { return }
+        let p = Accounts.all.first { $0.id == b["id"] as? String }
+        let brain = Brain(rawValue: p?.id ?? "") ?? .claude
+        switch a {
+        case "check": check()
+        case "login": if let p, let cmd = p.login { runInTerminal("登入 \(p.name)", brain, cmd) }
+        case "install": if let p, let cmd = p.install { runInTerminal("安裝 \(p.name)", brain, cmd) }
+        case "enter": onEnter(providers)
+        default: break
+        }
+    }
+}
+
 /// Orbit42 主視窗：整個 ShoWork 球體（播報、空白鍵講話、量表、自檢、cool42…）＋右邊滑出的衛星終端機
 @MainActor
 final class OrbitWindow: NSObject, NSWindowDelegate {
     static let shared = OrbitWindow()
     var window: NSWindow!
     let host = Host()
+    let login = LoginPanel()
+    private var sphereView: NSView?
     private var termWidth: CGFloat { max(420, (window.contentView?.bounds.width ?? 1200) * 0.56) }
     private var termShown = false
 
@@ -222,7 +278,13 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         window.contentView = root
         let sphere = SphereEmbed.makeView()
         sphere.frame = root.bounds; sphere.autoresizingMask = [.width, .height]
-        root.addSubview(sphere)
+        root.addSubview(sphere); sphereView = sphere
+        // 登入畫面蓋在球體上面（終端機面板再蓋在登入畫面上面：登入指令要看得到）
+        login.web.frame = root.bounds; login.web.autoresizingMask = [.width, .height]
+        root.addSubview(login.web)
+        login.runInTerminal = { [weak self] name, brain, cmd in self?.host.runCommand(name: name, brain: brain, command: cmd) }
+        login.onEnter = { [weak self] list in self?.enter(list) }
+        host.onExited = { [weak self] _ in self?.login.check() }
         host.web.autoresizingMask = [.height, .minXMargin]
         host.web.isHidden = true
         root.addSubview(host.web)
@@ -230,13 +292,34 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         host.onShow = { [weak self] on in self?.setTerm(on) }
         host.load(termOnly: true)
         SphereEmbed.openSession = { [weak self] ref in self?.host.open(ref) ?? false }
-        SphereEmbed.newSatellite = { [weak self] brain in self?.host.newSatellite(brain) }
+        SphereEmbed.newSatellite = { [weak self] brain in brain == "accounts" ? self?.showLogin() : self?.host.newSatellite(brain) }
+        if let out = env["ORBIT_TEST_LOGIN_SHOT"] {        // 測試：登入畫面截圖（等狀態查完）
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                self?.login.web.takeSnapshot(with: nil) { img, _ in
+                    if let img, let t = img.tiffRepresentation, let r = NSBitmapImageRep(data: t), let png = r.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: out)); print("login shot saved \(out)"); fflush(stdout)
+                    }
+                    if env["ORBIT_TEST_QUIT"] != nil { NSApp.terminate(nil) }
+                }
+            }
+        }
         if test {
             window.setFrameOrigin(NSPoint(x: -6000, y: -6000)); window.orderBack(nil)
         } else {
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
         }
     }
+
+    /// 進入：收起登入畫面，球體的「＋ 新衛星」只列登入過的大腦
+    func enter(_ list: [Provider]) {
+        login.web.isHidden = true
+        setTerm(false)
+        let ids = list.filter(\.signedIn).map(\.id)
+        if let d = try? JSONSerialization.data(withJSONObject: ids), let w = sphereView as? WKWebView {
+            w.evaluateJavaScript("window.orbitBrains && window.orbitBrains(\(String(decoding: d, as: UTF8.self)))")
+        }
+    }
+    func showLogin() { login.web.isHidden = false; login.check() }
 
     private func layoutTerm() {
         guard let root = window.contentView else { return }

@@ -25,7 +25,7 @@ Orbit42（這個 App）
 |---|---|---|---|
 | S1 衛星終端機 | 球體＋「＋」開新衛星；點衛星打開它的真終端機（xterm.js＋虛擬終端機）；背景 session 也能 attach 進來看 | 在球體按「＋」開一顆新衛星，點開就是真的終端機，在裡面跟 Claude 做完一件事，全程不碰 Ghostty | 進行中 |
 | S2 大腦接口 | adapter：啟動、續接、狀態（忙／等你／做完）、額度；Claude → Codex → Antigravity（Gemini）→ Grok | 同一顆球上同時有 Claude 和 ChatGPT 的衛星 | |
-| S3 登入 | 第一次開：選大腦 → 走各家官方登入，之後記住 | 新電腦裝好就能登入使用 | |
+| S3 登入 | 一打開先出登入畫面：Claude／ChatGPT／Gemini／Grok 的安裝與登入狀態，按登入在終端機跑官方登入；至少一家登入才能進入；球體「＋ 新衛星」只開登入過的大腦，選單有「帳號⋯」回登入頁 | 新電腦裝好就能登入使用 | 畫面完成（Claude 用 `claude auth status`、Gemini 讀 ~/.gemini/google_accounts.json、ChatGPT 看 ~/.codex/auth.json） |
 | S4 cool42 併入 | 閘門（AI 開重工作前先問）與風扇守護程式改由系統管理 | 不另外裝 cool42 也有完整功能 | |
 | S5 取代戰情中心 | 球體分頁、播報、自檢、額度全部搬過來 | 只開 Orbit42 就能工作 | 進行中：完整球體已嵌入（ShoWorkApp.SphereEmbed），Orbit42 開著時停掉 ShoWorkAgent、關掉再開回 |
 
