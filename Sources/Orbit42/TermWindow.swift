@@ -9,6 +9,8 @@ final class TermWindowView: NSView {
     let content: NSView
     let titleLabel = NSTextField(labelWithString: "")
     var onClose: () -> Void = {}
+    private static var seqN = 0
+    let seq: Int = { TermWindowView.seqN += 1; return TermWindowView.seqN }()     // 打開的先後（斜對角排的順序）
     var onResized: (NSSize) -> Void = { _ in }     // 11-23：拉右下角改大小 ⇒ 其他衛星跟著變一樣大
     var onMinimize: () -> Void = {}
     var wantShown = false                 // 目前該不該顯示（收起動畫跑到一半又被打開時用）

@@ -470,6 +470,19 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         if let t = env["ORBIT_TEST_ARRANGE"].flatMap(Double.init) {
             DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in MainActor.assumeIsolated { self?.arrangeSats(in: CGRect(x: 340, y: 60, width: 760, height: 640)) } }
         }
+        // 測試：ORBIT_TEST_SEQ=1 ⇒ 開 3 個衛星 → 印位置 → 開第 4 個 → 印 → 關掉第 2 個 → 印（查開／關後自動斜對角重排）
+        if env["ORBIT_TEST_SEQ"] != nil {
+            func dump(_ tag: String) {
+                let ws = (self.window.contentView?.subviews ?? []).compactMap { $0 as? TermWindowView }.filter { !$0.isHidden && $0.wantShown }.sorted { $0.seq < $1.seq }
+                print("seq \(tag): " + ws.map { "#\($0.seq) \(Int($0.frame.minX)),\(Int($0.frame.minY)) \(Int($0.frame.width))x\(Int($0.frame.height))" }.joined(separator: " | ")); fflush(stdout)
+            }
+            var ids: [String] = []
+            let run = { (i: Int) -> String in self.host.runCommand(name: "測試 \(i)", brain: .claude, command: "printf '衛星 \(i)\\n'; sleep 60") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { MainActor.assumeIsolated { ids = (1...3).map(run) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 11) { MainActor.assumeIsolated { dump("3 個"); ids.append(run(4)) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { MainActor.assumeIsolated { dump("開第 4 個"); self.host.end(ids[1]) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 19) { MainActor.assumeIsolated { dump("關掉第 2 個"); NSApp.terminate(nil) } }
+        }
         // 測試：ORBIT_TEST_MULTI="<個數>@<輸出前綴>" ⇒ 開好幾個跑簡單指令的衛星，印出各小視窗位置／疊放順序，
         // 點最底下那個（模擬滑鼠）看它有沒有疊到最上面，再把每個終端機內容倒到 <前綴>_<i>.txt
         if let spec = env["ORBIT_TEST_MULTI"], let at = spec.firstIndex(of: "@"), let n = Int(spec[..<at]) {
@@ -598,7 +611,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     /// 11-23 Keng「我要限定範圍」：只在左欄卡片右緣＋小縫 ～ 右欄戰情卡左緣－小縫、「思考中」狀態字上面這塊排（web＝球體量好的空位）
     func arrangeSats(in web: CGRect? = nil) {
         guard let root = window.contentView else { return }
-        let wins = root.subviews.compactMap { $0 as? TermWindowView }.filter { !$0.isHidden }
+        let wins = root.subviews.compactMap { $0 as? TermWindowView }.filter { !$0.isHidden && $0.wantShown }.sorted { $0.seq < $1.seq }   // 照打開先後：點一下疊到最上面不會換位置
         guard !wins.isEmpty else { return }
         let H = root.bounds.height
         let area = web.map { NSRect(x: $0.minX, y: H - $0.maxY, width: $0.width, height: $0.height) }
@@ -612,7 +625,18 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             for (i, v) in wins.enumerated() {
                 let f = n > 1 ? NSRect(x: area.minX + CGFloat(i) * dx, y: area.maxY - h - CGFloat(i) * dy, width: w, height: h)
                     : NSRect(x: area.midX - w / 2, y: area.maxY - h, width: w, height: h)
-                v.animator().frame = f.integral
+                v.animator().frame = NSRect(x: f.minX.rounded(), y: f.minY.rounded(), width: w.rounded(), height: h.rounded())   // 每個一樣大（不用 integral：會往外擴差 1 像素）
+            }
+        }
+    }
+
+    /// 11-23 Keng「增加新視窗的時候要自動幫我全部排下去」：開／關／收起衛星後，自動排版開著就重排（範圍跟開關都問球體）
+    func autoArrange() {
+        (sphereView as? WKWebView)?.evaluateJavaScript("window.karaSatArea ? JSON.stringify(window.karaSatArea()) : 'null'") { [weak self] r, _ in
+            MainActor.assumeIsolated {
+                guard let self, let str = r as? String, let d = str.data(using: .utf8),
+                      let v = try? JSONSerialization.jsonObject(with: d) as? [Double], v.count == 4 else { return }
+                self.arrangeSats(in: CGRect(x: v[0], y: v[1], width: v[2], height: v[3]))
             }
         }
     }
@@ -630,7 +654,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             w.frame = TermWindowView.fit(w.restoredFrame(in: root.bounds).offsetBy(dx: n * 28, dy: -n * 28), in: root.bounds)
             w.isHidden = true
             w.onClose = { [weak self] in self?.host.end(id) }                 // 結束衛星 → onRemoved → 關掉小視窗
-            w.onMinimize = { [weak self, weak w] in if let self, let w { self.animate(w, on: false) } }
+            w.onMinimize = { [weak self, weak w] in if let self, let w { self.animate(w, on: false) { [weak self] in self?.autoArrange() } } }
             w.onDropPaths = { [weak self] paths in self?.host.type(id, paths.joined(separator: " ") + " ") }
             // 11-23 Keng「調整每一個衛星小視窗大小時，其他的衛星也要跟著一起變」
             w.onResized = { [weak self, weak w] size in
@@ -642,12 +666,12 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             satWins[id] = w
         }
         raise(w)
-        if w.isHidden || !w.wantShown { animate(w, on: true) } else { w.flash() }
+        if w.isHidden || !w.wantShown { animate(w, on: true); autoArrange() } else { w.flash() }
         window.makeFirstResponder(w.content)
     }
     private func closeSat(_ id: String) {
         guard let w = satWins.removeValue(forKey: id) else { return }
-        animate(w, on: false) { w.removeFromSuperview() }
+        animate(w, on: false) { [weak self] in w.removeFromSuperview(); self?.autoArrange() }
     }
     private func hideAllSats() { for w in satWins.values { animate(w, on: false) } }
 
