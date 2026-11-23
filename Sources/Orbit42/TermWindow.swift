@@ -63,6 +63,48 @@ final class TermWindowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     private var grip: ResizeGrip!
 
+    /// 11-23 Keng：打開時邊框亮一下紅光（跟 ShoWork 光暈同一個感覺），0.9 秒淡掉
+    func flash() {
+        guard let clip = subviews.first?.layer, let me = layer else { return }
+        let red = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 1).cgColor
+        let base = clip.borderColor
+        let border = CAKeyframeAnimation(keyPath: "borderColor")
+        border.values = [red, red, base as Any]; border.keyTimes = [0, 0.35, 1]
+        let width = CAKeyframeAnimation(keyPath: "borderWidth")
+        width.values = [2.5, 2.5, 1]; width.keyTimes = [0, 0.35, 1]
+        for a in [border, width] { a.duration = 0.9; a.timingFunction = CAMediaTimingFunction(name: .easeOut) }
+        clip.add(border, forKey: "flashBorder"); clip.add(width, forKey: "flashWidth")
+        let glow = CAKeyframeAnimation(keyPath: "shadowColor")
+        glow.values = [red, red, NSColor.black.cgColor]; glow.keyTimes = [0, 0.35, 1]; glow.duration = 0.9
+        let gr = CAKeyframeAnimation(keyPath: "shadowRadius")
+        gr.values = [34, 34, 24]; gr.keyTimes = [0, 0.35, 1]; gr.duration = 0.9
+        me.add(glow, forKey: "flashGlow"); me.add(gr, forKey: "flashGlowR")
+    }
+
+    /// 11-23 Keng：衛星在工作（有輸出）時邊框紅色呼吸光，停下來熄掉
+    private var breathing = false
+    func setBreathing(_ on: Bool) {
+        guard on != breathing, let clip = subviews.first?.layer, let me = layer else { return }
+        breathing = on
+        if on {
+            let red = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 1).cgColor
+            let border = CABasicAnimation(keyPath: "borderColor")
+            border.fromValue = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 0.25).cgColor; border.toValue = red
+            let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 2.2
+            let glow = CABasicAnimation(keyPath: "shadowColor"); glow.fromValue = NSColor.black.cgColor; glow.toValue = red
+            let gr = CABasicAnimation(keyPath: "shadowRadius"); gr.fromValue = 22; gr.toValue = 34
+            for a in [border, width, glow, gr] {
+                a.duration = 1.4; a.autoreverses = true; a.repeatCount = .infinity
+                a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            }
+            clip.add(border, forKey: "breathB"); clip.add(width, forKey: "breathW")
+            me.add(glow, forKey: "breathG"); me.add(gr, forKey: "breathR")
+        } else {
+            for k in ["breathB", "breathW"] { clip.removeAnimation(forKey: k) }
+            for k in ["breathG", "breathR"] { me.removeAnimation(forKey: k) }
+        }
+    }
+
     // MARK: 拖檔案／截圖進來（11-23 Keng）：像 Ghostty 一樣把路徑貼進終端機（空白等特殊字元加反斜線），Claude Code 會把圖片當附件
     var onDropPaths: ([String]) -> Void = { _ in }
     func acceptFileDrops() {

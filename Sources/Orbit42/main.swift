@@ -160,7 +160,11 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         for (id, d) in out where !d.isEmpty { js("window.orbitData", id, d.base64EncodedString()) }
     }
 
-    private func pushSats() { js("window.orbitSats", order.compactMap { sats[$0]?.json }) }
+    var onActiveBusy: (Bool) -> Void = { _ in }       // 目前打開的衛星有沒有在工作（終端機小視窗呼吸光）
+    private func pushSats() {
+        js("window.orbitSats", order.compactMap { sats[$0]?.json })
+        if let id = activeId, let s = sats[id] { onActiveBusy(s.exited == nil && Date().timeIntervalSince(s.lastOutput) < 2.5) } else { onActiveBusy(false) }
+    }
 
     func js(_ fn: String, _ args: Any...) {
         guard let d = try? JSONSerialization.data(withJSONObject: args) else { return }
@@ -317,6 +321,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         term.onDropPaths = { [weak self] paths in self?.host.typeIntoActive(paths.joined(separator: " ") + " ") }
         term.acceptFileDrops()
         host.onTitle = { [weak self] t in self?.term.titleLabel.stringValue = t }
+        host.onActiveBusy = { [weak self] busy in guard let self, self.termShown else { return }; self.term.setBreathing(busy) }
         layoutTerm()
         host.onShow = { [weak self] on in self?.setTerm(on) }
         host.load(termOnly: true)
@@ -396,12 +401,16 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         setTerm(false)
         (sphereView as? WKWebView)?.evaluateJavaScript("window.karaOutro && window.karaOutro()")      // 球拉遠消失
         login.web.alphaValue = 0; login.web.isHidden = false
-        login.web.evaluateJavaScript("window.loginShow && window.loginShow()")
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.6; ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            login.web.animator().alphaValue = 1
-        }
         login.check()
+        // 11-23 Keng「登入卡片太早滑進來」：等球拉遠快消失（0.9 秒的過場走到 0.8 秒）才讓登入頁淡入、卡片進場
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, !self.login.web.isHidden else { return }
+            self.login.web.evaluateJavaScript("window.loginShow && window.loginShow()")
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.5; ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                self.login.web.animator().alphaValue = 1
+            }
+        }
     }
 
     private func layoutTerm() {
@@ -423,6 +432,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 term.animator().alphaValue = 1
                 layer.setAffineTransform(.identity)
             }
+            term.flash()                                 // 邊框亮一下紅光
             window.makeFirstResponder(host.web)
         } else if !term.isHidden {
             NSAnimationContext.runAnimationGroup({ ctx in
