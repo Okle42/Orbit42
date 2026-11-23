@@ -353,6 +353,38 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     let host = Host()
     let login = LoginPanel()
     private var sphereView: NSView?
+    private var askTimer: Timer?
+    /// 11-23 Keng「4 選項答案卡跳出來應該在終端機上方，它要幫我們加速工作流程」：衛星小視窗是原生 view、蓋在球體網頁上，
+    /// 網頁的 z-index 管不到 ⇒ 每 0.3 秒問球體答案卡（＋送出後的「復原」提示）在哪，蓋到它的衛星淡到 12%、點擊穿過去；答完恢復
+    private func watchAskCard() {
+        let js = """
+        (() => { const r = []; for (const id of ["askCard", "askUndo"]) { const e = document.getElementById(id);
+          if (!e || !e.classList.contains("on")) continue; const b = e.getBoundingClientRect();
+          if (b.width && b.height) r.push([b.left, b.top, b.width, b.height]); } return JSON.stringify(r); })()
+        """
+        askTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let web = self.sphereView as? WKWebView, !web.isHidden else { return }
+                web.evaluateJavaScript(js) { [weak self] r, _ in
+                    MainActor.assumeIsolated {
+                        guard let self, let root = self.window.contentView, let s = r as? String, let d = s.data(using: .utf8),
+                              let arr = try? JSONSerialization.jsonObject(with: d) as? [[Double]] else { return }
+                        let H = root.bounds.height
+                        let rects = arr.filter { $0.count == 4 }.map { NSRect(x: $0[0], y: H - $0[1] - $0[3], width: $0[2], height: $0[3]).insetBy(dx: -10, dy: -10) }
+                        for case let w as TermWindowView in root.subviews where !w.isHidden && w.wantShown {
+                            let y = rects.contains { $0.intersects(w.frame) }
+                            guard y != w.yieldingToAsk else { continue }
+                            w.yieldingToAsk = y
+                            NSAnimationContext.runAnimationGroup { ctx in
+                                ctx.duration = 0.25; ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                                w.animator().alphaValue = y ? 0.12 : 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     /// 11-23 Keng：每顆衛星一個終端機小視窗，可以同時開好幾個、重疊、各自拖動；點哪個哪個到最上面
     private var satWins: [String: TermWindowView] = [:]
     private var zTop: CGFloat = 10
@@ -412,6 +444,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 self?.arrangeSats(in: v.count == 4 ? CGRect(x: v[0], y: v[1], width: v[2], height: v[3]) : nil)
             }
         }
+        watchAskCard()
         // ⌃⌘F：全螢幕桌面模式切換（macOS 標準快捷鍵）
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             if e.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.control, .command], e.charactersIgnoringModifiers?.lowercased() == "f" {
@@ -688,7 +721,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private func raiseUnder(_ e: NSEvent) {
         guard e.window === window, let root = window.contentView else { return }
         let p = root.convert(e.locationInWindow, from: nil)
-        guard let w = root.subviews.last(where: { $0 is TermWindowView && !$0.isHidden && $0.frame.contains(p) }) else { return }
+        guard let w = root.subviews.last(where: { ($0 as? TermWindowView)?.yieldingToAsk == false && !$0.isHidden && $0.frame.contains(p) }) else { return }
         raise(w)
     }
 
@@ -699,7 +732,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     }
     /// 小視窗打開時從下方放大淡入（像 macOS 開視窗），收起時縮小淡出
     private func animate(_ w: TermWindowView, on: Bool, then: (() -> Void)? = nil) {
-        w.wantShown = on
+        w.wantShown = on; w.yieldingToAsk = false         // 開／收動畫自己管透明度；淡掉與否下一輪 watchAskCard 再判斷
         guard let layer = w.layer, let root = window.contentView else { w.isHidden = !on; then?(); return }
         if on {
             w.frame = TermWindowView.fit(w.frame, in: root.bounds)

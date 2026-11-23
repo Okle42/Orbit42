@@ -14,6 +14,9 @@ final class TermWindowView: NSView {
     var onResized: (NSSize) -> Void = { _ in }     // 11-23：拉右下角改大小 ⇒ 其他衛星跟著變一樣大
     var onMinimize: () -> Void = {}
     var wantShown = false                 // 目前該不該顯示（收起動畫跑到一半又被打開時用）
+    /// 11-23 Keng「4 選項答案卡要在終端機上方」：答案卡（在球體網頁裡）被這個小視窗蓋到時＝true ⇒ 淡掉、點擊穿過去給答案卡
+    var yieldingToAsk = false
+    override func hitTest(_ p: NSPoint) -> NSView? { yieldingToAsk ? nil : super.hitTest(p) }
     private let bar = NSView()
     private let glass = NSVisualEffectView()
     private let lights: [TrafficLight]
