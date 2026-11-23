@@ -10,7 +10,11 @@ SW="Packages/ShoWork42"; [ -d "$SW" ] || SW=".build/checkouts/ShoWork42"   # 平
 rm -rf "$TMP"; mkdir -p "$TMP/Contents/MacOS" "$TMP/Contents/Resources"
 cp .build/release/Orbit42 "$TMP/Contents/MacOS/Orbit42"
 cp Support/Info.plist "$TMP/Contents/Info.plist"
-cp assets/Orbit42.icns "$TMP/Contents/Resources/Orbit42.icns"
+# 11-24 圖示分深淺色：assets/Orbit42.icon（Icon Composer 格式，含深色外觀）用 actool 編成 Assets.car＋舊系統用的 Orbit42.icns
+xcrun actool "$PWD/assets/Orbit42.icon" --compile "$TMP/Contents/Resources" --platform macosx --minimum-deployment-target 14.0 \
+  --app-icon Orbit42 --output-partial-info-plist "$TMP.icon.plist" --output-format human-readable-text >/dev/null
+rm -f "$TMP.icon.plist"
+cp assets/Orbit42-dark.png assets/Orbit42-light.png "$TMP/Contents/Resources/"      # App 開著時 Dock 圖示跟著深淺色換（DockIcon.swift）
 rsync -a --exclude .DS_Store Web/ "$TMP/Contents/Resources/OrbitWeb/"                      # login + satellite terminals
 rsync -a --exclude bench --exclude .DS_Store --exclude '*.md' "$SW/windows/ShoWork.Win/Board/Web/" "$TMP/Contents/Resources/Web/"   # the full sphere
 cp "$SW/scripts/flow_audit.py" "$TMP/Contents/Resources/flow_audit.py"
