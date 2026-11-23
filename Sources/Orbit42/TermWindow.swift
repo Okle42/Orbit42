@@ -63,6 +63,29 @@ final class TermWindowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     private var grip: ResizeGrip!
 
+    // MARK: 拖檔案／截圖進來（11-23 Keng）：像 Ghostty 一樣把路徑貼進終端機（空白等特殊字元加反斜線），Claude Code 會把圖片當附件
+    var onDropPaths: ([String]) -> Void = { _ in }
+    func acceptFileDrops() {
+        content.unregisterDraggedTypes()            // 網頁不接，交給這個小視窗
+        registerForDraggedTypes([.fileURL])
+    }
+    override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation {
+        layer?.borderWidth = 2; layer?.borderColor = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 0.9).cgColor; return .copy
+    }
+    override func draggingExited(_ s: NSDraggingInfo?) { layer?.borderWidth = 0 }
+    override func performDragOperation(_ s: NSDraggingInfo) -> Bool {
+        layer?.borderWidth = 0
+        let urls = s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        guard !urls.isEmpty else { return false }
+        onDropPaths(urls.map { Self.shellEscape($0.path) })
+        return true
+    }
+    static func shellEscape(_ p: String) -> String {
+        var out = ""
+        for ch in p { if " \'\"()[]{}&;$!*?<>|`#~".contains(ch) { out.append("\\") }; out.append(ch) }
+        return out
+    }
+
     override func layout() {
         super.layout()
         guard let clip = subviews.first else { return }

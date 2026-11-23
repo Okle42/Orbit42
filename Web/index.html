@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="vendor/xterm-5.5.0/xterm.css">
 <style>
   :root { --bg:#0b0b0c; --panel:rgba(18,18,20,.92); --line:#2a2a2d; --ink:#ededed; --dim:#8a8a8f; --acc:#ff3b30; --gold:#d9b45a; --term:#0d0d0f; }
-  :root[data-theme="light"] { --bg:#f3f3f1; --panel:rgba(250,250,248,.94); --line:#d8d8d4; --ink:#141414; --dim:#6e6e6e; --acc:#d7261b; --gold:#a8801f; --term:#f3f3f1; }
+  :root[data-theme="light"] { --bg:#fbfbf9; --panel:rgba(250,250,248,.94); --line:#d8d8d4; --ink:#141414; --dim:#6e6e6e; --acc:#d7261b; --gold:#a8801f; --term:#fbfbf9; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px -apple-system, "PingFang TC", sans-serif; overflow: hidden; }
   #gl { position: fixed; inset: 0; }
@@ -121,7 +121,7 @@ window.orbitSats = list => {
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
-addEventListener("resize", () => { resize(); fitActive(); }); resize();
+addEventListener("resize", () => resize()); resize();      // 終端機的重新量交給下面的 ResizeObserver（停下來才量）
 const clock = new THREE.Clock(), v = new THREE.Vector3();
 (function frame() {
   requestAnimationFrame(frame);
@@ -164,9 +164,10 @@ const THEMES = {
   dark: { background: "#0d0d0f", foreground: "#ededed", cursor: "#ff3b30", cursorAccent: "#0d0d0f", selectionBackground: "#3a1a19",
     black: "#1a1a1b", red: "#ff3b30", green: "#9fbf9a", yellow: "#d9c38a", blue: "#8fa3bf", magenta: "#c49ab8", cyan: "#9ec3c6", white: "#d4d4d4",
     brightBlack: "#5c5c5c", brightRed: "#ff6b61", brightGreen: "#b8d4b3", brightYellow: "#ead9a6", brightBlue: "#aebcd4", brightMagenta: "#d8b7cf", brightCyan: "#b9d7d9", brightWhite: "#ffffff" },
-  light: { background: "#f3f3f1", foreground: "#141414", cursor: "#d7261b", cursorAccent: "#ffffff", selectionBackground: "#f4c9c5",
-    black: "#141414", red: "#d7261b", green: "#4f7a49", yellow: "#8a6d1f", blue: "#3f5a80", magenta: "#7d4a72", cyan: "#3d7477", white: "#8c8c8c",
-    brightBlack: "#6e6e6e", brightRed: "#e5483e", brightGreen: "#5f8c58", brightYellow: "#9e7e26", brightBlue: "#4d6c96", brightMagenta: "#935a87", brightCyan: "#4a8a8e", brightWhite: "#2a2a2a" },
+  // 11-23 Keng「淺色看得好累」：淺色版提高對比——底稍微亮一點、一般字幾乎黑、灰字和各顏色都壓深到對比 4.5:1 以上
+  light: { background: "#fbfbf9", foreground: "#111111", cursor: "#d7261b", cursorAccent: "#ffffff", selectionBackground: "#f2c4bf",
+    black: "#111111", red: "#c4211a", green: "#2e6b2a", yellow: "#7a5a0e", blue: "#24508a", magenta: "#7a2f6e", cyan: "#1f6a6e", white: "#4a4a4a",
+    brightBlack: "#6a6a6a", brightRed: "#d7261b", brightGreen: "#367a31", brightYellow: "#86640f", brightBlue: "#2d5c99", brightMagenta: "#8a3c7e", brightCyan: "#277a7e", brightWhite: "#111111" },
 };
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
 let themeName = new URLSearchParams(location.search).get("theme") || (sysDark.matches ? "dark" : "light");
@@ -227,7 +228,17 @@ function whenStable(el, cb) {
   })();
 }
 // 視窗被拖大拖小：跟著量（xterm 的 onResize 會通知程式新的行列數）
-new ResizeObserver(() => { clearTimeout(window.__fitT); window.__fitT = setTimeout(fitActive, 60); }).observe($("terms"));
+// 11-23 Keng「調視窗大小字會亂跑」：拖的過程每 60ms 就量一次、一直通知程式改寬度，Claude 的畫面跟著重畫到一半就亂掉
+// ⇒ 拖到停下來 300ms 才量一次；行列數真的變了，再送 Ctrl+L 請它整頁重畫（Claude Code：清畫面、對話保留）
+new ResizeObserver(() => {
+  clearTimeout(window.__fitT);
+  window.__fitT = setTimeout(() => {
+    const t = active && terms.get(active); if (!t) return;
+    const before = t.term.cols + "x" + t.term.rows;
+    t.fit.fit();
+    if (t.started && t.term.cols + "x" + t.term.rows !== before) setTimeout(() => post({ action: "input", id: active, data: "\x0c" }), 150);
+  }, 300);
+}).observe($("terms"));
 function fitActive() { const t = active && terms.get(active); if (t) t.fit.fit(); }
 function paintHead() {
   const s = sats.get(active)?.data; if (!s) return;

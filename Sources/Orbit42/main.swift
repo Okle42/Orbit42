@@ -21,6 +21,11 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var onShow: (Bool) -> Void = { _ in }       // 終端機面板要顯示／收起（嵌在 Orbit42 主視窗右邊）
     var onTitle: (String) -> Void = { _ in }    // 目前顯示的衛星名稱（終端機小視窗的標題列）
     private(set) var activeId: String?
+    /// 拖檔案進來：路徑打進目前這顆衛星（跟手打一樣）
+    func typeIntoActive(_ text: String) {
+        guard let id = activeId, let d = text.data(using: .utf8) else { return }
+        sats[id]?.pty?.write(d)
+    }
     /// 紅燈：結束目前這顆衛星（Orbit42 開的會關；背景 session 只關檢視）
     func endActive() {
         guard let id = activeId, let s = sats[id] else { return }
@@ -308,12 +313,17 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         root.addSubview(term)
         term.onClose = { [weak self] in self?.host.endActive(); self?.setTerm(false) }
         term.onMinimize = { [weak self] in self?.setTerm(false) }
+        term.onDropPaths = { [weak self] paths in self?.host.typeIntoActive(paths.joined(separator: " ") + " ") }
+        term.acceptFileDrops()
         host.onTitle = { [weak self] t in self?.term.titleLabel.stringValue = t }
         layoutTerm()
         host.onShow = { [weak self] on in self?.setTerm(on) }
         host.load(termOnly: true)
         SphereEmbed.openSession = { [weak self] ref in self?.host.open(ref) ?? false }
-        SphereEmbed.command = { [weak self] cmd in if cmd == "fullscreen" { self?.window.toggleFullScreen(nil) } }
+        SphereEmbed.command = { [weak self] cmd in
+            if cmd == "fullscreen" { self?.window.toggleFullScreen(nil) }
+            if cmd.hasPrefix("theme:") { self?.applyTheme(String(cmd.dropFirst(6))) }
+        }
         // ⌃⌘F：全螢幕桌面模式切換（macOS 標準快捷鍵）
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             if e.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.control, .command], e.charactersIgnoringModifiers?.lowercased() == "f" {
@@ -356,6 +366,16 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     }
     func windowDidEnterFullScreen(_ n: Notification) { UserDefaults.standard.set(true, forKey: "orbit.desktop"); layoutTerm() }
     func windowDidExitFullScreen(_ n: Notification) { UserDefaults.standard.set(false, forKey: "orbit.desktop"); layoutTerm() }
+
+    /// 11-23 Keng：球體切深淺（◐）時，衛星終端機（xterm 色票＋裡面的 Claude Code）和小視窗標題列一起換
+    func applyTheme(_ name: String) {
+        let dark = name != "light"
+        let ap = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.appearance = ap
+        term?.appearance = ap
+        host.js("window.orbitTheme", dark ? "dark" : "light")
+        login.web.appearance = ap
+    }
 
     /// 進入：收起登入畫面，球體的「＋ 新衛星」只列登入過的大腦
     func enter(_ list: [Provider]) {
