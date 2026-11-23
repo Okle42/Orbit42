@@ -72,6 +72,7 @@ final class Pty: @unchecked Sendable {
         var status: Int32 = 0
         waitpid(pid, &status, 0)
         onExit(status)
+        Self.release(self)
     }
 
     func write(_ data: Data) {
@@ -92,5 +93,18 @@ final class Pty: @unchecked Sendable {
     }
 
     /// Hang up: the shell and its children get SIGHUP like when a terminal window closes.
-    func hangup() { kill(pid, SIGHUP) }
+    /// 11-23 Keng「關掉以後它還在，點了說找不到 session 的視窗」：之前送完 SIGHUP 衛星就被丟掉、這個物件跟著消失，
+    /// 沒人再讀終端機 ⇒ 程序結束時要等輸出被讀完、永遠卡在「正在結束」（ps 狀態 E），session 一直算活著；
+    /// 順利結束的也沒人 waitpid ⇒ 殭屍程序。現在掛斷後自己撐到程序真的結束：繼續把輸出讀掉（丟掉）、回收程序；
+    /// 8 秒還沒結束就 SIGKILL
+    func hangup() {
+        onData = { _ in }
+        Self.retain(self)
+        kill(pid, SIGHUP)
+        q.asyncAfter(deadline: .now() + 8) { [self] in if !finished { kill(pid, SIGKILL) } }
+    }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var closing: [ObjectIdentifier: Pty] = [:]
+    private static func retain(_ p: Pty) { lock.lock(); closing[ObjectIdentifier(p)] = p; lock.unlock() }
+    private static func release(_ p: Pty) { lock.lock(); closing[ObjectIdentifier(p)] = nil; lock.unlock() }
 }
