@@ -10,7 +10,10 @@
 - Tailscale：刪掉 orbit42-tsprobe；留 Mac、Samsung A27（Keng 的）、orbit42-phone
 
 ## 未完成／下一步
-1. Keng 用語音在答案卡補充框實測「字不再重複」
+1. **（最優先，Keng 21:47 回報）語音輸入常被打斷**：字重複已修好（Keng 實測長句不重複），但在 Orbit42 答案卡補充框講話時，macOS 聽寫常自己停掉、要手動再啟動。
+   懷疑方向（還沒驗）：①球體播報（karaToast／TTS 唸 session 狀態）一出聲就搶走麥克風，聽寫停掉 ②ShoWork 引擎的光暈／面板視窗 orderFront 搶走 key window ③renderAsk 簽名變了重畫整張卡（輸入框被換掉）④Orbit42 原生 watchAskCard／raise 改 first responder。
+   先查：Keng 講話時是不是剛好有播報（SphereAudio、karaToast 時間點）；有輸入框焦點時暫停播報／不重畫答案卡
+2. （已確認）字不再重複
 2. 要 push 的話先問 Keng（Orbit42 main、ShoWork42 bella/sphere-tab）
 3. 新版 iPhone 上 TestFlight：archive → Xcode Organizer 或 exportArchive（上傳會被閘門擋，要 Keng 放行）
 4. 手機打字進衛星（P4）Keng 還沒決定
