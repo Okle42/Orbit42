@@ -94,26 +94,21 @@ final class TermWindowView: NSView {
     /// 11-23 Keng：衛星在工作（有輸出）時邊框紅色呼吸光，停下來熄掉
     private var breathing = false
     func setBreathing(_ on: Bool) {
-        guard on != breathing, let clip = subviews.first?.layer, let me = layer else { return }
+        guard on != breathing, let clip = subviews.first?.layer else { return }
         breathing = on
         if on {
-            // 11-23 Keng 第三輪：淺色背景白光看不到 ⇒ 改深灰光（範圍維持半徑 3→6、邊框 1→1.3）
-            let gray = NSColor(white: 0.2, alpha: 1).cgColor
+            // 11-23 Keng 第四輪「陰影跟黑光打架，陰影立體感比較好」：不再動陰影（維持原本柔和的下方陰影），
+            // 呼吸只在邊框：深灰邊線變深變淡、稍微變粗
             let border = CABasicAnimation(keyPath: "borderColor")
-            border.fromValue = NSColor(white: 0.3, alpha: 0.3).cgColor; border.toValue = NSColor(white: 0.25, alpha: 0.9).cgColor
-            let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 1.3
-            let glow = CABasicAnimation(keyPath: "shadowColor"); glow.fromValue = gray; glow.toValue = gray
-            let gr = CABasicAnimation(keyPath: "shadowRadius"); gr.fromValue = 3; gr.toValue = 6
-            let op = CABasicAnimation(keyPath: "shadowOpacity"); op.fromValue = 0.45; op.toValue = 0.9
-            for a in [border, width, glow, gr, op] {
+            border.fromValue = NSColor(white: 0.3, alpha: 0.25).cgColor; border.toValue = NSColor(white: 0.2, alpha: 0.9).cgColor
+            let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 1.6
+            for a in [border, width] {
                 a.duration = 1.4; a.autoreverses = true; a.repeatCount = .infinity
                 a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             }
             clip.add(border, forKey: "breathB"); clip.add(width, forKey: "breathW")
-            me.add(glow, forKey: "breathG"); me.add(gr, forKey: "breathR"); me.add(op, forKey: "breathO")
         } else {
             for k in ["breathB", "breathW"] { clip.removeAnimation(forKey: k) }
-            for k in ["breathG", "breathR", "breathO"] { me.removeAnimation(forKey: k) }
         }
     }
 
