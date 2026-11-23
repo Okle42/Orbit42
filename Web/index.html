@@ -183,14 +183,18 @@ window.orbitTheme = name => {
   const was = themeName;
   themeName = THEMES[name] ? name : (sysDark.matches ? "dark" : "light"); THEME = THEMES[themeName];
   document.documentElement.dataset.theme = themeName;
-  for (const t of terms.values()) { t.term.options.theme = THEME; t.term.options.minimumContrastRatio = themeName === "dark" ? 1 : 4.5; }
+  for (const t of terms.values()) { t.term.options.theme = THEME; t.term.options.minimumContrastRatio = themeName === "dark" ? ((window.devicePixelRatio || 1) < 1.5 ? 3 : 1) : 4.5; }
   if (was !== themeName) for (const id of t2031) post({ action: "input", id, data: `\x1b[?997;${themeName === "dark" ? 1 : 2}n` });
 };
 sysDark.addEventListener("change", () => { if (!new URLSearchParams(location.search).get("theme")) window.orbitTheme(); });
 function makeTerm(id) {
   const el = document.createElement("div"); el.className = "term"; $("terms").appendChild(el);
-  const term = new Terminal({ fontFamily: '"SF Mono", Menlo, "PingFang TC", monospace', fontSize: 13, lineHeight: 1.15, theme: THEME,
-    cursorBlink: true, allowProposedApi: true, allowTransparency: true, minimumContrastRatio: themeName === "dark" ? 1 : 4.5, scrollback: 10000, macOptionIsMeta: true });
+  // 11-23 Keng（Xena3 轉達）「1080p 螢幕字有點糊」：1x 非 Retina 螢幕沒有次像素反鋸齒 ⇒ 字放大到 14、一般字用 500 粗細、
+  // 最低對比提高（深色灰字會被拉亮），跟 Ghostty 那邊的調整一致；Retina 維持原樣
+  const LOWDPI = (window.devicePixelRatio || 1) < 1.5;
+  const term = new Terminal({ fontFamily: '"SF Mono", Menlo, "PingFang TC", monospace', fontSize: LOWDPI ? 14 : 13, lineHeight: LOWDPI ? 1.2 : 1.15,
+    fontWeight: LOWDPI ? "500" : "normal", fontWeightBold: LOWDPI ? "700" : "bold", theme: THEME,
+    cursorBlink: true, allowProposedApi: true, allowTransparency: true, minimumContrastRatio: LOWDPI ? (themeName === "dark" ? 3 : 4.5) : (themeName === "dark" ? 1 : 4.5), scrollback: 10000, macOptionIsMeta: true });
   const fit = new FitAddon.FitAddon(); term.loadAddon(fit);
   try { term.loadAddon(new Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion = "11"; } catch {}
   term.open(el);
