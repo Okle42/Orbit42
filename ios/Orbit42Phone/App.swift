@@ -1,7 +1,7 @@
 import SwiftUI
 import VisionKit
 
-/// Orbit42 iPhone App：連到 Mac 上的 Orbit42（經 Tailscale），看球體、看衛星的終端機畫面（唯讀）、回答答案卡。
+/// Orbit42 iPhone App：連到 Mac 上的 Orbit42（經 Tailscale），看球體、看衛星的終端機畫面（可以點、捲、打字）、回答答案卡。
 /// 不能在衛星裡打字、不能開新衛星（11-23：先做「看＋回答」，打字等加了每台手機配對／撤銷／稽核再說）
 @main
 struct Orbit42PhoneApp: App {
@@ -190,15 +190,39 @@ struct MainView: View {
 struct TermScreen: View {
     @StateObject var model: TermModel
     var body: some View {
-        ZStack(alignment: .bottom) {
-            WebBox(web: model.web).ignoresSafeArea(edges: .bottom)
-            if let e = model.error { Banner(text: e) }
+        VStack(spacing: 0) {
+            ZStack(alignment: .bottom) {
+                WebBox(web: model.web)
+                if let e = model.error { Banner(text: e) }
+            }
+            KeyBar(send: { model.send(Data($0.utf8)) })
         }
         .background(Color.black)
         .navigationTitle(model.sat.name).navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Text("唯讀").font(.caption).foregroundStyle(.secondary) } }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) {
+            Button { model.toggleKeyboard() } label: { Image(systemName: model.keyboard ? "keyboard.chevron.compact.down" : "keyboard") }
+                .accessibilityLabel(model.keyboard ? "收起鍵盤" : "打字")
+        } }
         .onAppear { _ = model.web; model.start() }
         .onDisappear { model.stop() }
+    }
+}
+
+/// 11-24 手機鍵盤沒有的鍵（Claude Code 常用：Esc 中斷、方向鍵選選項、Tab、Ctrl+C）
+struct KeyBar: View {
+    let send: (String) -> Void
+    private let keys: [(String, String)] = [("Esc", "\u{1b}"), ("Tab", "\t"), ("↑", "\u{1b}[A"), ("↓", "\u{1b}[B"),
+                                            ("←", "\u{1b}[D"), ("→", "\u{1b}[C"), ("⏎", "\r"), ("^C", "\u{03}")]
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(keys, id: \.0) { k in
+                Button { send(k.1) } label: {
+                    Text(k.0).font(.system(.callout, design: .monospaced)).frame(maxWidth: .infinity, minHeight: 36)
+                        .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                }.buttonStyle(.plain).foregroundStyle(.white)
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6).background(Color.black)
     }
 }
 

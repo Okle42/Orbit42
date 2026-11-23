@@ -129,7 +129,7 @@ struct WebBox: UIViewRepresentable {
     func updateUIView(_ v: WKWebView, context: Context) {}
 }
 
-// MARK: - 衛星鏡像（唯讀：照 Mac 的行列數顯示終端機，每秒拿新的輸出）
+// MARK: - 衛星鏡像（照 Mac 的行列數顯示終端機，每秒拿新的輸出；11-24 起可以點、捲、打字，送回 Mac）
 
 @MainActor
 final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
@@ -143,11 +143,15 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
     @Published var error: String?
     private var poll: Task<Void, Never>?
     private var offset = 0, ready = false
+    @Published var keyboard = false
+    private var pending = Data(), sending = false, kick = false
 
     init(link: MacLink, sat: Sat) { self.link = link; self.sat = sat }
 
     func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
-        guard let o = m.body as? [String: Any], o["action"] as? String == "ready" else { return }      // 唯讀：打字、改大小一律不送
+        guard let o = m.body as? [String: Any], let a = o["action"] as? String else { return }      // 改大小不送（行列數照 Mac）
+        if a == "key", let s = o["data"] as? String { return send(Data(s.utf8)) }
+        guard a == "ready" else { return }
         ready = true
         js(web, "window.orbitSats", [[sat.json]])
         js(web, "window.orbitOpened", [sat.id])
@@ -158,7 +162,7 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
         guard poll == nil, ready else { return }
         if link.isDemo {
             js(web, "window.orbitMirror", [80, 24])
-            let demo = "\u{1b}[32m●\u{1b}[0m 示範模式：連上 Mac 之後，這裡會即時顯示這顆衛星的終端機畫面（唯讀）。\r\n"
+            let demo = "\u{1b}[32m●\u{1b}[0m 示範模式：連上 Mac 之後，這裡會即時顯示這顆衛星的終端機畫面，也可以點、捲、打字。\r\n"
             js(web, "window.orbitData", [sat.id, Data(demo.utf8).base64EncodedString()])
             return
         }
@@ -175,9 +179,29 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
                         self.offset = r.from + r.data.count
                     }
                 } catch { if NetStats.shared.down { self.error = error.localizedDescription } }
-                try? await Task.sleep(for: .seconds(1))
+                for _ in 0..<10 where !self.kick { try? await Task.sleep(for: .milliseconds(100)) }      // 剛打完字就提早拿畫面
+                self.kick = false
             }
         }
     }
-    func stop() { poll?.cancel(); poll = nil }
+    func stop() { poll?.cancel(); poll = nil; if keyboard { toggleKeyboard() } }
+
+    func toggleKeyboard() { keyboard.toggle(); js(web, "window.orbitKeyboard", [keyboard]) }
+
+    /// 送進 Mac 那顆衛星：40ms 內打的字合成一筆（請求一次只走一個）；送完馬上拿一次畫面，不用等滿 1 秒
+    func send(_ d: Data) {
+        if link.isDemo { return }
+        pending.append(d)
+        guard !sending else { return }
+        sending = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(40))
+            while let self, !self.pending.isEmpty {
+                let chunk = self.pending.prefix(4096); self.pending.removeFirst(chunk.count)
+                do { try await OrbitAPI(link: self.link).input(self.sat.id, Data(chunk)) }
+                catch { self.error = "沒送到 Mac：\(error.localizedDescription)" }
+            }
+            self?.sending = false; self?.kick = true
+        }
+    }
 }

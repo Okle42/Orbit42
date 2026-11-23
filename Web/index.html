@@ -38,6 +38,8 @@
   .term { position: absolute; inset: 8px 4px 4px 10px; display: none; }
   .term.on { display: block; }
   .term { overflow: hidden; }
+  /* 11-24 iPhone 鏡像：靠下對齊（叫出鍵盤、畫面變矮時，切掉的是上面舊的，下面輸入列一定看得到） */
+  body.mirror .term { top: auto; }
   .clawd { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 5; display: none; }   /* 11-23 Keng：取代 Claude Code 開頭的字元娃娃（動態夜視版） */
   /* ?term=1：嵌在 Orbit42 主視窗右邊當終端機面板（球體由 ShoWork 的完整球體負責） */
   body.termOnly #gl, body.termOnly #bar, body.termOnly #hint, body.termOnly #labels, body.termOnly #menu, body.termOnly #bgMenu { display: none !important; }
@@ -87,10 +89,12 @@
 import * as THREE from "three";
 const $ = id => document.getElementById(id);
 const TERM_ONLY = new URLSearchParams(location.search).has("term");
-// 11-23 iPhone App：鏡像模式（?mirror）＝照 Mac 那顆衛星的行列數顯示、字縮到塞得下手機寬度；不量自己的大小、不收輸入
+// 11-23 iPhone App：鏡像模式（?mirror）＝照 Mac 那顆衛星的行列數顯示、字縮到塞得下手機寬度；不量自己的大小
+// 11-24 起可以點、捲、打字（輸入走 "key" → App → Mac /api/input）
 const MIRROR = new URLSearchParams(location.search).has("mirror");
 let mirrorSize = null;
 if (TERM_ONLY) document.body.classList.add("termOnly");
+if (MIRROR) document.body.classList.add("mirror");
 const post = o => { try { if (window.webkit?.messageHandlers?.orbit) window.webkit.messageHandlers.orbit.postMessage(o); else window.chrome?.webview?.postMessage(o); } catch {}   /* Windows：WebView2 */ };
 
 /* ---------- 球體與衛星 ---------- */
@@ -223,7 +227,9 @@ function makeTerm(id) {
   // 11-23 Keng「紅色線框右邊根本不是直線」：DOM 繪圖的「│」是普通字，行距 1.15 會斷、中文字寬誤差會左右歪 ⇒ 小視窗也改回 WebGL
   // （WebGL 自己畫框線字元，像素對齊、上下接得起來）。現在底色透明度 #…1f，實測轉圈覆寫＋捲動都沒有殘影；WebGL 掛掉就退回 DOM
   try { const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => gl.dispose()); term.loadAddon(gl); } catch {}
-  term.onData(data => post({ action: "input", id, data }));
+  // 11-24 iPhone 鏡像也能打字、點擊：送 "key" 給 App（App 再轉給 Mac）。重播 Mac 的輸出時 xterm 會自動回答查詢
+  // （游標位置、裝置屬性、焦點進出…），那些不是人打的，送回去會變成亂碼打進 Claude ⇒ 擋掉
+  term.onData(data => { if (!MIRROR) return post({ action: "input", id, data }); if (!MIRROR_REPLY.test(data)) post({ action: "key", id, data }); });
   // 11-23：Claude Code 的「自動」主題會問終端機背景是什麼顏色（OSC 11／10）。xterm.js 預設不回答，
   // Claude Code 就當成深色背景、用白字 ⇒ 淺色模式下你送出的訊息、標籤都變成白字看不到。這裡照目前色票回答。
   const rgb = hex => { const h = hex.replace("#", ""); return [0, 2, 4].map(i => h.slice(i, i + 2)).map(x => x + x).join("/"); };
@@ -248,7 +254,7 @@ function openTerm(id) {
   active = id; $("panel").classList.add("on"); paintHead();
   // 11-23：等終端機視窗的大小定下來（連續 3 格一樣、不是 0）才量行列數、才啟動程式。
   // 之前一打開就量，視窗還在動畫／排版中，Claude 用錯的寬度畫完畫面，下一刻寬度一變就整片亂掉
-  if (MIRROR) { t.term.options.disableStdin = true; mirrorFit(t); return; }
+  if (MIRROR) { mirrorTouch(t); mirrorFit(t); return; }
   whenStable($("terms"), () => { t.fit.fit(); t.term.focus();
     if (!t.started || sats.get(id)?.data.state === "exited") { t.started = true; post({ action: "open", id, cols: t.term.cols, rows: t.term.rows }); }
   });
@@ -284,6 +290,37 @@ function mirrorFit(t) {
   t.term.options.fontSize = Math.max(5, Math.min(14, Math.floor(w / (mirrorSize.cols * 0.6) * 10) / 10));
   if (t.term.cols !== mirrorSize.cols || t.term.rows !== mirrorSize.rows) t.term.resize(mirrorSize.cols, mirrorSize.rows);
 }
+// 11-24 Keng「手機點不到 21 new messages 那顆按鈕」：手機點一下＝滑鼠點一下、上下滑＝滾輪（xterm 自己照程式要的格式編碼；
+// 沒開滑鼠模式時，滾輪就是捲回頭看）。鍵盤預設不跳（inputmode none），按上面的鍵盤鈕才打字（window.orbitKeyboard）
+const MIRROR_REPLY = /^\x1b(\[\??[\d;]*[Rcnt]|\[>[\d;]*c|\[[IO]|\[\?[\d;]*\$y|\][\s\S]*|P[\s\S]*)$/;
+let kbOn = false;
+function mirrorTouch(t) {
+  if (t.touch) return; t.touch = true;
+  const ta = t.term.textarea; ta?.setAttribute("inputmode", "none");
+  const scr = () => t.el.querySelector(".xterm-screen") || t.el;
+  const mouse = (type, p, buttons) => scr().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, clientX: p.clientX, clientY: p.clientY, button: 0, buttons }));
+  let sx = 0, sy = 0, lastY = 0, acc = 0, moved = false;
+  t.el.addEventListener("touchstart", e => { if (e.touches.length !== 1) return; const p = e.touches[0]; sx = p.clientX; sy = lastY = p.clientY; acc = 0; moved = false; }, { passive: true });
+  t.el.addEventListener("touchmove", e => {
+    if (e.touches.length !== 1) return; e.preventDefault();
+    const p = e.touches[0]; if (Math.abs(p.clientX - sx) > 8 || Math.abs(p.clientY - sy) > 8) moved = true;
+    const rowH = Math.max(4, scr().getBoundingClientRect().height / t.term.rows);
+    acc += lastY - p.clientY; lastY = p.clientY;
+    while (Math.abs(acc) >= rowH) { const d = Math.sign(acc); acc -= d * rowH;
+      scr().dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, view: window, clientX: p.clientX, clientY: p.clientY, deltaY: d, deltaMode: 1 })); }
+  }, { passive: false });
+  t.el.addEventListener("touchend", e => {
+    if (moved || e.changedTouches.length !== 1) return;
+    e.preventDefault();                               // 不要 iOS 再補一組滑鼠事件（會點兩次）
+    const p = e.changedTouches[0]; mouse("mousedown", p, 1); mouse("mouseup", p, 0);
+    if (kbOn) t.term.focus(); else ta?.blur();
+  }, { passive: false });
+}
+window.orbitKeyboard = on => {
+  kbOn = !!on; const t = active && terms.get(active); const ta = t?.term.textarea; if (!ta) return;
+  ta.setAttribute("inputmode", kbOn ? "text" : "none");
+  if (kbOn) t.term.focus(); else ta.blur();
+};
 window.orbitMirror = (cols, rows) => {
   if (mirrorSize && mirrorSize.cols === cols && mirrorSize.rows === rows) return;
   mirrorSize = { cols, rows }; const t = active && terms.get(active); if (t) mirrorFit(t);

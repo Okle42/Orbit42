@@ -92,7 +92,8 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 return h.order.compactMap { id -> [String: Any]? in
                     guard let s = h.sats[id] else { return nil }
                     var o = s.json
-                    if let p = s.pty, let r = recs.first(where: { $0.pid == p.pid || Host.parent(of: $0.pid) == p.pid }) { o["sessionId"] = r.sessionId }
+                    if let j = s.attachedJob, let r = recs.first(where: { $0.jobId == j }) { o["sessionId"] = r.sessionId }        // 背景 session：用 job id 對
+                    else if let p = s.pty, let r = recs.first(where: { $0.pid == p.pid || Host.parent(of: $0.pid) == p.pid }) { o["sessionId"] = r.sessionId }
                     return o
                 }
             }
@@ -101,6 +102,13 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         SphereEmbed.remoteScreen = { [weak self] id, from in
             let o: [String: Any]? = MainActor.assumeIsolated { self?.sats[id]?.remote(from: from) }
             return o.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+        }
+        // 11-24 Keng：iPhone 衛星終端機可以點、捲、打字 ⇒ 手機送來的位元組直接寫進那顆衛星的 pty（跟本機網頁的 "input" 同一條）
+        SphereEmbed.remoteInput = { [weak self] id, data in
+            MainActor.assumeIsolated {
+                guard let p = self?.sats[id]?.pty else { return false }
+                p.write(data); return true
+            }
         }
     }
 
@@ -131,6 +139,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let brain = Brain(rawValue: m["brain"] as? String ?? "claude") ?? .claude
             let n = (counter[brain] ?? 0) + 1; counter[brain] = n
             let cwd = (m["cwd"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+            if brain == .claude, Self.useBackground { openBackground(name: "\(brain.label) \(n)", cwd: cwd); return }
             let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: "\(brain.label) \(n)", brain: brain, cwd: cwd, command: brain.command)
             add(s); onOpen(s.id)
         case "attach":
@@ -153,6 +162,45 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             end(id)
         default: break
         }
+    }
+
+    // MARK: 11-24 Keng「重開 Orbit42 會連帶關掉底下的衛星，要修正」
+    // Claude 衛星改用官方背景 session 開（claude --bg），Orbit42 只是 claude attach 上去看：
+    // 重開、更新、當掉都只關掉「檢視」，session 由 Claude 背景服務照跑；重開後 restore 照 job 重新 attach。
+    // 叉叉關閉照舊停掉它（claude stop，對話保留）。測試（ORBIT_OFFSCREEN）照舊直接開，不在背景服務留東西；Codex／Antigravity 沒有背景模式，照舊直接開
+    static var useBackground: Bool { ProcessInfo.processInfo.environment["ORBIT_OFFSCREEN"] == nil }
+    /// 開一個背景 session（resume：接回那段對話）→ attach 成衛星。開不起來就退回直接開（至少有終端機可用）
+    func openBackground(name: String, cwd: String, resume: String? = nil) {
+        let flags = String(Brain.claude.command.dropFirst("claude ".count)) + " -n '\(name.replacingOccurrences(of: "'", with: ""))'" + (resume.map { " --resume \($0)" } ?? "")
+        Self.startBackground(cwd: cwd, flags: flags) { [weak self] job in
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                guard let self else { return }
+                if let job {
+                    self.userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": name, "cwd": cwd]))
+                } else {
+                    print("background start failed → direct"); fflush(stdout)
+                    let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: name, brain: .claude, cwd: cwd,
+                                      command: Brain.claude.command + (resume.map { " --resume \($0)" } ?? ""))
+                    self.add(s); self.onOpen(s.id)
+                }
+            } }
+        }
+    }
+    /// claude --bg 會印「backgrounded · <id>」。輸出寫暫存檔（背景服務會繼承 stdout，用 pipe 會一直讀不到結尾）
+    nonisolated static func startBackground(cwd: String, flags: String, done: @escaping @Sendable (String?) -> Void) {
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-bg-\(UUID().uuidString).txt")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-l", "-c", "claude --bg \(flags) < /dev/null > \"$1\" 2>&1", "orbit-bg", out.path]
+        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        p.terminationHandler = { _ in
+            let s = (try? String(contentsOf: out, encoding: .utf8)) ?? ""
+            try? FileManager.default.removeItem(at: out)
+            let id = s.range(of: #"backgrounded · [0-9a-f]{6,}"#, options: .regularExpression).map { String(s[$0].split(separator: " ").last!) }
+            print("background start → \(id ?? "nil")\(id == nil ? " output=" + s.prefix(300) : "")"); fflush(stdout)
+            done(id)
+        }
+        do { try p.run() } catch { done(nil) }
     }
 
     private func add(_ s: Satellite) { sats[s.id] = s; order.append(s.id); pushSats() }
@@ -298,7 +346,10 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let name = e["name"] ?? brain.label
             if let n = Int(name.split(separator: " ").last ?? ""), n > (counter[brain] ?? 0) { counter[brain] = n }
             // 11-24：衛星開了還沒講話就關掉，Claude Code 不會留對話紀錄，--resume 會「No conversation found」直接結束 ⇒ 有紀錄才接回
-            let cmd = brain == .claude && e["sid"].map(hasTranscript) == true ? brain.command + " --resume " + e["sid"]! : brain.command
+            let sid = brain == .claude && e["sid"].map(hasTranscript) == true ? e["sid"] : nil
+            // 11-24：以前直接開的 Claude 衛星，重開時改成背景 session 接回（之後再重開就不會被關掉）
+            if brain == .claude, Self.useBackground { openBackground(name: name, cwd: cwd, resume: sid); continue }
+            let cmd = sid.map { brain.command + " --resume " + $0 } ?? brain.command
             let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: name, brain: brain, cwd: cwd, command: cmd)
             add(s); onOpen(s.id)
         }

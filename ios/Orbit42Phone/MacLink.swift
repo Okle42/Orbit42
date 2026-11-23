@@ -74,7 +74,7 @@ actor RequestGate {
     func leave() { if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() } }
 }
 
-/// Mac 上 Orbit42 的唯讀 API（＋回答答案卡）。全部帶 X-ShoWork-Token 標頭
+/// Mac 上 Orbit42 的 API（讀畫面＋回答答案卡＋11-24 起衛星終端機輸入）。全部帶 X-ShoWork-Token 標頭
 struct OrbitAPI: Sendable {
     let link: MacLink
 
@@ -135,6 +135,10 @@ struct OrbitAPI: Sendable {
                       data: Data(base64Encoded: o["data"] as? String ?? "") ?? Data(), size: size)
     }
     struct Screen: Sendable { let total: Int, from: Int, data: Data; let size: (cols: Int, rows: Int)? }
+    /// 11-24 衛星終端機輸入（鍵盤、滑鼠點擊／滾輪的跳脫序列）→ Mac 寫進那顆衛星的終端機
+    func input(_ id: String, _ data: Data) async throws {
+        _ = try await request("api/input", body: ["id": id, "data": data.base64EncodedString()])
+    }
     /// 回答答案卡（走 Mac 跟收件匣按鈕同一條路；Mac 那端會記稽核）
     func answer(session: String, text: String) async throws -> String {
         let d = try await request("api/answer", body: ["id": session, "text": text])
