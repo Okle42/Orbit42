@@ -73,7 +73,7 @@ ORBIT_OFFSCREEN=1 SHOWORK_WEB_DIR=~/github-repos/_wt-ShoWork42-sphere/windows/Sh
 4. 安裝程式切換：showork_install 改裝 Orbit42、ShoWorkAgent 退成備援
 5. codex 未安裝，ChatGPT 衛星與 `--dangerously-bypass-approvals-and-sandbox` 參數都沒實測
 
-## 11-23 下午 Luna3（本機 commit，未 push）
+## 11-23 下午 Luna3（15:20 已推：ShoWork42 main＋bella/sphere-tab＝7d5c888、Orbit42 main）
 - Orbit42：44f7824 淺色模式保留單獨的 ESC[2m（Claude Code 輸入框建議字＝淺灰）；ac2192e／b79c60f／8ffac91 答案卡（#askCard／#askUndo／#askDot 有 .on）蓋到的衛星整個淡出＋點擊穿透（watchAskCard 每 0.3 秒問球體、TermWindowView.yieldingToAsk）
 - ShoWork42（bella/sphere-tab）：e0994f8 戰情列小點不閃紅圈；7d5c888 所有量表改 .meter.ramp 漸層；卡片陰影／答案卡實心底已由 Xena3 併入 8d9e701、0a4dfc4
 - App 內 Web/sphere.html 是「舊 HEAD＋上述小改」手動 patch，不含 Xena3 答案卡 P0–P2；下次跑 scripts/build_app.sh 會整份換成 worktree 版
