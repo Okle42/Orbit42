@@ -30,6 +30,14 @@ ORBIT_OFFSCREEN=1 SHOWORK_WEB_DIR=~/github-repos/_wt-ShoWork42-sphere/windows/Sh
 - Keng 常在 Orbit42 裡用「背景 session」attach 看 Bella：**重開 Orbit42 前先查它有沒有子程序在用**（`pgrep -P <Orbit42 pid>`＋tty 最後輸入），有就不要自己重開
 - 關任何程序前看終端機最後輸入時間（記憶 feedback_關程序前看終端機有沒有人在用）
 
+## 進行中：調大小後內容錯位（Keng 11-23 10:39 錄影，最優先）
+- 現象：拖小視窗右下角改寬度後，之前輸出的表格／框線整片錯位（attach 看 Bella 的 session 也一樣）
+- 實驗 1（commit 8944276，App 裡現在這版）：停 300ms 才 fit＋寬度變了送 Ctrl+L → 還是亂（舊內容被 xterm 按新寬度重新折行）
+- 實驗 2：fit 後 `term.reset()` 再送 Ctrl+L → 更亂（推測 reset 把 Claude 收到 SIGWINCH 後的整頁重畫清掉，Ctrl+L 只重畫底部）
+- 實驗 3（工作樹現在這版，未打包）：只 fit、不 reset、不送 Ctrl+L → 截圖內容整齊但右邊被切，**看起來 cols 沒變**（測試是把 #terms 寬度改 62%，要先確認 fit 有沒有真的跑、pty 有沒有收到新尺寸）
+- 下一步：在測試裡印 orbitTest 的 cols 前後值＋ORBIT_TEST_RAW 看 Claude 收到 resize 後輸出什麼（是否 `\x1b[2J\x1b[3J` 整頁重印）；可能要關掉 xterm 的折行（reflow），或寬度變時先清捲軸再讓 Claude 自己重印
+- 測試寫法：ORBIT_TEST_JS 裡 `setTimeout(()=>{document.getElementById("terms").style.width="62%"},42000)`，ORBIT_TEST_TERM_SHOT_DELAY=52
+
 ## 還沒做／下一步
 1. Keng 重開新版實測：拖視窗、三顆燈、淺色字、過場動畫、播報、空白鍵講話（Orbit42 新身分要重新允許輔助使用／麥克風／語音辨識）
 2. S6 系統化：開機自動進 Orbit42（登入項目）→ 像 macOS 的登入畫面 → Dock／選單列整合
