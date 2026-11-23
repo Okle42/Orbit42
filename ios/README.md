@@ -1,6 +1,6 @@
 # Orbit42 iPhone App
 
-連到 Mac 上的 Orbit42：看球體、看衛星的終端機畫面（唯讀）、回答答案卡。App 內建 Tailscale，不用另外開 Tailscale App。
+連到 Mac 上的 Orbit42：看球體、操作衛星的終端機（點一下＝點擊、上下滑＝捲動、右上鍵盤鈕打字、太陽／月亮切深淺）、回答答案卡。App 內建 Tailscale，不用另外開 Tailscale App。
 
 ## 建置
 1. TailscaleKit（23 MB，不放進 git）：
