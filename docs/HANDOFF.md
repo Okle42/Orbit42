@@ -14,6 +14,11 @@
 - 11-23 散熱資訊拆成獨立「散熱」小卡（cardCool，右欄戰情下面）
 - 全螢幕桌面模式預設開（⌃⌘F／球體 ⛶ 切換，記住）；主視窗最上方一條可拖動（11-23 剛修，Keng 還沒試）
 
+## 11-23 12:10 隊長派工兩件（commit 未 push；Orbit42 目前 `swift package edit ShoWork42` 指向 _wt-ShoWork42-sphere）
+- **T1123114256 按住講話只送最後一句**：本機辨識停頓後文字從頭來，SphereListener 改成累加段落（段間補「，」）、辨識器自己收尾就接新的。測試：`SHOWORK_TEST_LISTEN_FILE=<音檔>`＋`SHOWORK_TEST_SPHERE_SHOT`＋`SHOWORK_TEST_SPHERE_JS='webkit.messageHandlers.sphere.postMessage({action:"listen",on:true})'`，要用有 Info.plist 的 bundle 跑（語音權限）
+- **T1123115042 點 board（隊長）開舊工作視窗**：Keng 選 A——Orbit42 `showBoard` 用 TermWindowView 外框裝 `SphereEmbed.workView`（work.html?orbit=1 黑白灰紅）。測試：`ORBIT_TEST_BOARD="<sid>@<png>"`＋`ORBIT_TEST_THEME`
+- **要推之前**：ShoWork42 ee69a55、63bb0d0 先推 main → Orbit42 `swift package unedit ShoWork42`＋`swift package update ShoWork42` → 再推 Orbit42（a648cee 依賴新介面，順序反了 GitHub 版編不過）。隊長說這兩件不 push，等核可
+
 ## 11-23 11:20 Keng 錄影回報後修的（已打包，等 Keng 重開實測）
 - **調大小錯位的真正根因**：Pty.swift 用 `@_silgen_name("ioctl")` 自己宣告非可變參數版，Apple 晶片上可變參數走堆疊 ⇒ TIOCSWINSZ 從來沒成功，程式收不到 SIGWINCH。改用 Darwin 內建 `ioctl`。螢幕外重現＋驗證：`ORBIT_TEST_DRAG="<前綴>@<秒>"`（模擬拖右下角縮小→停→放大→停，倒出 `<前綴>_0/1/2.txt`）
 - 拖檔案進終端機沒反應：WKWebView 自己重新註冊拖放、搶在小視窗前 ⇒ 改成 `DropWebView`（TermWindow.swift）本身接檔案轉路徑。**螢幕外無法模擬拖曳，要 Keng 實測**
