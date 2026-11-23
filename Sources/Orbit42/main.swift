@@ -773,6 +773,11 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             w.evaluateJavaScript("window.orbitBrains && window.orbitBrains(\(String(decoding: d, as: UTF8.self)))")
         }
     }
+    /// 球體播報一句話（DiskWatch 用：外接硬碟斷線／變慢）
+    func toast(_ text: String) {
+        guard let d = try? JSONSerialization.data(withJSONObject: [text]), let w = sphereView as? WKWebView else { return }
+        w.evaluateJavaScript("window.karaToast && window.karaToast(...\(String(decoding: d, as: UTF8.self)))")
+    }
     func showLogin() {
         hideAllSats()
         (sphereView as? WKWebView)?.evaluateJavaScript("window.karaOutro && window.karaOutro()")      // 球拉遠消失
@@ -949,6 +954,7 @@ enum AgentSwap {
 
 let orbitEnv = ProcessInfo.processInfo.environment
 let orbitTest = orbitEnv["ORBIT_OFFSCREEN"] != nil
+if orbitEnv["ORBIT_TEST_DISKS"] != nil { print(MainActor.assumeIsolated { DiskWatch.dump() }); exit(0) }
 if !orbitTest {
     AgentSwap.stop()
     atexit { AgentSwap.start() }
@@ -958,5 +964,12 @@ MainActor.assumeIsolated {
         MainActor.assumeIsolated { OrbitWindow.shared.host.shutdown() }
     }
     ShoWorkAgentMain.run(AgentOptions(regularApp: !orbitTest, waitForAccessibility: false, testOnly: orbitTest,
-                                      onLaunch: { OrbitWindow.shared.show(test: orbitTest) }))
+                                      onLaunch: {
+        OrbitWindow.shared.show(test: orbitTest)
+        // 11-24 外接硬碟斷線偵測：等球體載好（8 秒）再開始，開機就慢速的那句才講得出來
+        DiskWatch.shared.say = { OrbitWindow.shared.toast($0) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (orbitEnv["ORBIT_TEST_DISKWATCH"].flatMap(Double.init) ?? 8)) {
+            MainActor.assumeIsolated { DiskWatch.shared.start() }
+        }
+    }))
 }
