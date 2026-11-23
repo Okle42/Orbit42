@@ -81,8 +81,9 @@ const post = o => { try { window.webkit?.messageHandlers?.orbit?.postMessage(o);
 
 /* ---------- 球體與衛星 ---------- */
 const canvas = $("gl");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// 11-23 終端機模式（每顆衛星一個小視窗、各自一個網頁）不畫球體：不建 WebGL、不跑動畫迴圈，開很多個也不吃 GPU
+const renderer = TERM_ONLY ? null : new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer?.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
 camera.position.set(0, 0, 11);
 const root = new THREE.Group(); scene.add(root);
@@ -122,10 +123,11 @@ window.orbitSats = list => {
 };
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+function resize() { const w = innerWidth, h = innerHeight; renderer?.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 addEventListener("resize", () => resize()); resize();      // 終端機的重新量交給下面的 ResizeObserver（停下來才量）
 const clock = new THREE.Clock(), v = new THREE.Vector3();
 (function frame() {
+  if (TERM_ONLY) return;
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
   root.rotation.y = Math.sin(t * 0.15) * 0.2; shell.rotation.y += dt * 0.12;

@@ -10,6 +10,7 @@ final class TermWindowView: NSView {
     let titleLabel = NSTextField(labelWithString: "")
     var onClose: () -> Void = {}
     var onMinimize: () -> Void = {}
+    var wantShown = false                 // 目前該不該顯示（收起動畫跑到一半又被打開時用）
     private let bar = NSView()
     private let glass = NSVisualEffectView()
     private let lights: [TrafficLight]
