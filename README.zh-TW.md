@@ -34,6 +34,22 @@ swift build
 .build/debug/Orbit42
 ```
 
+常用腳本（`scripts/`）：
+
+| 腳本 | 做什麼 |
+|---|---|
+| `scripts/build_app.sh` | 正式版編譯 → `~/Applications/Orbit42.app`（桌面放捷徑） |
+| `scripts/restart_app.sh "原因"` | 結束並重新打開已安裝的 App（紀錄：`~/Library/Logs/Orbit42/restart.log`） |
+| `scripts/phone_pair.sh` | 顯示 iPhone App 配對用的 QR code／網址（`ios/`，見 `ios/README.md`） |
+
+ShoWork42 從 GitHub 抓（版本鎖在 `Package.resolved`）。要 ShoWork42 和 Orbit42 一起改時，暫時改用本機那份，推之前收回：
+
+```bash
+swift package edit ShoWork42 --path ../ShoWork42      # 暫時：編譯改用本機的 ShoWork42
+swift package unedit ShoWork42                        # 推之前：改回 GitHub 版本
+swift package update ShoWork42                        # ShoWork42 推上去之後：更新鎖定的版本
+```
+
 ## 致謝
 
 [xterm.js](https://github.com/xtermjs/xterm.js)（MIT）與 [three.js](https://github.com/mrdoob/three.js)（MIT）放在 `Web/vendor/`，附原授權。

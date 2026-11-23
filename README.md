@@ -34,6 +34,22 @@ swift build
 .build/debug/Orbit42
 ```
 
+Everyday scripts (in `scripts/`):
+
+| Script | What it does |
+|---|---|
+| `scripts/build_app.sh` | Release build → `~/Applications/Orbit42.app` (+ Desktop shortcut) |
+| `scripts/restart_app.sh "reason"` | Quit and reopen the installed app (log: `~/Library/Logs/Orbit42/restart.log`) |
+| `scripts/phone_pair.sh` | Show the QR code / URL for pairing the iPhone app (`ios/`, see `ios/README.md`) |
+
+ShoWork42 comes from GitHub (pinned in `Package.resolved`). To change ShoWork42 and Orbit42 together, edit locally for the duration and undo before pushing:
+
+```bash
+swift package edit ShoWork42 --path ../ShoWork42      # temporary: builds use your local ShoWork42
+swift package unedit ShoWork42                        # before pushing: back to the GitHub version
+swift package update ShoWork42                        # after ShoWork42 is pushed: move the pin
+```
+
 ## Credits
 
 [xterm.js](https://github.com/xtermjs/xterm.js) (MIT) and [three.js](https://github.com/mrdoob/three.js) (MIT) are vendored under `Web/vendor/` with their licenses.
