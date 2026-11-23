@@ -77,3 +77,7 @@ ORBIT_OFFSCREEN=1 SHOWORK_WEB_DIR=~/github-repos/_wt-ShoWork42-sphere/windows/Sh
 - Orbit42：44f7824 淺色模式保留單獨的 ESC[2m（Claude Code 輸入框建議字＝淺灰）；ac2192e／b79c60f／8ffac91 答案卡（#askCard／#askUndo／#askDot 有 .on）蓋到的衛星整個淡出＋點擊穿透（watchAskCard 每 0.3 秒問球體、TermWindowView.yieldingToAsk）
 - ShoWork42（bella/sphere-tab）：e0994f8 戰情列小點不閃紅圈；7d5c888 所有量表改 .meter.ramp 漸層；卡片陰影／答案卡實心底已由 Xena3 併入 8d9e701、0a4dfc4
 - App 內 Web/sphere.html 是「舊 HEAD＋上述小改」手動 patch，不含 Xena3 答案卡 P0–P2；下次跑 scripts/build_app.sh 會整份換成 worktree 版
+
+## 11-23 傍晚 Luna3（已推）
+- 球體頁自動重載：Orbit42 每秒看 Web/sphere.html（或 SHOWORK_WEB_DIR）修改時間，變了就 reload 球體 WebView ⇒ 只改 sphere.html 時，複製進 App 的 Resources/Web 即可，不用重開；改 Swift 仍要重開
+- 排版（ShoWork42 a18fbc0）：Orbit42 永遠自動排、版面存 sphere.layout.orbit、答案卡在 #teamRows 裡展開；測排版要用螢幕外 Orbit42（無頭 Chrome 在這台 rAF 不跑）
