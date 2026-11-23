@@ -566,6 +566,34 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             } }
         }
         // 測試：模擬拖右下角「縮小→停→放大→停」，每段停下後把終端機內容倒到 <prefix>_1.txt／_2.txt（查調大小錯位）
+        // 測試：ORBIT_TEST_FOCUS=<開始秒數> ⇒ 開一顆跑 sleep 的衛星（焦點到終端機），再真的點一下智能體網頁（衛星以外的地方），
+        // 印出點之前／之後的 first responder 和「拷貝」有沒有人接（查 ⌘C 複製不了：焦點卡在衛星終端機）
+        if let at = env["ORBIT_TEST_FOCUS"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak self] in MainActor.assumeIsolated {
+                guard let self else { return }
+                let id = self.host.runCommand(name: "測試衛星", brain: .claude, command: "/bin/sleep 600")
+                @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+                @MainActor func report(_ tag: String) {
+                    let fr = self.window.firstResponder
+                    let copy = NSApp.target(forAction: #selector(NSText.copy(_:)), to: nil, from: nil)
+                    print("focus \(tag): fr=\(fr.map { String(describing: type(of: $0)) } ?? "nil") isSphere=\(fr === self.sphereView) copyTarget=\(copy.map { String(describing: type(of: $0)) } ?? "nil")"); fflush(stdout)
+                }
+                after(4) {
+                    report("after-open")
+                    guard let root = self.window.contentView, let w = self.satWins[id] else { print("focus: no window"); return }
+                    // 點衛星視窗外、左下角附近（智能體網頁）
+                    var p = NSPoint(x: 40, y: 40); if w.frame.contains(p) { p = NSPoint(x: root.bounds.maxX - 40, y: 40) }
+                    let wp = root.convert(p, to: nil)
+                    for t in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                        if let e = NSEvent.mouseEvent(with: t, location: wp, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: self.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { NSApp.postEvent(e, atStart: false) }
+                    }
+                    let hit = root.hitTest(p)
+                    print("focus hit=\(hit.map { String(describing: type(of: $0)) } ?? "nil") key=\(self.window.isKeyWindow) loginHidden=\(self.login.web.isHidden) accepts=\(hit?.acceptsFirstResponder ?? false)"); fflush(stdout)
+                    after(1) { report("after-click-sphere"); NSApp.terminate(nil) }
+                }
+            } }
+        }
         // ORBIT_TEST_DRAG="<prefix>@<開始秒數>"
         if let spec = env["ORBIT_TEST_DRAG"], let at = spec.split(separator: "@").last.flatMap({ Double($0) }) {
             let prefix = String(spec.split(separator: "@").first ?? "/tmp/drag")
