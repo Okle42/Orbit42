@@ -325,7 +325,11 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         layoutTerm()
         host.onShow = { [weak self] on in self?.setTerm(on) }
         host.load(termOnly: true)
-        SphereEmbed.openSession = { [weak self] ref in self?.host.open(ref) ?? false }
+        SphereEmbed.openSession = { [weak self] ref in
+            guard let self else { return false }
+            if ref.kind == "board" { return self.showBoard(sid: ref.sessionId, cwd: ref.cwd, name: ref.name) }       // 隊長這類（引擎持有）：衛星外框＋對話內容
+            return self.host.open(ref)
+        }
         SphereEmbed.command = { [weak self] cmd in
             if cmd == "fullscreen" { self?.window.toggleFullScreen(nil) }
             if cmd.hasPrefix("theme:") { self?.applyTheme(String(cmd.dropFirst(6))) }
@@ -370,6 +374,20 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 }
             } }
         }
+        // 測試：ORBIT_TEST_BOARD="<sessionId>@<截圖路徑>" ⇒ 10 秒後打開那個戰情中心 session 的小視窗，6 秒後截它
+        if let spec = env["ORBIT_TEST_BOARD"], let at = spec.firstIndex(of: "@") {
+            let sid = String(spec[..<at]), out = String(spec[spec.index(after: at)...])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in MainActor.assumeIsolated {
+                guard let self else { return }
+                if let th = env["ORBIT_TEST_THEME"] { self.applyTheme(th) }
+                print("board open \(self.showBoard(sid: sid, cwd: NSHomeDirectory(), name: "隊長"))"); fflush(stdout)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) { MainActor.assumeIsolated {
+                    guard let v = self.boards[sid], let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return }
+                    v.cacheDisplay(in: v.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out)); print("board shot saved"); fflush(stdout)
+                } }
+            } }
+        }
         if let out = env["ORBIT_TEST_LOGIN_SHOT"] {        // 測試：登入畫面截圖（等狀態查完）
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
                 self?.login.web.takeSnapshot(with: nil) { img, _ in
@@ -399,7 +417,35 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     func windowDidExitFullScreen(_ n: Notification) { UserDefaults.standard.set(false, forKey: "orbit.desktop"); layoutTerm() }
 
     /// 11-23 Keng：球體切深淺（◐）時，衛星終端機（xterm 色票＋裡面的 Claude Code）和小視窗標題列一起換
+    // MARK: 戰情中心持有的 session（kind board，例如隊長）
+    // 11-23 T1123115042 Keng：點戰情列表的 board 跳出舊的「工作視窗」⇒ 改開在跟衛星終端機一樣的小視窗（毛玻璃、紅光、三顆燈），
+    // 內容是工作視窗那份網頁（黑白灰紅、透明底）。這類 session 是引擎用 claude -p 跑的，不是終端機程式，所以不是 xterm
+    private var boards: [String: TermWindowView] = [:]
+    private var themeNow = "dark"
+    func showBoard(sid: String, cwd: String?, name: String) -> Bool {
+        guard let root = window.contentView else { return false }
+        if let w = boards[sid] {
+            w.isHidden = false; root.addSubview(w, positioned: .above, relativeTo: nil); w.flash(); return true
+        }
+        guard let content = SphereEmbed.workView(sessionId: sid, cwd: cwd, theme: themeNow) else { return false }
+        let w = TermWindowView(content: content)
+        w.titleLabel.stringValue = "\(name) · Claude · 戰情中心 session"
+        w.appearance = NSAppearance(named: themeNow == "light" ? .aqua : .darkAqua)
+        var f = w.restoredFrame(in: root.bounds).offsetBy(dx: -36, dy: -28)
+        f = TermWindowView.fit(f, in: root.bounds)
+        w.frame = f
+        w.onClose = { [weak self, weak w] in SphereEmbed.closeWorkView(sessionId: sid); w?.removeFromSuperview(); self?.boards[sid] = nil }
+        w.onMinimize = { [weak w] in w?.isHidden = true }
+        root.addSubview(w, positioned: .above, relativeTo: nil)
+        boards[sid] = w
+        w.flash()
+        return true
+    }
+
     func applyTheme(_ name: String) {
+        themeNow = name == "light" ? "light" : "dark"
+        SphereEmbed.workTheme(themeNow)
+        for w in boards.values { w.appearance = NSAppearance(named: themeNow == "light" ? .aqua : .darkAqua) }
         let dark = name != "light"
         let ap = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.appearance = ap
