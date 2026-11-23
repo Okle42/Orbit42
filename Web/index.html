@@ -293,11 +293,40 @@ function mirrorRows(t) {
   const h = $("terms").clientHeight - 12;
   return Math.max(mirrorSize.rows, Math.floor(h / cell));
 }
+// 11-24 第二版：背景 session（claude --bg attach）用絕對座標照 Mac 的行數畫，手機行數變多後整片畫在上半部、輸入框不見
+// ⇒ Mac 那 N 行固定對齊手機「最下面 N 行」，上面多出來的 d 行放舊內容：程式送來的絕對行座標（CUP H/f、VPA d、
+// 捲動區 DECSTBM r、清畫面 ED 2J）一律往下平移 d 行。用 xterm 5.5 內部的 _inputHandler（vendor 固定版本）
+function mirrorShift(t) {
+  const term = t.term, ih = term._core?._inputHandler;
+  if (!ih?._setCursor) return;
+  const d = () => (!mirrorSize || term.buffer.active.type === "alternate" || ih._coreService?.decPrivateModes?.origin) ? 0 : Math.max(0, term.rows - mirrorSize.rows);
+  const P = (ps, i, def = 1) => (typeof ps[i] === "number" && ps[i] > 0) ? ps[i] : def;
+  const cup = ps => { const k = d(); if (!k) return false; ih._setCursor(P(ps, 1) - 1, P(ps, 0) - 1 + k); return true; };
+  term.parser.registerCsiHandler({ final: "H" }, cup);
+  term.parser.registerCsiHandler({ final: "f" }, cup);
+  term.parser.registerCsiHandler({ final: "d" }, ps => { const k = d(); if (!k) return false; ih._setCursor(ih._activeBuffer.x, P(ps, 0) - 1 + k); return true; });
+  term.parser.registerCsiHandler({ final: "r" }, ps => {
+    const k = d(); if (!k) return false;
+    const n = mirrorSize.rows, top = P(ps, 0), bot = (ps.length < 2 || !ps[1] || ps[1] > n) ? n : ps[1];
+    if (bot > top) { const b = ih._activeBuffer; b.scrollTop = top === 1 ? 0 : top - 1 + k; b.scrollBottom = bot - 1 + k; ih._setCursor(0, k); }
+    return true;
+  });
+  term.parser.registerCsiHandler({ final: "J" }, ps => {          // 只清 Mac 那一塊（上面的舊內容留著）
+    const k = d(); if (!k || ps[0] !== 2) return false;
+    const b = ih._activeBuffer, x = b.x, y = b.y;
+    ih._setCursor(0, k); ih.eraseInDisplay({ params: [0], length: 1 }); ih._setCursor(x, y);
+    return true;
+  });
+}
 function mirrorFit(t) {
   if (!mirrorSize) return;
-  const w = $("terms").clientWidth - 8;
+  const w = $("terms").clientWidth - 8, f0 = t.term.options.fontSize;
+  const c0 = t.term._core?._renderService?.dimensions?.css?.cell?.height;
   t.term.options.fontSize = Math.max(5, Math.min(14, Math.floor(w / (mirrorSize.cols * 0.6) * 10) / 10));
-  if (t.term.cols !== mirrorSize.cols) t.term.resize(mirrorSize.cols, t.term.rows);
+  // 先用估的格子高度馬上定行數（內容寫進來之前就對齊好），80ms 後再用量到的校正
+  const est = c0 ? c0 * t.term.options.fontSize / f0 : 0;
+  const r0 = t.term.buffer.active.type === "alternate" || !est ? mirrorSize.rows : Math.max(mirrorSize.rows, Math.floor(($("terms").clientHeight - 12) / est));
+  if (t.term.cols !== mirrorSize.cols || t.term.rows !== r0) t.term.resize(mirrorSize.cols, r0);
   // 改字級後等一下（xterm 重量格子），量到的格子高度才是新的；不用 rAF（畫面在背景時 rAF 會停）
   clearTimeout(t.rowsT); t.rowsT = setTimeout(() => { const rows = mirrorRows(t); if (t.term.rows !== rows) t.term.resize(mirrorSize.cols, rows); }, 80);
 }
@@ -308,6 +337,7 @@ let kbOn = false;
 function mirrorTouch(t) {
   if (t.touch) return; t.touch = true;
   t.term.buffer.onBufferChange(() => mirrorFit(t));          // 進出全螢幕程式：行數跟著切換
+  mirrorShift(t);
   const ta = t.term.textarea; ta?.setAttribute("inputmode", "none");
   const scr = () => t.el.querySelector(".xterm-screen") || t.el;
   const mouse = (type, p, buttons) => scr().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, clientX: p.clientX, clientY: p.clientY, button: 0, buttons }));
