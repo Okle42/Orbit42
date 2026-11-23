@@ -71,7 +71,7 @@
   </div>
 </div>
 <script>
-const post = o => { try { window.webkit?.messageHandlers?.login?.postMessage(o); } catch {} };
+const post = o => { try { if (window.webkit?.messageHandlers?.login) window.webkit.messageHandlers.login.postMessage(o); else window.chrome?.webview?.postMessage(o); } catch {}   /* Windows：WebView2 */ };
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const LOGO = { claude: "C", codex: "G", gemini: "G", grok: "X" };
 window.orbitAccounts = list => {

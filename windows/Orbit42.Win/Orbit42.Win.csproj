@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>Orbit42</AssemblyName>
+    <RootNamespace>Orbit42</RootNamespace>
+    <Version>0.1.0</Version>
+    <Product>Orbit42</Product>
+    <Description>Orbit42：球體是桌面，每個 AI 是一顆有自己真終端機的衛星</Description>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- ShoWork42 的 Windows 專案（球體、引擎）。預設找旁邊的 ShoWork42 repo；可用 -p:ShoWork42Dir=... 指定 -->
+    <ShoWork42Dir Condition="'$(ShoWork42Dir)' == ''">$(MSBuildThisFileDirectory)..\..\..\ShoWork42</ShoWork42Dir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(ShoWork42Dir)\windows\ShoWork.Win\ShoWork.Win.csproj" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+  </ItemGroup>
+  <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- 登入畫面、衛星終端機網頁（跟 Mac 共用 Orbit42\Web） -->
+  <ItemGroup>
+    <Content Include="..\..\Web\**" Link="OrbitWeb\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

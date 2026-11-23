@@ -46,7 +46,13 @@
   /* 11-23 Keng：毛玻璃——網頁本身全透明，模糊由原生小視窗底層（NSVisualEffectView）做，終端機底色半透明（色票 background 帶 alpha） */
   html:has(body.termOnly), body.termOnly, body.termOnly #panel, body.termOnly #terms { background: transparent !important; }      /* 標題列和三顆燈由原生小視窗畫（可以拖動） */
   html:has(body.termOnly.lowdpi), body.termOnly.lowdpi, body.termOnly.lowdpi #panel, body.termOnly.lowdpi #terms { background: var(--term) !important; }   /* 11-23：1x 螢幕實色底（見 LOWDPI） */
+  /* 11-23 Windows（WebView2）：預設捲軸是一條粗灰條 ⇒ 跟 Mac 一樣細、半透明，只在 Windows 生效 */
+  html.win .xterm-viewport::-webkit-scrollbar { width: 8px; }
+  html.win .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+  html.win .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(128,128,128,.35); border-radius: 4px; }
+  html.win .xterm-viewport::-webkit-scrollbar-button { display: none; }
 </style>
+<script>if (window.chrome?.webview) document.documentElement.classList.add("win");</script>
 </head>
 <body>
 <canvas id="gl"></canvas>
@@ -82,7 +88,7 @@ import * as THREE from "three";
 const $ = id => document.getElementById(id);
 const TERM_ONLY = new URLSearchParams(location.search).has("term");
 if (TERM_ONLY) document.body.classList.add("termOnly");
-const post = o => { try { window.webkit?.messageHandlers?.orbit?.postMessage(o); } catch {} };
+const post = o => { try { if (window.webkit?.messageHandlers?.orbit) window.webkit.messageHandlers.orbit.postMessage(o); else window.chrome?.webview?.postMessage(o); } catch {}   /* Windows：WebView2 */ };
 
 /* ---------- 球體與衛星 ---------- */
 const canvas = $("gl");
