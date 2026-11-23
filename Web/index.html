@@ -52,19 +52,23 @@
   /* 11-23 Windows（WebView2）：預設捲軸是一條粗灰條 ⇒ 跟 Mac 一樣細、半透明，只在 Windows 生效 */
   /* 11-24 Keng「這條（衛星終端機右邊整條白色捲軸）很糟糕，完全沒有視覺感」⇒ Mac、Windows 同一套黑白灰紅：
      平常是貼右邊的 2px 細線、淡到幾乎看不見；捲動時浮出灰色膠囊；滑鼠移上去變寬、變品牌紅；捲到底（沒有舊內容）時不畫 */
-  .xterm-viewport::-webkit-scrollbar { width: 10px; background: transparent; }
-  .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+  /* 11-24 05:2x Keng「右側的拖拉捲動條不見了，我是要改好看，不是變不見」⇒ 一直看得到：
+     中間一條細軌道＋半透明膠囊；捲動時更亮、滑鼠移上去／拖動時變寬並換強調色（深色白、淺色紅） */
+  .xterm-viewport::-webkit-scrollbar { width: 12px; background: transparent; }
+  .xterm-viewport::-webkit-scrollbar-track { background: linear-gradient(90deg, transparent 5px, rgba(255,255,255,.07) 5px 7px, transparent 7px); }
   .xterm-viewport::-webkit-scrollbar-button, .xterm-viewport::-webkit-scrollbar-corner { display: none; }
-  .xterm-viewport::-webkit-scrollbar-thumb { background: transparent; border-radius: 6px; border: 4px solid transparent; border-left-width: 6px; background-clip: padding-box; min-height: 28px; }
+  .xterm-viewport::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,.30); border-radius: 6px; border: 3px solid transparent; border-left-width: 4px; background-clip: padding-box; min-height: 32px; }
   /* WebKit 換 class 不會重畫捲軸 ⇒ 每個狀態的捲軸寬度差 1px，逼它重新排版重畫 */
-  .xterm-viewport.has-back::-webkit-scrollbar { width: 11px; }
-  .xterm-viewport.scrolling::-webkit-scrollbar { width: 12px; }
-  .xterm-viewport.has-back::-webkit-scrollbar-thumb { background-color: rgba(237,237,237,.10); }
-  .xterm-viewport.scrolling::-webkit-scrollbar-thumb { background-color: rgba(237,237,237,.38); border-left-width: 4px; border-right-width: 3px; }
+  .xterm-viewport.has-back::-webkit-scrollbar { width: 13px; }
+  .xterm-viewport.scrolling::-webkit-scrollbar { width: 14px; }
+  .xterm-viewport.has-back::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,.38); }
+  .xterm-viewport.scrolling::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,.60); border-left-width: 4px; border-right-width: 3px; }
+  :root[data-theme="light"] .xterm-viewport::-webkit-scrollbar-track { background: linear-gradient(90deg, transparent 5px, rgba(20,20,20,.08) 5px 7px, transparent 7px); }
+  :root[data-theme="light"] .xterm-viewport::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.28); }
   .xterm-viewport:hover::-webkit-scrollbar-thumb:hover, .xterm-viewport::-webkit-scrollbar-thumb:active { background-color: #d7261b; border-left-width: 3px; border-right-width: 2px; }
   :root:not([data-theme="light"]) .xterm-viewport:hover::-webkit-scrollbar-thumb:hover, :root:not([data-theme="light"]) .xterm-viewport::-webkit-scrollbar-thumb:active { background-color: #ffffff; }      /* 深色：強調色＝白 */
-  :root[data-theme="light"] .xterm-viewport.has-back::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.10); }
-  :root[data-theme="light"] .xterm-viewport.scrolling::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.35); }
+  :root[data-theme="light"] .xterm-viewport.has-back::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.36); }
+  :root[data-theme="light"] .xterm-viewport.scrolling::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.55); }
 </style>
 <script>if (window.chrome?.webview) document.documentElement.classList.add("win");</script>
 </head>
