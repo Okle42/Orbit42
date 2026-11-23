@@ -7,3 +7,6 @@ vm/
 *.ipsw
 /Packages
 assets/*.iconset/
+windows/**/bin/
+windows/**/obj/
+windows/out/

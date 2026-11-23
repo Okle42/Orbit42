@@ -72,7 +72,7 @@ sealed class OrbitApp
             poll.Tick += (_, _) => { if (login.Visible) CheckAccounts(); };
             poll.Start();
             flushTimer.Tick += (_, _) => Flush(); flushTimer.Start();
-            tick.Tick += (_, _) => PushSats(); tick.Start();
+            tick.Tick += (_, _) => { PushSats(); QuitRequested(); }; tick.Start();
             askTimer.Tick += async (_, _) => await WatchAskCard(); askTimer.Start();
             form.Resize += (_, _) => { foreach (var x in wins.Values.Where(x => x.Visible)) x.Bounds = SatWindow.Fit(x.Bounds, form.ClientRectangle); };
             Log($"attach ok web={OrbitPaths.WebDir} test={Test}");
@@ -84,7 +84,7 @@ sealed class OrbitApp
 
     async Task<WebView2> MakeView(string page, Action<WebView2, JsonElement> onMessage, string query = "")
     {
-        var v = new WebView2 { DefaultBackgroundColor = theme == "light" ? Color.FromArgb(0xfb, 0xfb, 0xf9) : Color.FromArgb(0x0b, 0x0b, 0x0c) };
+        var v = new WebView2 { DefaultBackgroundColor = ViewBg };
         v.CreateControl();
         await v.EnsureCoreWebView2Async(webEnv);
         var core = v.CoreWebView2;
@@ -104,6 +104,8 @@ sealed class OrbitApp
         core.Navigate($"https://{HostName}/{page}{query}");
         return v;
     }
+
+    Color ViewBg => theme == "light" ? Color.FromArgb(0xf6, 0xf6, 0xf4) : Color.FromArgb(0x16, 0x16, 0x18);
 
     static void Call(WebView2 v, string fn, params JsonNode?[] args)
     {
@@ -155,6 +157,8 @@ sealed class OrbitApp
         var ids = new JsonArray(providers.Where(p => p.SignedIn).Select(p => (JsonNode?)p.Id).ToArray());
         _ = OrbitEmbed.Eval($"window.orbitBrains && window.orbitBrains({ids.ToJsonString()})");
         After(1200, Restore);
+        // 球體進場動畫（karaIntro）跑完、卡片排好之前問不到衛星空位 ⇒ 接回的衛星晚一點再排（Mac 是球體排版一變就送 arrangeSats）
+        After(2600, AutoArrange); After(4500, AutoArrange);
     }
 
     void ShowLogin()
@@ -229,13 +233,19 @@ sealed class OrbitApp
                 else { Call(v, "window.orbitReplay", id, Convert.ToBase64String(s.Snapshot())); s.Pty.Resize(cols, rows); }
                 break;
             case "input":
-                if (Str(m, "data") is { } d && sats.TryGetValue(id, out var si)) si.Pty?.Write(Encoding.UTF8.GetBytes(d));
+                if (Str(m, "data") is { } d && sats.TryGetValue(id, out var si))
+                {
+                    if (LogInput) Log($"input {id} {JsonSerializer.Serialize(d)} pty={si.Pty != null}");     // 除錯：%LOCALAPPDATA%\Orbit42\log-input 存在時記下每次送進終端機的字
+                    si.Pty?.Write(Encoding.UTF8.GetBytes(d));
+                }
                 break;
             case "resize": if (sats.TryGetValue(id, out var sr)) sr.Pty?.Resize(cols, rows); break;
             case "remove": End(id); break;
             case "new": NewSatellite(Brains.Parse(Str(m, "brain"))); break;
         }
     }
+
+    static bool LogInput => File.Exists(Path.Combine(OrbitPaths.Support, "log-input"));
 
     void Start(Satellite s, int cols, int rows)
     {
@@ -338,10 +348,11 @@ sealed class OrbitApp
         if (on)
         {
             w.Bounds = SatWindow.Fit(w.Bounds, form.ClientRectangle);
-            w.Visible = true; w.BringToFront(); w.Flash();
+            w.Grow(true); w.Flash();
+            then?.Invoke();
         }
-        else { w.SetBreathing(false); w.Visible = false; }
-        then?.Invoke();
+        else if (!w.Visible) then?.Invoke();
+        else { w.SetBreathing(false); w.Grow(false, () => { if (w.WantShown) w.Visible = true; then?.Invoke(); }); }
     }
 
     /// 斜對角排開（球體量好的空位裡；最底下的在左上）。Mac arrangeSats 的移植
@@ -357,15 +368,18 @@ sealed class OrbitApp
         int h = Math.Max(Math.Min(SatWindow.MinH, b.Height - 80), Math.Min(bs.Height, n > 1 ? (int)(area.Height * 0.78) : area.Height));
         double dx = n > 1 ? Math.Max(0, area.Width - w) / (double)(n - 1) : 0, dy = n > 1 ? Math.Max(0, area.Height - h) / (double)(n - 1) : 0;
         for (int i = 0; i < n; i++)
-            ws[i].Bounds = n > 1 ? new Rectangle((int)Math.Round(area.X + i * dx), (int)Math.Round(area.Y + i * dy), w, h)
-                                 : new Rectangle(area.X + (area.Width - w) / 2, area.Y, w, h);
+            ws[i].Place(n > 1 ? new Rectangle((int)Math.Round(area.X + i * dx), (int)Math.Round(area.Y + i * dy), w, h)
+                                 : new Rectangle(area.X + (area.Width - w) / 2, area.Y, w, h));
     }
 
     /// 開／關／收起衛星後：球體的自動排版開著就重排
-    async void AutoArrange()
+    void AutoArrange() => AutoArrange(0);
+    async void AutoArrange(int tries)
     {
         var r = await OrbitEmbed.Eval("window.karaSatArea ? JSON.stringify(window.karaSatArea()) : 'null'");
+        if (LogInput) Log($"arrange try={tries} area={r} wins={wins.Count(x => x.Value.Visible)}");
         if (Unwrap(r) is { } s && JsonNode.Parse(s) is JsonArray a && a.Count == 4) ArrangeSats(Web(a.Select(x => (double)x!).ToArray()));
+        else if (tries < 3) After(1000, () => AutoArrange(tries + 1));     // 球體還沒好：1 秒後再問（最多 3 次；自動排版關掉時本來就回 null）
     }
 
     /// 球體的答案卡被衛星蓋到：那顆衛星先藏起來（Windows 子視窗蓋在網頁上，網頁的 z-index 管不到），答完恢復
@@ -399,7 +413,9 @@ sealed class OrbitApp
         var scheme = theme == "light" ? CoreWebView2PreferredColorScheme.Light : CoreWebView2PreferredColorScheme.Dark;
         if (webEnv != null && login?.CoreWebView2 != null) login.CoreWebView2.Profile.PreferredColorScheme = scheme;
         foreach (var w in wins.Values) w.Dark = theme != "light";
-        foreach (var v in views.Values) Call(v, "window.orbitTheme", theme);
+        // 終端機網頁的底色是半透明（Mac 透出毛玻璃）⇒ Windows 透出的是 WebView2 的預設底色，換深淺要跟著換（不然淺色字疊在深灰上）
+        foreach (var v in views.Values) { v.DefaultBackgroundColor = ViewBg; if (v.CoreWebView2 != null) v.CoreWebView2.Profile.PreferredColorScheme = scheme; Call(v, "window.orbitTheme", theme); }
+        if (login != null) login.DefaultBackgroundColor = ViewBg;
     }
 
     /// 全螢幕桌面模式（F11 或球體的全螢幕鈕）：無邊框蓋滿整個螢幕（含工作列），像 Mac 的全螢幕
@@ -462,12 +478,24 @@ sealed class OrbitApp
         }
     }
 
+    /// 安裝新版（pack.ps1）／別的程式要 Orbit42 正常結束：寫 %LOCALAPPDATA%\Orbit42\quit.request。
+    /// 從 ssh 之類別的工作階段送 WM_CLOSE 送不到 ⇒ 用檔案；正常結束才會記下衛星（重開接回）、把 ShoWorkAgent 開回來
+    public static string QuitFile => Path.Combine(OrbitPaths.Support, "quit.request");
+    void QuitRequested()
+    {
+        if (Test || !File.Exists(QuitFile)) return;
+        try { File.Delete(QuitFile); } catch { }
+        Log("quit requested");
+        Quit();
+    }
+
     bool shutDown;
     public void Shutdown()
     {
         if (shutDown) return;
         shutDown = true;
         SaveForRestore();
+        Log($"shutdown sats={sats.Count}");
         foreach (var s in sats.Values) s.Pty?.Hangup();
     }
 

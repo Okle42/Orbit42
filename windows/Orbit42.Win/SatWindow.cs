@@ -99,6 +99,40 @@ sealed class SatWindow : Control
     }
 
     public void Flash() { flashAt = DateTime.UtcNow; anim.Start(); }
+
+    /// 打開／收起的過場（Mac：0.26 秒從 94% 放大淡入；收起 0.2 秒縮小淡出）。WinForms 子視窗沒有透明度 ⇒ 只做縮放
+    System.Windows.Forms.Timer? grow;
+    Rectangle growFull;
+    /// 放到這個位置；過場跑到一半就改過場的終點（自動排版不會被過場蓋回去）
+    public void Place(Rectangle r) { if (grow != null) growFull = r; else Bounds = r; }
+    public void Grow(bool on, Action? done = null)
+    {
+        grow?.Dispose();
+        growFull = Bounds;
+        var start = DateTime.UtcNow;
+        double dur = on ? 0.26 : 0.2;
+        Rectangle At(double k)      // k：0＝94%、1＝原尺寸（以中心縮放）
+        {
+            double sc = 0.94 + 0.06 * k;
+            var f = growFull;
+            int w = (int)Math.Round(f.Width * sc), h = (int)Math.Round(f.Height * sc);
+            return new Rectangle(f.X + (f.Width - w) / 2, f.Y + (f.Height - h) / 2, w, h);
+        }
+        if (on) { Bounds = At(0); Visible = true; BringToFront(); }
+        grow = new System.Windows.Forms.Timer { Interval = 15 };
+        grow.Tick += (_, _) =>
+        {
+            double t = Math.Min(1, (DateTime.UtcNow - start).TotalSeconds / dur);
+            double e = on ? 1 - Math.Pow(1 - t, 3) : t * t;          // 打開 ease-out、收起 ease-in
+            Bounds = At(on ? e : 1 - e);
+            if (t < 1) return;
+            grow!.Dispose(); grow = null;
+            Bounds = growFull;
+            if (!on) Visible = false;
+            done?.Invoke();
+        };
+        grow.Start();
+    }
     public void SetBreathing(bool on)
     {
         if (on == breathing) return;
