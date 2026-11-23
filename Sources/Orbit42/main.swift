@@ -304,8 +304,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         login.web.frame = root.bounds; login.web.autoresizingMask = [.width, .height]
         // 11-23 修：疊放順序固定＝球體（最底）→ 登入畫面 → 終端機小視窗（最上）。之前登入畫面放到最底層，
         // 球體載入後把它整個蓋住（按「帳號⋯」只看到球淡出、登入頁出不來）
-        root.addSubview(login.web, positioned: .above, relativeTo: sphere)
-        root.addSubview(term, positioned: .above, relativeTo: login.web)
+        root.addSubview(login.web, positioned: .above, relativeTo: sphere)      // 終端機小視窗在下面最後才加，自然在最上層
         login.runInTerminal = { [weak self] name, brain, cmd in self?.host.runCommand(name: name, brain: brain, command: cmd) }
         login.onEnter = { [weak self] list in self?.enter(list) }
         host.onExited = { [weak self] _ in self?.login.check() }
