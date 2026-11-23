@@ -337,7 +337,8 @@ function okSGR(params) {
 // 進畫面前把那幾個方塊字換成點字空白 U+2800（一樣佔 1 格、畫出來是空的，也拿掉眼睛的黑底），
 // 再找畫面上那一塊 U+2800，把動態夜視娃娃（clawd_nv.js）疊在同一位置；捲動時跟著走、捲出去就收起來。
 // 一個位元組一個字元：方塊字 U+2580–259F＝E2 96 80–9F，點字空白 U+2800＝E2 A0 80（同樣 3 位元組）
-const CLAWD_RE = /\x1b\[38;2;215;119;87m((?:\xe2\x96[\x80-\x9f]| |\x1b\[[0-9;]*m)+)/g;
+// 11-24 Windows（ConPTY）：顏色碼後面先接 \r\n 才是方塊字、空白也可能變成 ESC[nC（游標右移）、行尾 ESC[K ⇒ 這些都要算在同一塊裡
+const CLAWD_RE = /\x1b\[38;2;215;119;87m((?:\xe2\x96[\x80-\x9f]| |\r|\n|\x1b\[[0-9;]*[mCK])+)/g;
 const BLANK = "\xe2\xa0\x80";
 function hideClawd(s) {
   return s.replace(CLAWD_RE, (m, body) => /\xe2\x96/.test(body)

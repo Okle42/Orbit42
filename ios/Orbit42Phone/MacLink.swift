@@ -106,7 +106,12 @@ struct OrbitAPI: Sendable {
         do { (d, resp) = try await Tailnet.sessionForRequest(retry: false).data(for: r) }
         catch {
             do { (d, resp) = try await Tailnet.sessionForRequest(retry: true).data(for: r) }
-            catch { await NetStats.shared.failure(error.localizedDescription); throw Failure.offline(error.localizedDescription) }
+            catch {
+                await NetStats.shared.failure(error.localizedDescription)
+                // 通道重開了還是連不上、連續 3 次 ⇒ 節點本身卡住（常見：出門換行動網路、背景太久）⇒ 整個重開
+                if await NetStats.shared.down { await Tailnet.shared.heal(reason: "連續連不上 Mac") }
+                throw Failure.offline(error.localizedDescription)
+            }
         }
         await NetStats.shared.success()
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0

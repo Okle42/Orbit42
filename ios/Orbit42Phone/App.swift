@@ -15,7 +15,10 @@ struct Orbit42PhoneApp: App {
                 else { ConnectView { l in l.save(); self.link = l } }
             }
             .environmentObject(tailnet)
-            .onAppear { if link?.isDemo != true { tailnet.start() } }        // App 內建 Tailscale：一打開就上線（第一次要登入）
+            .onAppear { if link?.isDemo != true { tailnet.start(); tailnet.watchNetwork()
+                // 測試：ORBIT_PHONE_HEAL_TEST=<秒> ⇒ 幾秒後模擬「網路換了」整個重開內建 Tailscale，看會不會自己連回來
+                if let t = ProcessInfo.processInfo.environment["ORBIT_PHONE_HEAL_TEST"].flatMap(Double.init) {
+                    Task { try? await Task.sleep(for: .seconds(t)); tailnet.heal(reason: "測試") } } } }        // App 內建 Tailscale：一打開就上線（第一次要登入）
             .onChange(of: phase) { _, p in if p == .active { tailnet.refresh() } }
             .preferredColorScheme(.dark)
             .tint(Color(red: 0.31, green: 0.765, blue: 0.416))
@@ -142,7 +145,8 @@ struct MainView: View {
                         Text(link.isDemo ? "示範模式" : "已連到 \(link.host):\(link.port)").font(.footnote).foregroundStyle(.secondary)
                         if !link.isDemo {
                             Text("連線方式：\(tailnet.route)").font(.footnote).foregroundStyle(.secondary)
-                            Text("連線紀錄：成功 \(stats.ok)・失敗 \(stats.fail)" + (stats.fail > 0 ? "（最後一次：\(stats.lastError)）" : "")).font(.footnote).foregroundStyle(.secondary)
+                            Button { tailnet.heal(reason: "手動", force: true) } label: { Label("重新連線（連不上時按）", systemImage: "arrow.clockwise") }.font(.footnote)
+                            Text("連線紀錄：成功 \(stats.ok)・失敗 \(stats.fail)" + (tailnet.heals > 0 ? "・重連 \(tailnet.heals) 次" : "") + (stats.fail > 0 ? "（最後一次：\(stats.lastError)）" : "")).font(.footnote).foregroundStyle(.secondary)
                         }
                         Button(link.isDemo ? "連到我的 Mac" : "中斷並忘記這台 Mac", role: .destructive, action: onForget)
                     }

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import TailscaleKit
 
 /// App 內建 Tailscale（11-23 Keng：「以後不用開 Tailscale App」；做法來自 Ruby4 的 TS實測驗證）：
@@ -43,6 +44,42 @@ final class Tailnet: ObservableObject {
 
     /// 從背景回來：iOS 可能收回本機的 SOCKS5 listener（Ruby4 提醒）⇒ 重新拿一次連線設定
     func refresh() { Task { _ = await makeSession() } }
+
+    // MARK: 出門不斷線（11-24 Keng：「出門手機上的 Orbit42 不會斷線嗎？把這個問題先修好」）
+    // ① 網路換了（Wi-Fi ⇄ 行動網路、換 Wi-Fi）：節點的 UDP 還綁在舊網路上 ⇒ 重開節點（登入狀態在磁碟上，幾秒就回來）
+    // ② 連續失敗（通道重開也沒用、節點卡死）：一樣重開節點；最快 20 秒一次，不會一直重開
+    private let pathMonitor = NWPathMonitor()
+    private var lastPathKey = ""
+    private var lastHeal = Date.distantPast
+    @Published private(set) var heals = 0
+
+    func watchNetwork() {
+        pathMonitor.pathUpdateHandler = { path in
+            let key = path.status == .satisfied
+                ? path.availableInterfaces.filter { path.usesInterfaceType($0.type) }.map(\.name).joined(separator: ",") : "none"
+            Task { @MainActor in Tailnet.shared.pathChanged(key) }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "orbit42.path"))
+    }
+
+    private func pathChanged(_ key: String) {
+        defer { lastPathKey = key }
+        guard !lastPathKey.isEmpty, key != lastPathKey, key != "none" else { return }   // 第一次回報、斷網那一下不算
+        heal(reason: "網路換了（\(lastPathKey) → \(key)）")
+    }
+
+    /// 把內建 Tailscale 整個關掉重開（不是只重開通道）
+    func heal(reason: String, force: Bool = false) {
+        guard force || Date().timeIntervalSince(lastHeal) > 20 else { return }
+        lastHeal = Date(); heals += 1
+        route = "重新連線中：\(reason)"
+        let old = node
+        node = nil; poller?.cancel(); Tailnet.session = nil; state = .off
+        Task {
+            try? await old?.close()
+            start()
+        }
+    }
 
     /// 開（或重開）走內建 Tailscale 的連線；失敗就留著錯誤原因，不偷偷改走一般網路
     @discardableResult

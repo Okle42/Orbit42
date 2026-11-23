@@ -461,6 +461,12 @@ sealed class OrbitApp
     static bool ReadPref(string k, bool d) { try { return File.ReadAllText(PrefPath(k)).Trim() == "1"; } catch { return d; } }
     static void WritePref(string k, bool v) { try { File.WriteAllText(PrefPath(k), v ? "1" : "0"); } catch { } }
 
+    static bool HasTranscript(string sid)
+    {
+        var dir = Path.Combine(OrbitPaths.Home, ".claude", "projects");
+        try { return Directory.Exists(dir) && Directory.EnumerateFiles(dir, sid + ".jsonl", SearchOption.AllDirectories).Any(); }
+        catch { return true; }   // 查不到就照舊試著接回
+    }
     // MARK: 重開後衛星回來（Claude 記 session id，重開用 --resume 接回同一段對話）
 
     static string RestorePath => Path.Combine(OrbitPaths.Support, Env.ContainsKey("ORBIT_TEST_RESTORE") ? "restore.test.json" : "restore.json");
@@ -493,7 +499,8 @@ sealed class OrbitApp
             var b = Brains.Parse((string?)e["brain"]);
             var name = (string?)e["name"] ?? b.Label();
             if (int.TryParse(name.Split(' ').Last(), out var n) && n > counter.GetValueOrDefault(b)) counter[b] = n;
-            var cmd = b == Brain.Claude && (string?)e["sid"] is { } sid ? b.Command() + " --resume " + sid : b.Command();
+            // 11-24：衛星開了還沒講話就關掉，Claude Code 不會留對話紀錄，--resume 會「No conversation found」直接結束 ⇒ 有紀錄才接回，沒有就開新的
+            var cmd = b == Brain.Claude && (string?)e["sid"] is { } sid && HasTranscript(sid) ? b.Command() + " --resume " + sid : b.Command();
             Add(new Satellite(NewId(), name, b, (string?)e["cwd"] ?? OrbitPaths.Home, cmd));
         }
     }
@@ -543,6 +550,8 @@ sealed class OrbitApp
                 var v = views.Values.FirstOrDefault();
                 var txt = v?.CoreWebView2 == null ? null : Unwrap(await v.CoreWebView2.ExecuteScriptAsync("window.orbitTest && window.orbitTest.screen ? window.orbitTest.screen() : ''"));
                 File.WriteAllText(outTxt, txt ?? "(沒有畫面)", Encoding.UTF8);
+                // 原始 PTY 位元組（查 Claude Code 在 ConPTY 下實際送出的顏色碼／字元，例如娃娃替換對不上時）
+                if (sats.Values.FirstOrDefault() is { } st0) File.WriteAllBytes(Path.ChangeExtension(outTxt, ".raw"), st0.Snapshot());
                 if (wins.Values.FirstOrDefault() is { } w)
                 {
                     using var bmp = new Bitmap(w.Width, w.Height);

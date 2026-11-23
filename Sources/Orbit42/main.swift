@@ -297,7 +297,8 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let brain = Brain(rawValue: e["brain"] ?? "claude") ?? .claude
             let name = e["name"] ?? brain.label
             if let n = Int(name.split(separator: " ").last ?? ""), n > (counter[brain] ?? 0) { counter[brain] = n }
-            let cmd = brain == .claude && e["sid"] != nil ? brain.command + " --resume " + e["sid"]! : brain.command
+            // 11-24：衛星開了還沒講話就關掉，Claude Code 不會留對話紀錄，--resume 會「No conversation found」直接結束 ⇒ 有紀錄才接回
+            let cmd = brain == .claude && e["sid"].map(hasTranscript) == true ? brain.command + " --resume " + e["sid"]! : brain.command
             let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: name, brain: brain, cwd: cwd, command: cmd)
             add(s); onOpen(s.id)
         }
@@ -972,4 +973,11 @@ MainActor.assumeIsolated {
             MainActor.assumeIsolated { DiskWatch.shared.start() }
         }
     }))
+}
+
+/// Claude Code 有沒有這段對話的紀錄（~/.claude/projects/*/<sid>.jsonl）；沒有就不能 --resume
+func hasTranscript(_ sid: String) -> Bool {
+    let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+    guard let subs = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return true }
+    return subs.contains { FileManager.default.fileExists(atPath: dir.appendingPathComponent($0).appendingPathComponent(sid + ".jsonl").path) }
 }
