@@ -24,6 +24,7 @@ try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWith
 SWIFT
 swift "$TMPDIR/orbit42qr.swift" "$url" "$png" 2>/dev/null
 rm -f "$TMPDIR/orbit42qr.swift"
-open "$png"
+# 用「快速查看」顯示（11-23：預覽程式卡住時 open 會 -1712 逾時、什麼都沒出現）；不行再退回 open
+(qlmanage -p "$png" >/dev/null 2>&1 &) || open "$png"
 print "已打開 QR code：用 iPhone 的 Orbit42 →「掃 QR code」掃它（手機要先連上 Tailscale）。"
 print "掃完就把那個圖片視窗關掉；這個網址就是密碼，別傳給別人。"
