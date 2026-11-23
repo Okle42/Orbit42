@@ -319,6 +319,7 @@ function mirrorShift(t) {
   });
 }
 function mirrorFit(t) {
+  mirrorWant(t);
   if (!mirrorSize) return;
   const w = $("terms").clientWidth - 8, f0 = t.term.options.fontSize;
   const c0 = t.term._core?._renderService?.dimensions?.css?.cell?.height;
@@ -334,6 +335,17 @@ function mirrorFit(t) {
 // 沒開滑鼠模式時，滾輪就是捲回頭看）。鍵盤預設不跳（inputmode none），按上面的鍵盤鈕才打字（window.orbitKeyboard）
 const MIRROR_REPLY = /^\x1b(\[\??[\d;]*[Rcnt]|\[>[\d;]*c|\[[IO]|\[\?[\d;]*\$y|\][\s\S]*|P[\s\S]*)$/;
 let kbOn = false;
+// 11-24 Keng「手機在看時用手機大小」：手機用 11px 字量出自己放得下的行列數，送給 App（App 拿畫面時帶給 Mac，
+// Mac 把衛星改成這個大小；Mac 回報的行列數就會等於手機的，mirrorFit 算出來的字級也就回到約 11px）
+const PHONE_FONT = 11;
+let wantSent = "";
+function mirrorWant(t) {
+  const w = $("terms").clientWidth - 8, h = $("terms").clientHeight - 12;
+  if (w < 100 || h < 100) return;
+  const cols = Math.max(20, Math.floor(w / (PHONE_FONT * 0.6))), rows = Math.max(5, Math.floor(h / Math.ceil(PHONE_FONT * (t.term.options.lineHeight || 1.15))));
+  const k = cols + "x" + rows; if (k === wantSent) return; wantSent = k;
+  post({ action: "size", cols, rows });
+}
 function mirrorTouch(t) {
   if (t.touch) return; t.touch = true;
   t.term.buffer.onBufferChange(() => mirrorFit(t));          // 進出全螢幕程式：行數跟著切換

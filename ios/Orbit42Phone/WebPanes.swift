@@ -143,6 +143,7 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
     @Published var error: String?
     private var poll: Task<Void, Never>?
     private var offset = 0, ready = false
+    private var want: (cols: Int, rows: Int)?          // 網頁量好的手機行列數（{action:"size"}）
     @Published var keyboard = false
     private var pending = Data(), sending = false, kick = false
 
@@ -151,6 +152,7 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
     func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
         guard let o = m.body as? [String: Any], let a = o["action"] as? String else { return }      // 改大小不送（行列數照 Mac）
         if a == "key", let s = o["data"] as? String { return send(Data(s.utf8)) }
+        if a == "size", let c = o["cols"] as? Int, let r = o["rows"] as? Int { want = (c, r); kick = true; return }
         guard a == "ready" else { return }
         ready = true
         js(web, "window.orbitSats", [[sat.json]])
@@ -171,7 +173,7 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
-                    let r = try await api.screen(id, from: self.offset)
+                    let r = try await api.screen(id, from: self.offset, want: self.want)
                     self.error = nil
                     if let size = r.size { js(self.web, "window.orbitMirror", [size.cols, size.rows]) }
                     if !r.data.isEmpty {

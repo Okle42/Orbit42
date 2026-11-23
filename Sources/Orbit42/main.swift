@@ -99,8 +99,11 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             }
             return (try? JSONSerialization.data(withJSONObject: list)) ?? Data("[]".utf8)
         }
-        SphereEmbed.remoteScreen = { [weak self] id, from in
-            let o: [String: Any]? = MainActor.assumeIsolated { self?.sats[id]?.remote(from: from) }
+        SphereEmbed.remoteScreen = { [weak self] id, from, size in
+            let o: [String: Any]? = MainActor.assumeIsolated {
+                if let size { self?.sats[id]?.phoneView(cols: size.cols, rows: size.rows) }      // 手機附上自己的大小 ⇒ 手機在看時用手機大小
+                return self?.sats[id]?.remote(from: from)
+            }
             return o.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
         }
         // 11-24 Keng：iPhone 衛星終端機可以點、捲、打字 ⇒ 手機送來的位元組直接寫進那顆衛星的 pty（跟本機網頁的 "input" 同一條）
@@ -114,7 +117,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     func startTimers() {
         flushTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
-        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushSats() } }
+        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushSats(); self?.sats.values.forEach { $0.phoneCheck() } } }
     }
 
     static var webDir: URL? {
@@ -152,10 +155,10 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         case "open":
             guard let s = sats[id] else { return }
             if s.pty == nil || s.exited != nil { start(s, cols: cols, rows: rows) }
-            else { if let v = views[id] { Self.call(v, "window.orbitReplay", [id, s.snapshot().base64EncodedString()]) }; s.pty?.resize(cols: cols, rows: rows) }
+            else { if let v = views[id] { Self.call(v, "window.orbitReplay", [id, s.snapshot().base64EncodedString()]) }; s.localResize(cols: cols, rows: rows) }
         case "input":
             if let d = (m["data"] as? String)?.data(using: .utf8) { sats[id]?.pty?.write(d) }
-        case "resize": sats[id]?.pty?.resize(cols: cols, rows: rows); if ProcessInfo.processInfo.environment["ORBIT_TEST_DRAG"] != nil { print("resize \(id) \(cols)x\(rows) pty=\(sats[id]?.pty != nil)"); fflush(stdout) }
+        case "resize": sats[id]?.localResize(cols: cols, rows: rows); if ProcessInfo.processInfo.environment["ORBIT_TEST_DRAG"] != nil { print("resize \(id) \(cols)x\(rows) pty=\(sats[id]?.pty != nil)"); fflush(stdout) }
         case "remove":
             // Satellites Orbit42 started: hang up (like closing a terminal window).
             // Attached background sessions: only the viewer closes; the session keeps running.
@@ -733,13 +736,21 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 let id = self.host.runCommand(name: "遠端測試", brain: .claude, command: "printf 'iPhone 鏡像測試 OK\\n'; sleep 30")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated {
                     print("remote sats=" + String(decoding: SphereEmbed.remoteSats?() ?? Data(), as: UTF8.self))
-                    let scr = SphereEmbed.remoteScreen?(id, 0).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                    let scr = SphereEmbed.remoteScreen?(id, 0, nil).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
                     let txt = (scr["data"] as? String).flatMap { Data(base64Encoded: $0) }.map { String(decoding: $0, as: UTF8.self) } ?? ""
                     print("remote screen total=\(scr["total"] ?? -1) cols=\(scr["cols"] ?? -1) rows=\(scr["rows"] ?? -1) text=\(txt.contains("iPhone 鏡像測試 OK"))")
-                    let tail = SphereEmbed.remoteScreen?(id, (scr["total"] as? Int) ?? 0).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                    let tail = SphereEmbed.remoteScreen?(id, (scr["total"] as? Int) ?? 0, nil).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                     print("remote screen from=end data=\((tail?["data"] as? String)?.count ?? -1)")
                     print("remote sphere=\(SphereEmbed.latestSphere?.count ?? -1) bytes"); fflush(stdout)
-                    self.host.shutdown(); NSApp.terminate(nil)
+                    // 11-24 手機在看時用手機大小：帶 50x40 來拿 ⇒ 回報要變 50x40；7 秒沒來 ⇒ 恢復原本大小
+                    let before = scr["cols"].map { "\($0)x\(scr["rows"] ?? -1)" } ?? "?"
+                    let ph = SphereEmbed.remoteScreen?(id, 0, (cols: 50, rows: 40)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                    print("remote phone before=\(before) phone=\(ph["cols"] ?? -1)x\(ph["rows"] ?? -1)"); fflush(stdout)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 7) { MainActor.assumeIsolated {
+                        let af = SphereEmbed.remoteScreen?(id, 0, nil).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                        print("remote phone gone=\(af["cols"] ?? -1)x\(af["rows"] ?? -1)"); fflush(stdout)
+                        self.host.shutdown(); NSApp.terminate(nil)
+                    } }
                 } }
             } }
         }

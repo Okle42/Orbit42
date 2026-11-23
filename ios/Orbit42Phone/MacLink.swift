@@ -127,8 +127,11 @@ struct OrbitAPI: Sendable {
     /// 衛星清單（JSON 陣列：id、name、brain、brainLabel、state…）
     func sats() async throws -> Data { try await request("api/sats") }
     /// 某顆衛星從第 from 個位元組起的終端機輸出 → (總長, 這段從哪開始, 內容)
-    func screen(_ id: String, from: Int) async throws -> Screen {
-        let d = try await request("api/sat", query: [URLQueryItem(name: "id", value: id), URLQueryItem(name: "from", value: String(from))])
+    /// want＝手機自己的行列數（11-24：手機在看時 Mac 把那顆衛星改成手機大小，離開 5 秒就恢復）
+    func screen(_ id: String, from: Int, want: (cols: Int, rows: Int)? = nil) async throws -> Screen {
+        var q = [URLQueryItem(name: "id", value: id), URLQueryItem(name: "from", value: String(from))]
+        if let w = want { q += [URLQueryItem(name: "cols", value: String(w.cols)), URLQueryItem(name: "rows", value: String(w.rows))] }
+        let d = try await request("api/sat", query: q)
         let o = try JSONSerialization.jsonObject(with: d) as? [String: Any] ?? [:]
         let size = (o["cols"] as? Int).flatMap { c in (o["rows"] as? Int).map { (cols: c, rows: $0) } }
         return Screen(total: o["total"] as? Int ?? 0, from: o["from"] as? Int ?? 0,

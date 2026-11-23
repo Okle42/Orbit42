@@ -30,6 +30,29 @@ final class Satellite: @unchecked Sendable {
     private(set) var scrollback = Data()     // replayed when the terminal panel is reopened
     private(set) var total = 0               // 11-23 iPhone App：開始到現在一共輸出幾個位元組（手機照這個位置續讀）
     private let lock = NSLock()
+    // 11-24 Keng「手機在看時用手機大小，離開就恢復 Mac 大小」：同一個背景 session 只有一個畫面大小（兩個檢視會互相改），
+    // 所以手機在看（5 秒內有來拿畫面）時把 pty 改成手機的行列數；Mac 視窗這段時間的改大小只記下來，手機離開才套回去
+    var macSize: (cols: Int, rows: Int)?
+    var phoneUntil: Date?
+    var phoneActive: Bool { (phoneUntil ?? .distantPast) > Date() }
+    /// Mac 這邊的終端機量到的大小
+    func localResize(cols: Int, rows: Int) {
+        macSize = (cols, rows)
+        if !phoneActive { pty?.resize(cols: cols, rows: rows) }
+    }
+    /// 手機來拿畫面時附上自己的行列數
+    func phoneView(cols: Int, rows: Int) {
+        guard let p = pty, cols >= 20, rows >= 5 else { return }
+        if !phoneActive, macSize == nil { macSize = p.size }
+        phoneUntil = Date().addingTimeInterval(5)
+        if p.size.cols != cols || p.size.rows != rows { p.resize(cols: cols, rows: rows) }
+    }
+    /// 手機離開（5 秒沒來）：套回 Mac 的大小
+    func phoneCheck() {
+        guard let u = phoneUntil, u <= Date() else { return }
+        phoneUntil = nil
+        if let m = macSize, let p = pty, p.size.cols != m.cols || p.size.rows != m.rows { p.resize(cols: m.cols, rows: m.rows) }
+    }
 
     init(id: String, name: String, brain: Brain, cwd: String, command: String, attachedJob: String? = nil) {
         self.id = id; self.name = name; self.brain = brain; self.cwd = cwd; self.command = command; self.attachedJob = attachedJob
