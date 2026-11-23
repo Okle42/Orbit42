@@ -9,7 +9,8 @@ enum Brain: String, CaseIterable, Sendable {
     /// 11-23 Keng：所有 AI 都用最高權限開（跟他的 `ccc` = claude --dangerously-skip-permissions 一樣）
     /// Gemini 走 Antigravity CLI（2026-05 起取代 Gemini CLI，`agy --help` 確認有同名參數）；Codex 用它的全自動參數（本機還沒裝，未實測）
     var command: String {
-        ["claude": "claude --dangerously-skip-permissions",
+        // 11-23 Keng「衛星終端機只要 Context」：球體已經顯示額度／溫度／風扇 ⇒ 這個衛星關掉 flightdeck 面板（狀態列腳本看 TERM_PROGRAM=Orbit42 只畫 Context）
+        ["claude": "claude --dangerously-skip-permissions --settings '{\"enabledPlugins\":{\"flightdeck@claude-flightdeck\":false}}'",
          "gemini": "agy --dangerously-skip-permissions",
          "codex": "codex --dangerously-bypass-approvals-and-sandbox"][rawValue]!
     }
