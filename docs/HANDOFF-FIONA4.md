@@ -10,12 +10,12 @@
 - Tailscale：刪掉 orbit42-tsprobe；留 Mac、Samsung A27（Keng 的）、orbit42-phone
 
 ## 未完成／下一步
-1. **（最優先，Keng 21:47 回報）語音輸入常被打斷**：字重複已修好（Keng 實測長句不重複），但在 Orbit42 答案卡補充框講話時，macOS 聽寫常自己停掉、要手動再啟動。
+1. ~~（最優先，Keng 21:47 回報）語音輸入常被打斷~~ **已完成（23:44，Ruby4）**：原因是別的 session 發新卡／列順序變會整張重畫答案卡、補充框被換掉；修正 ShoWork42 c5d68a9（打字／聽寫中不重畫不搬、播報排隊）＋點智能體拿焦點（⌘C 可複製）。Keng 實測都 OK。23:48 Fiona4 對話已關，2～5 項由 Ruby4 接手：字重複已修好（Keng 實測長句不重複），但在 Orbit42 答案卡補充框講話時，macOS 聽寫常自己停掉、要手動再啟動。
    懷疑方向（還沒驗）：①球體播報（karaToast／TTS 唸 session 狀態）一出聲就搶走麥克風，聽寫停掉 ②ShoWork 引擎的光暈／面板視窗 orderFront 搶走 key window ③renderAsk 簽名變了重畫整張卡（輸入框被換掉）④Orbit42 原生 watchAskCard／raise 改 first responder。
    先查：Keng 講話時是不是剛好有播報（SphereAudio、karaToast 時間點）；有輸入框焦點時暫停播報／不重畫答案卡
    **已交給 Ruby4**（它發現焦點卡在衛星終端機輸入框、⌘C 不能複製，可能同根），接手前先問 Ruby4 進度，別兩邊一起改焦點
 2. （已確認）字不再重複
-2. sphere 07c5efc（修正 ?phone 被放到 </html> 後面、已推上去的 61b62c2 有這個錯）要 push 先問 Keng
+2. ~~sphere 07c5efc 要 push 先問 Keng~~ 已 push（Keng 同意）
 3. 新版 iPhone 上 TestFlight：archive → Xcode Organizer 或 exportArchive（上傳會被閘門擋，要 Keng 放行）
 4. 手機打字進衛星（P4）Keng 還沒決定
 5. 模擬器跑不了 TailscaleKit（只有真機 arm64），要模擬器得另編 make ios-sim
