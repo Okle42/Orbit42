@@ -213,6 +213,8 @@ final class TermWindowView: NSView {
         onResized(frame.size)
     }
 
+    /// 測試用：關閉燈中心點（視窗座標）
+    var closeLightPoint: NSPoint { let l = lights[0]; return l.convert(NSPoint(x: l.bounds.midX, y: l.bounds.midY), to: nil) }
     @objc private func light(_ s: TrafficLight) {
         switch s.kind {
         case .close: onClose()
@@ -267,7 +269,7 @@ final class TrafficLight: NSButton {
         self.kind = kind
         super.init(frame: .zero)
         isBordered = false; title = ""
-        toolTip = ["結束這顆衛星（Orbit42 開的會關掉；拉進來看的背景 session 只關檢視）", "收起（衛星繼續跑）", "放大／還原（也可以雙擊標題列）"][[Kind.close, .minimize, .zoom].firstIndex(of: kind)!]
+        toolTip = ["關閉（先確認；結束裡面的程式、清掉內容；拉進來看的背景 session 只關檢視）", "收起（衛星繼續跑）", "放大／還原（也可以雙擊標題列）"][[Kind.close, .minimize, .zoom].firstIndex(of: kind)!]
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
     required init?(coder: NSCoder) { fatalError() }

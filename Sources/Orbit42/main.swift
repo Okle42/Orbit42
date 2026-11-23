@@ -40,6 +40,10 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         s.pty?.hangup(); sats[id] = nil; order.removeAll { $0 == id }; views[id] = nil
         onRemoved(id); pushSats()
     }
+    func name(_ id: String) -> String { sats[id]?.name ?? id }
+    func isAttached(_ id: String) -> Bool { sats[id]?.attachedJob != nil }
+    var satCount: Int { sats.count }
+    func pid(_ id: String) -> Int32? { sats[id]?.pty?.pid }
     func title(_ id: String) -> String {
         guard let s = sats[id] else { return id }
         return "\(s.name) · \(s.brain.label)\(s.attachedJob != nil ? " · 背景 session" : "")"
@@ -480,6 +484,46 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out)); print("term shot saved \(out) \(v.frame)"); fflush(stdout)
             }
         }
+        // 測試：ORBIT_TEST_CLOSE=<開始秒數> ⇒ 開一顆跑 sleep 的衛星，真的送滑鼠點擊到綠燈（走正常的 hitTest），
+        // 先按「取消」（視窗要還在），再點一次按「關閉」（程式要結束、衛星和小視窗要不見），印結果後結束
+        if let at = env["ORBIT_TEST_CLOSE"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak self] in MainActor.assumeIsolated {
+                guard let self else { return }
+                let id = self.host.runCommand(name: "測試衛星", brain: .claude, command: "/bin/sleep 600")
+                @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+                @MainActor func click() {
+                    guard let w = self.satWins[id] else { print("close: no window"); return }
+                    let p = w.closeLightPoint
+                    for t in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                        if let e = NSEvent.mouseEvent(with: t, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: self.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                            NSApp.postEvent(e, atStart: false)
+                        }
+                    }
+                }
+                after(3) {
+                    let pid = self.host.pid(id) ?? -1
+                    print("close: opened pid=\(pid) win=\(self.satWins[id] != nil)"); fflush(stdout)
+                    click()
+                    after(1) {
+                        print("close: sheet after 1st click=\(self.confirmAlert != nil) title=\(self.confirmAlert?.messageText ?? "-")"); fflush(stdout)
+                        self.confirmAlert?.buttons[1].performClick(nil)          // 取消
+                        after(1) {
+                            print("close: after cancel win=\(self.satWins[id] != nil) sats=\(self.host.satCount) alive=\(kill(pid, 0) == 0)"); fflush(stdout)
+                            click()
+                            after(1) {
+                                print("close: sheet after 2nd click=\(self.confirmAlert != nil)"); fflush(stdout)
+                                self.confirmAlert?.buttons[0].performClick(nil)  // 關閉
+                                after(2) {
+                                    print("close: after confirm win=\(self.satWins[id] != nil) sats=\(self.host.satCount) view=\(self.host.views[id] != nil) alive=\(kill(pid, 0) == 0)"); fflush(stdout)
+                                    NSApp.terminate(nil)
+                                }
+                            }
+                        }
+                    }
+                }
+            } }
+        }
         // 測試：模擬拖右下角「縮小→停→放大→停」，每段停下後把終端機內容倒到 <prefix>_1.txt／_2.txt（查調大小錯位）
         // ORBIT_TEST_DRAG="<prefix>@<開始秒數>"
         if let spec = env["ORBIT_TEST_DRAG"], let at = spec.split(separator: "@").last.flatMap({ Double($0) }) {
@@ -708,7 +752,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             let n = CGFloat(satWins.values.filter { !$0.isHidden }.count)
             w.frame = TermWindowView.fit(w.restoredFrame(in: root.bounds).offsetBy(dx: n * 28, dy: -n * 28), in: root.bounds)
             w.isHidden = true
-            w.onClose = { [weak self] in self?.host.end(id) }                 // 結束衛星 → onRemoved → 關掉小視窗
+            w.onClose = { [weak self] in self?.confirmEnd(id) }               // 11-23 Keng：綠燈＝完全關閉（先確認 → 結束程式、清內容 → 關視窗）
             w.onMinimize = { [weak self, weak w] in if let self, let w { self.animate(w, on: false) { [weak self] in self?.autoArrange() } } }
             w.onDropPaths = { [weak self] paths in self?.host.type(id, paths.joined(separator: " ") + " ") }
             // 11-23 Keng「調整每一個衛星小視窗大小時，其他的衛星也要跟著一起變」
@@ -724,6 +768,28 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         if w.isHidden || !w.wantShown { animate(w, on: true); autoArrange() } else { w.flash() }
         window.makeFirstResponder(w.content)
     }
+    /// 11-23 Keng「點左上角綠燈應該是完全關閉：按下去先跟我確認，確認後清掉整個內容再關掉」
+    /// 確認 → host.end：掛斷終端機程式（Orbit42 開的 AI 會結束）、丟掉捲動紀錄與網頁視圖、從球上拿掉 → onRemoved 關小視窗。
+    /// 拉進來看的背景 session 只結束檢視（session 本身是別人的，不替他砍）
+    private func confirmEnd(_ id: String) {
+        guard window.attachedSheet == nil else { return }
+        let a = NSAlert()
+        a.alertStyle = .warning
+        a.messageText = "關閉「\(host.name(id))」？"
+        a.informativeText = host.isAttached(id)
+            ? "會關掉這個視窗並清掉畫面上的全部內容。背景 session 本身會繼續跑。"
+            : "會結束這顆衛星裡正在跑的程式，並清掉這個視窗的全部內容，無法還原。"
+        let ok = a.addButton(withTitle: "關閉"); ok.hasDestructiveAction = true
+        a.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        confirmAlert = a
+        a.beginSheetModal(for: window) { [weak self] r in
+            MainActor.assumeIsolated {
+                self?.confirmAlert = nil
+                if r == .alertFirstButtonReturn { self?.host.end(id) }
+            }
+        }
+    }
+    private var confirmAlert: NSAlert?          // 測試 hook 用（按確認視窗的按鈕）
     private func closeSat(_ id: String) {
         guard let w = satWins.removeValue(forKey: id) else { return }
         animate(w, on: false) { [weak self] in w.removeFromSuperview(); self?.autoArrange() }
