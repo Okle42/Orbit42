@@ -10,3 +10,4 @@ assets/*.iconset/
 windows/**/bin/
 windows/**/obj/
 windows/out/
+.claude/
