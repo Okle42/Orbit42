@@ -354,6 +354,26 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     let login = LoginPanel()
     private var sphereView: NSView?
     private var askTimer: Timer?
+    private var webWatch: Timer?
+    /// 11-23 Keng「Orbit42 改檔自動重新載入，免重開」：每秒看球體頁（Web/sphere.html，SHOWORK_WEB_DIR 優先）的修改時間，
+    /// 變了且連續 2 次一樣（檔案寫完）才 reload 球體 WebView；資料下一秒由宿主重推，版面在 localStorage。衛星終端機不動。
+    private func watchSphereFile() {
+        let env = ProcessInfo.processInfo.environment
+        let dir = env["SHOWORK_WEB_DIR"].map { URL(fileURLWithPath: $0) } ?? Bundle.main.resourceURL?.appendingPathComponent("Web")
+        guard let file = dir?.appendingPathComponent("sphere.html").path else { return }
+        let mtime = { (try? FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date) ?? nil }
+        var loaded = mtime(), seen = loaded
+        webWatch = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                let now = mtime()
+                defer { seen = now }
+                guard let now, now != loaded, now == seen, let web = self?.sphereView as? WKWebView else { return }
+                loaded = now
+                print("orbit: sphere.html changed, reloading"); fflush(stdout)
+                web.reload()
+            }
+        }
+    }
     /// 11-23 Keng「4 選項答案卡跳出來應該在終端機上方，它要幫我們加速工作流程」：衛星小視窗是原生 view、蓋在球體網頁上，
     /// 網頁的 z-index 管不到 ⇒ 每 0.3 秒問球體答案卡（＋送出後的「復原」提示）在哪，蓋到它的衛星整個淡出、點擊穿過去；答完恢復
     private func watchAskCard() {
@@ -444,7 +464,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 self?.arrangeSats(in: v.count == 4 ? CGRect(x: v[0], y: v[1], width: v[2], height: v[3]) : nil)
             }
         }
-        watchAskCard()
+        watchAskCard(); watchSphereFile()
         // ⌃⌘F：全螢幕桌面模式切換（macOS 標準快捷鍵）
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             if e.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.control, .command], e.charactersIgnoringModifiers?.lowercased() == "f" {
