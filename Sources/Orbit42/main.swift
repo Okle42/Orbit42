@@ -34,11 +34,24 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard let d = text.data(using: .utf8) else { return }
         sats[id]?.pty?.write(d)
     }
-    /// 紅燈：結束這顆衛星（Orbit42 開的會關；背景 session 只關檢視）
+    /// 11-23 Keng「叉叉關閉連背景 session 都要能被我關掉」⇒ 拉進來看的背景 session 也用官方 `claude stop <job>` 停掉（對話保留，之後可以 claude attach 接回來）
     func end(_ id: String) {
         guard let s = sats[id] else { onRemoved(id); return }
         s.pty?.hangup(); sats[id] = nil; order.removeAll { $0 == id }; views[id] = nil
+        if let job = s.attachedJob { Self.stopBackground(job) }
         onRemoved(id); pushSats()
+    }
+    /// 背景跑，不卡畫面；結果印在 log（ORBIT_TEST_STOP_CMD 測試時換掉指令，不碰真的 session）
+    nonisolated static func stopBackground(_ job: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        let cmd = ProcessInfo.processInfo.environment["ORBIT_TEST_STOP_CMD"] ?? "claude stop"
+        p.arguments = ["-l", "-c", "\(cmd) \"$1\"", "orbit-stop", job]
+        p.terminationHandler = { t in print("stop background \(job) exit=\(t.terminationStatus)"); fflush(stdout) }
+        do { try p.run() } catch { print("stop background \(job) failed: \(error)"); fflush(stdout) }
+    }
+    func attachForTest(job: String) {
+        userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": "測試背景", "cwd": NSHomeDirectory()]))
     }
     func name(_ id: String) -> String { sats[id]?.name ?? id }
     func isAttached(_ id: String) -> Bool { sats[id]?.attachedJob != nil }
@@ -489,7 +502,10 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         if let at = env["ORBIT_TEST_CLOSE"].flatMap(Double.init) {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak self] in MainActor.assumeIsolated {
                 guard let self else { return }
-                let id = self.host.runCommand(name: "測試衛星", brain: .claude, command: "/bin/sleep 600")
+                // ORBIT_TEST_CLOSE_JOB=<假 job> ⇒ 改測「拉進來看的背景 session」（配 ORBIT_TEST_STOP_CMD=echo，不碰真的）
+                let id: String
+                if let job = env["ORBIT_TEST_CLOSE_JOB"] { self.host.attachForTest(job: job); id = "bg-" + job }
+                else { id = self.host.runCommand(name: "測試衛星", brain: .claude, command: "/bin/sleep 600") }
                 @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
                 @MainActor func click() {
                     guard let w = self.satWins[id] else { print("close: no window"); return }
@@ -770,14 +786,14 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     }
     /// 11-23 Keng「點左上角綠燈應該是完全關閉：按下去先跟我確認，確認後清掉整個內容再關掉」
     /// 確認 → host.end：掛斷終端機程式（Orbit42 開的 AI 會結束）、丟掉捲動紀錄與網頁視圖、從球上拿掉 → onRemoved 關小視窗。
-    /// 拉進來看的背景 session 只結束檢視（session 本身是別人的，不替他砍）
+    /// 拉進來看的背景 session 也一起停掉（claude stop）
     private func confirmEnd(_ id: String) {
         guard window.attachedSheet == nil else { return }
         let a = NSAlert()
         a.alertStyle = .warning
         a.messageText = "關閉「\(host.name(id))」？"
         a.informativeText = host.isAttached(id)
-            ? "會關掉這個視窗並清掉畫面上的全部內容。背景 session 本身會繼續跑。"
+            ? "會停掉這個背景 session（裡面正在跑的工作會中斷），並清掉這個視窗的全部內容。對話紀錄會保留，之後可以用 claude attach 接回來。"
             : "會結束這顆衛星裡正在跑的程式，並清掉這個視窗的全部內容，無法還原。"
         let ok = a.addButton(withTitle: "關閉"); ok.hasDestructiveAction = true
         a.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
