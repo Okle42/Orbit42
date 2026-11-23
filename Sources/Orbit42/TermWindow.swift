@@ -97,22 +97,23 @@ final class TermWindowView: NSView {
         guard on != breathing, let clip = subviews.first?.layer, let me = layer else { return }
         breathing = on
         if on {
-            // 11-23 Keng 第二輪：呼吸光改白光、範圍再減半（光暈半徑 3→6、邊框 1→1.3）
-            let white = NSColor.white.cgColor
+            // 11-23 Keng 第三輪：淺色背景白光看不到 ⇒ 改深灰光（範圍維持半徑 3→6、邊框 1→1.3）
+            let gray = NSColor(white: 0.2, alpha: 1).cgColor
             let border = CABasicAnimation(keyPath: "borderColor")
-            border.fromValue = NSColor(white: 1, alpha: 0.35).cgColor; border.toValue = white
+            border.fromValue = NSColor(white: 0.3, alpha: 0.3).cgColor; border.toValue = NSColor(white: 0.25, alpha: 0.9).cgColor
             let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 1.3
-            let glow = CABasicAnimation(keyPath: "shadowColor"); glow.fromValue = NSColor.black.cgColor; glow.toValue = white
+            let glow = CABasicAnimation(keyPath: "shadowColor"); glow.fromValue = gray; glow.toValue = gray
             let gr = CABasicAnimation(keyPath: "shadowRadius"); gr.fromValue = 3; gr.toValue = 6
-            for a in [border, width, glow, gr] {
+            let op = CABasicAnimation(keyPath: "shadowOpacity"); op.fromValue = 0.45; op.toValue = 0.9
+            for a in [border, width, glow, gr, op] {
                 a.duration = 1.4; a.autoreverses = true; a.repeatCount = .infinity
                 a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             }
             clip.add(border, forKey: "breathB"); clip.add(width, forKey: "breathW")
-            me.add(glow, forKey: "breathG"); me.add(gr, forKey: "breathR")
+            me.add(glow, forKey: "breathG"); me.add(gr, forKey: "breathR"); me.add(op, forKey: "breathO")
         } else {
             for k in ["breathB", "breathW"] { clip.removeAnimation(forKey: k) }
-            for k in ["breathG", "breathR"] { me.removeAnimation(forKey: k) }
+            for k in ["breathG", "breathR", "breathO"] { me.removeAnimation(forKey: k) }
         }
     }
 
