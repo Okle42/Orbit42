@@ -39,7 +39,9 @@
   /* ?term=1：嵌在 Orbit42 主視窗右邊當終端機面板（球體由 ShoWork 的完整球體負責） */
   body.termOnly #gl, body.termOnly #bar, body.termOnly #hint, body.termOnly #labels, body.termOnly #menu, body.termOnly #bgMenu { display: none !important; }
   body.termOnly #panel { top: 0; width: 100%; transform: none; transition: none; border-left: 0; }
-  body.termOnly #phead { display: none; }      /* 標題列和三顆燈由原生小視窗畫（可以拖動） */
+  body.termOnly #phead { display: none; }
+  /* 11-23 Keng：毛玻璃——網頁本身全透明，模糊由原生小視窗底層（NSVisualEffectView）做，終端機底色半透明（色票 background 帶 alpha） */
+  html:has(body.termOnly), body.termOnly, body.termOnly #panel, body.termOnly #terms { background: transparent !important; }      /* 標題列和三顆燈由原生小視窗畫（可以拖動） */
 </style>
 </head>
 <body>
@@ -162,11 +164,11 @@ let active = null;
 // 11-23 Keng「終端機好多種顏色，要符合我們的風格」：只留黑白灰＋紅 ⇒ 綠黃藍紫青改成不同深淺的灰
 // Okle42 深／淺兩套色票（跟 Ghostty 的 Okle42-Dark／Okle42-Light 同一份）：Claude Code 的 okle42 樣式用 ANSI 色名，所以對話框跟著換
 const THEMES = {
-  dark: { background: "#0d0d0f", foreground: "#ededed", cursor: "#ff3b30", cursorAccent: "#0d0d0f", selectionBackground: "#3a1a19",
+  dark: { background: "#0d0d0f8c", foreground: "#ededed", cursor: "#ff3b30", cursorAccent: "#0d0d0f", selectionBackground: "#3a1a19",
     black: "#1a1a1b", red: "#ff3b30", green: "#b0b0b0", yellow: "#e0e0e0", blue: "#9a9a9a", magenta: "#c8c8c8", cyan: "#bdbdbd", white: "#d4d4d4",
     brightBlack: "#5c5c5c", brightRed: "#ff6b61", brightGreen: "#c4c4c4", brightYellow: "#f0f0f0", brightBlue: "#ababab", brightMagenta: "#d6d6d6", brightCyan: "#cccccc", brightWhite: "#ffffff" },
   // 11-23 Keng「淺色看得好累」：淺色版提高對比——底稍微亮一點、一般字幾乎黑、灰字和各顏色都壓深到對比 4.5:1 以上
-  light: { background: "#fbfbf9", foreground: "#111111", cursor: "#d7261b", cursorAccent: "#ffffff", selectionBackground: "#f2c4bf",
+  light: { background: "#fbfbf98c", foreground: "#111111", cursor: "#d7261b", cursorAccent: "#ffffff", selectionBackground: "#f2c4bf",
     black: "#111111", red: "#c4211a", green: "#3a3a3a", yellow: "#2a2a2a", blue: "#4f4f4f", magenta: "#333333", cyan: "#444444", white: "#4a4a4a",
     brightBlack: "#6a6a6a", brightRed: "#d7261b", brightGreen: "#303030", brightYellow: "#222222", brightBlue: "#454545", brightMagenta: "#2e2e2e", brightCyan: "#3d3d3d", brightWhite: "#111111" },
 };
@@ -186,11 +188,12 @@ sysDark.addEventListener("change", () => { if (!new URLSearchParams(location.sea
 function makeTerm(id) {
   const el = document.createElement("div"); el.className = "term"; $("terms").appendChild(el);
   const term = new Terminal({ fontFamily: '"SF Mono", Menlo, "PingFang TC", monospace', fontSize: 13, lineHeight: 1.15, theme: THEME,
-    cursorBlink: true, allowProposedApi: true, scrollback: 10000, macOptionIsMeta: true });
+    cursorBlink: true, allowProposedApi: true, allowTransparency: true, scrollback: 10000, macOptionIsMeta: true });
   const fit = new FitAddon.FitAddon(); term.loadAddon(fit);
   try { term.loadAddon(new Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion = "11"; } catch {}
   term.open(el);
-  try { term.loadAddon(new WebglAddon.WebglAddon()); } catch {}
+  // 11-23 毛玻璃：WebGL 繪圖在半透明底色下會留殘影（舊字塊不清掉）⇒ 透明時改用一般 DOM 繪圖
+  if (!TERM_ONLY) try { term.loadAddon(new WebglAddon.WebglAddon()); } catch {}
   term.onData(data => post({ action: "input", id, data }));
   // 11-23：Claude Code 的「自動」主題會問終端機背景是什麼顏色（OSC 11／10）。xterm.js 預設不回答，
   // Claude Code 就當成深色背景、用白字 ⇒ 淺色模式下你送出的訊息、標籤都變成白字看不到。這裡照目前色票回答。

@@ -11,6 +11,7 @@ final class TermWindowView: NSView {
     var onClose: () -> Void = {}
     var onMinimize: () -> Void = {}
     private let bar = NSView()
+    private let glass = NSVisualEffectView()
     private let lights: [TrafficLight]
     private var zoomedFrom: NSRect?
     static let barHeight: CGFloat = 34
@@ -36,6 +37,13 @@ final class TermWindowView: NSView {
         clip.layer?.borderWidth = 1
         clip.autoresizingMask = [.width, .height]
         addSubview(clip)
+
+        // 11-23 Keng「衛星終端機也要毛玻璃半透明」：最底層是 macOS 原生模糊材質，透出後面的球體；標題列和終端機底色都半透明
+        glass.blendingMode = .withinWindow
+        glass.material = .hudWindow
+        glass.state = .active
+        glass.autoresizingMask = [.width, .height]
+        clip.addSubview(glass)
 
         bar.wantsLayer = true
         bar.autoresizingMask = [.width, .minYMargin]
@@ -150,7 +158,8 @@ final class TermWindowView: NSView {
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyColors() }
     private func applyColors() {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        bar.layer?.backgroundColor = (dark ? NSColor(white: 0.09, alpha: 1) : NSColor(white: 0.93, alpha: 1)).cgColor
+        glass.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        bar.layer?.backgroundColor = (dark ? NSColor(white: 0.09, alpha: 0.35) : NSColor(white: 0.97, alpha: 0.35)).cgColor
         subviews.first?.layer?.borderColor = (dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)).cgColor
         titleLabel.textColor = dark ? NSColor(white: 0.93, alpha: 1) : NSColor(white: 0.08, alpha: 1)
         lights.forEach { $0.needsDisplay = true }
