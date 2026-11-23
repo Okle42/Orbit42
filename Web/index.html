@@ -6,7 +6,7 @@
 <title>Orbit42</title>
 <link rel="stylesheet" href="vendor/xterm-5.5.0/xterm.css">
 <style>
-  :root { --bg:#0b0b0c; --panel:rgba(18,18,20,.92); --line:#2a2a2d; --ink:#ededed; --dim:#8a8a8f; --acc:#ff3b30; --gold:#d9b45a; --term:#0d0d0f; }
+  :root { --bg:#0b0b0c; --panel:rgba(18,18,20,.92); --line:#2a2a2d; --ink:#ededed; --dim:#8a8a8f; --acc:#4fc36a; --gold:#d9b45a; --term:#0d0d0f; }
   :root[data-theme="light"] { --bg:#fbfbf9; --panel:rgba(250,250,248,.94); --line:#d8d8d4; --ink:#141414; --dim:#6e6e6e; --acc:#d7261b; --gold:#a8801f; --term:#fbfbf9; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px -apple-system, "PingFang TC", sans-serif; overflow: hidden; }
@@ -166,10 +166,11 @@ const terms = new Map();     // id → { term, fit, el }
 let active = null;
 // 11-23 Keng「終端機好多種顏色，要符合我們的風格」：只留黑白灰＋紅 ⇒ 綠黃藍紫青改成不同深淺的灰
 // Okle42 深／淺兩套色票（跟 Ghostty 的 Okle42-Dark／Okle42-Light 同一份）：Claude Code 的 okle42 樣式用 ANSI 色名，所以對話框跟著換
+// 11-23 Keng：深色的紅全部改護眼綠（像軍用夜視綠，眼睛不疲勞）；淺色維持紅。Claude Code 的真彩色紅也經 okRGB 換成 THEME.red ⇒ 一起變綠
 const THEMES = {
-  dark: { background: "#0d0d0f1f", foreground: "#ededed", cursor: "#ff3b30", cursorAccent: "#0d0d0f", selectionBackground: "#3a1a19",
-    black: "#1a1a1b", red: "#ff3b30", green: "#b0b0b0", yellow: "#e0e0e0", blue: "#9a9a9a", magenta: "#c8c8c8", cyan: "#bdbdbd", white: "#d4d4d4",
-    brightBlack: "#5c5c5c", brightRed: "#ff6b61", brightGreen: "#c4c4c4", brightYellow: "#f0f0f0", brightBlue: "#ababab", brightMagenta: "#d6d6d6", brightCyan: "#cccccc", brightWhite: "#ffffff" },
+  dark: { background: "#0d0d0f1f", foreground: "#ededed", cursor: "#4fc36a", cursorAccent: "#0d0d0f", selectionBackground: "#173a20",
+    black: "#1a1a1b", red: "#4fc36a", green: "#b0b0b0", yellow: "#e0e0e0", blue: "#9a9a9a", magenta: "#c8c8c8", cyan: "#bdbdbd", white: "#d4d4d4",
+    brightBlack: "#5c5c5c", brightRed: "#7fd98f", brightGreen: "#c4c4c4", brightYellow: "#f0f0f0", brightBlue: "#ababab", brightMagenta: "#d6d6d6", brightCyan: "#cccccc", brightWhite: "#ffffff" },
   // 11-23 Keng「淺色看得好累」：淺色版提高對比——底稍微亮一點、一般字幾乎黑、灰字和各顏色都壓深到對比 4.5:1 以上
   light: { background: "#fbfbf91f", foreground: "#111111", cursor: "#d7261b", cursorAccent: "#ffffff", selectionBackground: "#f2c4bf",
     black: "#111111", red: "#c4211a", green: "#3a3a3a", yellow: "#2a2a2a", blue: "#4f4f4f", magenta: "#333333", cyan: "#444444", white: "#4a4a4a",
@@ -275,7 +276,7 @@ const okRGB = (r, g, b, bg) => {
   if (mx !== mn) { const d = mx - mn; h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h = (h * 60 + 360) % 360; }
   if (sat > 0.35 && (h <= 30 || h >= 335) && mx > 90) {              // 紅、橘 ⇒ 品牌紅（底色用暗紅／淡紅，字才看得到）
     if (!bg) return THEME.red;
-    return themeName === "dark" ? "#3a1a19" : "#f6d4d1";
+    return themeName === "dark" ? "#173a20" : "#f6d4d1";
   }
   let L = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
   // 11-23 Keng「淺色模式不能有白字、淺灰字，至少要深灰到紅」：淺色時字一律壓到 #1a1a1a～#555555（原本越亮→這區間越淺），
