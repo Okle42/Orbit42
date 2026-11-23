@@ -237,7 +237,8 @@ new ResizeObserver(() => {
     const before = t.term.cols + "x" + t.term.rows;
     t.fit.fit();
     // 寬度變了：舊內容按新寬度重新折行，表格框線一定錯位 ⇒ 清空畫面與捲軸，再請程式（Ctrl+L）照新寬度整個重畫
-    // （實驗中）寬度變了只通知一次新尺寸，讓程式自己整頁重畫；不再另外清畫面／送 Ctrl+L（會跟它的重畫打架）
+    // 寬度變了只通知新尺寸，讓程式自己重畫；不另外清畫面、不送 Ctrl+L（11-23 實驗：那兩個會跟它的重畫打架，整片錯位）
+    // 變窄時舊內容只是被切掉（不是錯位），再拉寬就回來
   }, 300);
 }).observe($("terms"));
 function fitActive() { const t = active && terms.get(active); if (t) t.fit.fit(); }

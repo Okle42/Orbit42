@@ -152,12 +152,19 @@ final class TermWindowView: NSView {
 
     /// Remembered frame, or a default on the right side of `bounds`
     func restoredFrame(in bounds: NSRect) -> NSRect {
-        if let s = UserDefaults.standard.string(forKey: Self.key) {
-            let f = NSRectFromString(s)
-            if f.width >= 420, f.height >= 260, bounds.intersects(f.insetBy(dx: 60, dy: 60)) { return f }
-        }
-        let w = max(560, bounds.width * 0.5), h = bounds.height - 120
-        return NSRect(x: bounds.width - w - 28, y: 40, width: w, height: h)
+        var f: NSRect
+        if let s = UserDefaults.standard.string(forKey: Self.key), case let r = NSRectFromString(s), r.width >= 420, r.height >= 260 { f = r }
+        else { let w = max(560, bounds.width * 0.5); f = NSRect(x: bounds.width - w - 28, y: 40, width: w, height: bounds.height - 120) }
+        return Self.fit(f, in: bounds)
+    }
+    /// 11-23 Keng：記住的大小比目前 Orbit42 視窗還大（例如上次在全螢幕）⇒ 縮進來、整個留在視窗裡（上面留標題列的空間）
+    static func fit(_ r: NSRect, in b: NSRect) -> NSRect {
+        var f = r
+        f.size.width = min(f.width, max(420, b.width - 32))
+        f.size.height = min(f.height, max(260, b.height - 72))
+        f.origin.x = min(max(f.origin.x, 16), max(16, b.width - f.width - 16))
+        f.origin.y = min(max(f.origin.y, 16), max(16, b.height - f.height - 44))
+        return f
     }
     func save() { if zoomedFrom == nil { UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.key) } }
 }

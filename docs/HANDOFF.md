@@ -30,7 +30,9 @@ ORBIT_OFFSCREEN=1 SHOWORK_WEB_DIR=~/github-repos/_wt-ShoWork42-sphere/windows/Sh
 - Keng 常在 Orbit42 裡用「背景 session」attach 看 Bella：**重開 Orbit42 前先查它有沒有子程序在用**（`pgrep -P <Orbit42 pid>`＋tty 最後輸入），有就不要自己重開
 - 關任何程序前看終端機最後輸入時間（記憶 feedback_關程序前看終端機有沒有人在用）
 
-## 進行中：調大小後內容錯位（Keng 11-23 10:39 錄影，最優先）
+## 調大小後內容錯位（11-23 已處理，待 Keng 實測）
+- 結論：採實驗 3（只 fit、不 reset、不送 Ctrl+L）——變窄時舊內容被切掉不錯位，拉寬回來；Ctrl+L／reset 才是錯位元兇
+- 小視窗記住的大小一律 `TermWindowView.fit` 縮進目前 Orbit42 視窗（之前全螢幕記的大小在小視窗會超出）
 - 現象：拖小視窗右下角改寬度後，之前輸出的表格／框線整片錯位（attach 看 Bella 的 session 也一樣）
 - 實驗 1（commit 8944276，App 裡現在這版）：停 300ms 才 fit＋寬度變了送 Ctrl+L → 還是亂（舊內容被 xterm 按新寬度重新折行）
 - 實驗 2：fit 後 `term.reset()` 再送 Ctrl+L → 更亂（推測 reset 把 Claude 收到 SIGWINCH 後的整頁重畫清掉，Ctrl+L 只重畫底部）

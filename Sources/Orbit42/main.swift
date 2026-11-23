@@ -406,12 +406,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private func layoutTerm() {
         guard let root = window.contentView, term != nil else { return }
         if term.isHidden { term.frame = term.restoredFrame(in: root.bounds); term.layoutSubtreeIfNeeded() }
-        else {                                            // 視窗變小時把終端機夾回畫面內
-            var f = term.frame
-            f.origin.x = min(max(f.origin.x, -f.width + 120), root.bounds.width - 120)
-            f.origin.y = min(max(f.origin.y, -f.height + 50), root.bounds.height - TermWindowView.barHeight)
-            term.frame = f
-        }
+        else { term.frame = TermWindowView.fit(term.frame, in: root.bounds) }     // Orbit42 視窗變小：終端機縮進來、留在視窗裡
     }
     /// 終端機小視窗：打開時從下方放大淡入（像 macOS 開視窗），收起時縮小淡出
     func setTerm(_ on: Bool) {
