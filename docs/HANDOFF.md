@@ -26,6 +26,8 @@ ORBIT_OFFSCREEN=1 SHOWORK_WEB_DIR=~/github-repos/_wt-ShoWork42-sphere/windows/Sh
 其他：`ORBIT_TEST_LOGIN_SHOT`（登入畫面）、`ORBIT_TEST_TERM_SHOT`＋`_DELAY`（原生小視窗）、`ORBIT_TEST_RAW`（錄 PTY 原始輸出查顏色碼）
 
 ## 坑
+- **改完 Orbit42 一定要先跑一次螢幕外啟動（ORBIT_TEST_LOGIN_SHOT＋ORBIT_TEST_QUIT）再打包重開**：11-23 疊放順序修改沒先跑，App 一開就閃退三次。另外 Orbit42 閃退時不會把 ShoWorkAgent 開回來（atexit 沒跑），要手動 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.okle42.showork.agent.plist` 或再開 Orbit42
+- 疊放順序：球體 → 登入畫面 → 終端機小視窗（登入畫面放錯層會被球體蓋住）
 - okle42 樣式不能用 ANSI 色名（white/red）：Claude Code 會換成固定 RGB，不跟深淺 ⇒ 用主題鍵 text／subtle／inactive／error
 - Keng 常在 Orbit42 裡用「背景 session」attach 看 Bella：**重開 Orbit42 前先查它有沒有子程序在用**（`pgrep -P <Orbit42 pid>`＋tty 最後輸入），有就不要自己重開
 - 關任何程序前看終端機最後輸入時間（記憶 feedback_關程序前看終端機有沒有人在用）
