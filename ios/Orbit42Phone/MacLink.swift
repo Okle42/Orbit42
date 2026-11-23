@@ -61,7 +61,7 @@ struct OrbitAPI: Sendable {
         var errorDescription: String? {
             switch self {
             case .status(let c, let m): return c == 403 ? "連不上：\(m)（網址或密碼可能換過了）" : "\(m)（\(c)）"
-            case .offline(let m): return "連不到 Mac：\(m)（Mac 開著嗎？手機的 Tailscale 有連上嗎？）"
+            case .offline(let m): return "連不到 Mac：\(m)（Mac 開著嗎？上面的 Tailscale 有顯示已連上嗎？）"
             }
         }
     }
@@ -77,7 +77,9 @@ struct OrbitAPI: Sendable {
             r.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
         let (d, resp): (Data, URLResponse)
-        do { (d, resp) = try await URLSession.shared.data(for: r) } catch { throw Failure.offline(error.localizedDescription) }
+        // App 內建 Tailscale 上線了就走它（不用開 Tailscale App）；還沒上線就用系統網路（手機有開 Tailscale App 時也通）
+        let session = Tailnet.session ?? URLSession.shared
+        do { (d, resp) = try await session.data(for: r) } catch { throw Failure.offline(error.localizedDescription) }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
             let msg = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["error"] as? String ?? "出錯了"

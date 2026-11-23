@@ -6,12 +6,17 @@ import VisionKit
 @main
 struct Orbit42PhoneApp: App {
     @State private var link: MacLink? = ProcessInfo.processInfo.environment["ORBIT_PHONE_DEMO"] != nil ? .demo : MacLink.load()
+    @StateObject private var tailnet = Tailnet.shared
+    @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
             Group {
                 if let link { MainView(link: link) { MacLink.forget(); self.link = nil } }
                 else { ConnectView { l in l.save(); self.link = l } }
             }
+            .environmentObject(tailnet)
+            .onAppear { if link?.isDemo != true { tailnet.start() } }        // App 內建 Tailscale：一打開就上線（第一次要登入）
+            .onChange(of: phase) { _, p in if p == .active { tailnet.refresh() } }
             .preferredColorScheme(.dark)
             .tint(Color(red: 0.31, green: 0.765, blue: 0.416))
         }
@@ -22,6 +27,7 @@ struct Orbit42PhoneApp: App {
 
 struct ConnectView: View {
     var onLink: (MacLink) -> Void
+    @EnvironmentObject var tailnet: Tailnet
     @State private var text = ""
     @State private var error: String?
     @State private var scanning = false
@@ -33,10 +39,9 @@ struct ConnectView: View {
                 (Text("OKLE").foregroundStyle(.white) + Text("42").foregroundStyle(.yellow) + Text("  ·  ORBIT").foregroundStyle(.secondary) + Text("42").foregroundStyle(.yellow))
                     .font(.system(size: 12, weight: .semibold, design: .monospaced)).kerning(3)
                 Text("連到你的 Mac").font(.largeTitle.bold())
-                Text("在 Mac 的終端機跑下面這行，把印出來的網址貼到這裡（或掃它的 QR code）。手機和 Mac 都要連上 Tailscale。")
+                TailnetBox()
+                Text("② 在 Mac 上連點兩下桌面的「Orbit42 手機配對」，用下面的按鈕掃跳出來的 QR code（或貼上網址）。")
                     .foregroundStyle(.secondary)
-                Text("showork web enable").font(.system(.body, design: .monospaced)).padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
                 TextField("http://100.x.y.z:埠/?t=…", text: $text, axis: .vertical)
                     .font(.system(.callout, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .padding(12).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
@@ -50,6 +55,7 @@ struct ConnectView: View {
                 }
                 Divider().padding(.vertical, 6)
                 Button("先看示範（不連線）") { onLink(.demo) }.buttonStyle(.bordered)
+                    .onAppear { tailnet.start() }
                 Text("Orbit42 不經手你的 AI 帳號密碼：手機只看得到 Mac 上 Orbit42 的畫面，能做的只有回答答案卡。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
@@ -95,6 +101,7 @@ struct MainView: View {
     let link: MacLink
     var onForget: () -> Void
     @StateObject private var sphere: SphereModel
+    @EnvironmentObject var tailnet: Tailnet
     @State private var tab = 0
     @State private var sats: [Sat] = []
     @State private var path: [Sat] = []
@@ -110,7 +117,8 @@ struct MainView: View {
             ZStack(alignment: .bottom) {
                 Color.black.ignoresSafeArea()
                 WebBox(web: sphere.web)          // 避開瀏海／動態島和分頁列（球體的工具列、狀態字才不會被蓋到）
-                if let e = sphere.error { Banner(text: e) }
+                if !link.isDemo, !tailnet.isRunning { TailnetBox().padding() }      // 內建 Tailscale 還沒上線（例如要重新登入）：主畫面也給登入按鈕
+                else if let e = sphere.error { Banner(text: e) }
             }
             .tabItem { Label("球體", systemImage: "circle.hexagongrid") }.tag(0)
 
@@ -191,4 +199,30 @@ struct Banner: View {
         Text(text).font(.footnote).padding(10).frame(maxWidth: .infinity)
             .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 10)).padding()
     }
+}
+
+/// ① App 內建 Tailscale 的狀態：沒登入就給登入按鈕（開 Safari 用 okle42.ai 登入，之後會記住）
+struct TailnetBox: View {
+    @EnvironmentObject var tailnet: Tailnet
+    @Environment(\.openURL) private var openURL
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).font(.title2).foregroundStyle(color).frame(width: 28)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("① Tailscale（App 內建，不用另外開 Tailscale App）").font(.subheadline.weight(.semibold))
+                switch tailnet.state {
+                case .off, .starting: Text("啟動中…").foregroundStyle(.secondary)
+                case .needsLogin(let url):
+                    Text("第一次要登入：用 okle42.ai 帳號，登入一次就會記住。").foregroundStyle(.secondary)
+                    Button { openURL(url) } label: { Label("登入 Tailscale", systemImage: "person.badge.key") }.buttonStyle(.borderedProminent)
+                case .running(let ip): Text("已連上私人網路（\(ip)）").foregroundStyle(.secondary)
+                case .failed(let m): Text(m).foregroundStyle(.red)
+                }
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+    var icon: String { if case .running = tailnet.state { return "checkmark.shield.fill" }; if case .failed = tailnet.state { return "exclamationmark.triangle.fill" }; return "network" }
+    var color: Color { if case .running = tailnet.state { return .green }; if case .failed = tailnet.state { return .red }; return .secondary }
 }
