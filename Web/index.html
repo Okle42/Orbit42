@@ -284,11 +284,22 @@ new ResizeObserver(() => {
 }).observe($("terms"));
 function fitActive() { const t = active && terms.get(active); if (t) MIRROR ? mirrorFit(t) : t.fit.fit(); }
 // 鏡像：行列數照 Mac（window.orbitMirror(cols, rows)），字級依手機寬度算（等寬字寬約 0.6 個字級）
+// 11-24 Keng「手機終端機只顯示一半，上面補更早的對話、塞滿整個畫面」：寬度照 Mac 的行數縮完，高度通常只用到一半
+// ⇒ 一般畫面時手機自己的行數＝塞得下的行數（≥ Mac 的），多出來的行數 xterm 會把捲回去的舊內容拉下來補滿；
+// 全螢幕程式（alternate buffer，例如 vim）要精準的行座標，維持跟 Mac 一樣的行數
+function mirrorRows(t) {
+  if (t.term.buffer.active.type === "alternate") return mirrorSize.rows;
+  const cell = t.term._core?._renderService?.dimensions?.css?.cell?.height || t.term.options.fontSize * (t.term.options.lineHeight || 1) * 1.2;
+  const h = $("terms").clientHeight - 12;
+  return Math.max(mirrorSize.rows, Math.floor(h / cell));
+}
 function mirrorFit(t) {
   if (!mirrorSize) return;
   const w = $("terms").clientWidth - 8;
   t.term.options.fontSize = Math.max(5, Math.min(14, Math.floor(w / (mirrorSize.cols * 0.6) * 10) / 10));
-  if (t.term.cols !== mirrorSize.cols || t.term.rows !== mirrorSize.rows) t.term.resize(mirrorSize.cols, mirrorSize.rows);
+  if (t.term.cols !== mirrorSize.cols) t.term.resize(mirrorSize.cols, t.term.rows);
+  // 改字級後等一下（xterm 重量格子），量到的格子高度才是新的；不用 rAF（畫面在背景時 rAF 會停）
+  clearTimeout(t.rowsT); t.rowsT = setTimeout(() => { const rows = mirrorRows(t); if (t.term.rows !== rows) t.term.resize(mirrorSize.cols, rows); }, 80);
 }
 // 11-24 Keng「手機點不到 21 new messages 那顆按鈕」：手機點一下＝滑鼠點一下、上下滑＝滾輪（xterm 自己照程式要的格式編碼；
 // 沒開滑鼠模式時，滾輪就是捲回頭看）。鍵盤預設不跳（inputmode none），按上面的鍵盤鈕才打字（window.orbitKeyboard）
@@ -296,6 +307,7 @@ const MIRROR_REPLY = /^\x1b(\[\??[\d;]*[Rcnt]|\[>[\d;]*c|\[[IO]|\[\?[\d;]*\$y|\]
 let kbOn = false;
 function mirrorTouch(t) {
   if (t.touch) return; t.touch = true;
+  t.term.buffer.onBufferChange(() => mirrorFit(t));          // 進出全螢幕程式：行數跟著切換
   const ta = t.term.textarea; ta?.setAttribute("inputmode", "none");
   const scr = () => t.el.querySelector(".xterm-screen") || t.el;
   const mouse = (type, p, buttons) => scr().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, clientX: p.clientX, clientY: p.clientY, button: 0, buttons }));
