@@ -1,8 +1,6 @@
 import Foundation
 import Darwin
 
-// ioctl is variadic in C and not imported into Swift; declare the one shape we need (window size).
-@_silgen_name("ioctl") private func ioctl_ptr(_ fd: Int32, _ request: UInt, _ ptr: UnsafeMutableRawPointer) -> Int32
 
 /// One pseudo-terminal running one command (a satellite's terminal).
 /// Output arrives on a background queue via `onData`; `onExit` fires once when the child ends.
@@ -88,7 +86,9 @@ final class Pty: @unchecked Sendable {
 
     func resize(cols: Int, rows: Int) {
         var win = winsize(ws_row: UInt16(max(rows, 2)), ws_col: UInt16(max(cols, 10)), ws_xpixel: 0, ws_ypixel: 0)
-        _ = ioctl_ptr(fd, UInt(TIOCSWINSZ), &win)
+        // 11-23 修：之前用 @_silgen_name 自己宣告 ioctl（非可變參數），在 Apple 晶片上可變參數走堆疊、不走暫存器
+        // ⇒ 指標傳錯、改尺寸從來沒成功，程式收不到 SIGWINCH，調視窗大小後畫面整片錯位。改用 Darwin 內建的 ioctl 包裝
+        _ = ioctl(fd, UInt(TIOCSWINSZ), &win)
     }
 
     /// Hang up: the shell and its children get SIGHUP like when a terminal window closes.

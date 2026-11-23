@@ -1,3 +1,4 @@
+import WebKit
 import AppKit
 
 /// A satellite's terminal as a small window inside Orbit42: title bar you can drag, macOS-style
@@ -108,8 +109,16 @@ final class TermWindowView: NSView {
     // MARK: 拖檔案／截圖進來（11-23 Keng）：像 Ghostty 一樣把路徑貼進終端機（空白等特殊字元加反斜線），Claude Code 會把圖片當附件
     var onDropPaths: ([String]) -> Void = { _ in }
     func acceptFileDrops() {
-        content.unregisterDraggedTypes()            // 網頁不接，交給這個小視窗
+        // 11-23 修：之前只在小視窗註冊、把網頁的拖放取消，但 WKWebView 會自己重新註冊、搶在前面 ⇒ 檔案拖進來沒反應
+        // ⇒ 網頁視圖（DropWebView）自己接檔案，轉給這裡；小視窗本身（標題列）也照樣接
         registerForDraggedTypes([.fileURL])
+        if let w = content as? DropWebView {
+            w.onFiles = { [weak self] urls in self?.onDropPaths(urls.map { Self.shellEscape($0.path) }) }
+            w.onHover = { [weak self] on in
+                self?.layer?.borderWidth = on ? 2 : 0
+                self?.layer?.borderColor = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 0.9).cgColor
+            }
+        }
     }
     override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation {
         layer?.borderWidth = 2; layer?.borderColor = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 0.9).cgColor; return .copy
@@ -164,7 +173,7 @@ final class TermWindowView: NSView {
     }
     override func mouseUp(with e: NSEvent) { if dragStart != nil { dragStart = nil; save() } }
 
-    private func resizeBy(dx: CGFloat, dy: CGFloat) {
+    func resizeBy(dx: CGFloat, dy: CGFloat) {
         var f = frame
         f.size.width = max(420, f.width + dx)
         let h = max(260, f.height - dy)
@@ -271,5 +280,37 @@ final class ResizeGrip: NSView {
             let p = NSBezierPath(); p.lineWidth = 1
             p.move(to: NSPoint(x: bounds.maxX - k, y: 2)); p.line(to: NSPoint(x: bounds.maxX - 2, y: k)); p.stroke()
         }
+    }
+}
+
+
+/// 終端機網頁視圖：拖檔案進來＝貼上檔案路徑（WKWebView 預設會自己吃掉拖放，網頁也拿不到真實路徑）
+final class DropWebView: WKWebView {
+    var onFiles: (([URL]) -> Void)?
+    var onHover: (Bool) -> Void = { _ in }
+    private func files(_ s: NSDraggingInfo) -> [URL] {
+        s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+    override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation {
+        guard onFiles != nil, !files(s).isEmpty else { return super.draggingEntered(s) }
+        onHover(true); return .copy
+    }
+    override func draggingUpdated(_ s: NSDraggingInfo) -> NSDragOperation {
+        guard onFiles != nil, !files(s).isEmpty else { return super.draggingUpdated(s) }
+        return .copy
+    }
+    override func draggingExited(_ s: NSDraggingInfo?) { onHover(false); super.draggingExited(s) }
+    override func prepareForDragOperation(_ s: NSDraggingInfo) -> Bool {
+        guard onFiles != nil, !files(s).isEmpty else { return super.prepareForDragOperation(s) }
+        return true
+    }
+    override func performDragOperation(_ s: NSDraggingInfo) -> Bool {
+        let urls = files(s)
+        guard let cb = onFiles, !urls.isEmpty else { return super.performDragOperation(s) }
+        onHover(false); cb(urls); return true
+    }
+    override func concludeDragOperation(_ s: NSDraggingInfo?) {
+        if onFiles != nil, let s, !files(s).isEmpty { return }
+        super.concludeDragOperation(s)
     }
 }

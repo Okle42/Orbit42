@@ -37,7 +37,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
         // ES modules (three.js) don't load from file:// in WKWebView ⇒ serve Web/ through our own scheme
         if let dir = Self.webDir { cfg.setURLSchemeHandler(WebFiles(root: dir), forURLScheme: "orbit") }
-        web = WKWebView(frame: .zero, configuration: cfg)
+        web = DropWebView(frame: .zero, configuration: cfg)
         super.init()
         cfg.userContentController.add(WeakHandler(self), name: "orbit")
         web.navigationDelegate = self
@@ -85,7 +85,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             else { js("window.orbitReplay", id, s.snapshot().base64EncodedString()); s.pty?.resize(cols: cols, rows: rows) }
         case "input":
             if let d = (m["data"] as? String)?.data(using: .utf8) { sats[id]?.pty?.write(d) }
-        case "resize": sats[id]?.pty?.resize(cols: cols, rows: rows)
+        case "resize": sats[id]?.pty?.resize(cols: cols, rows: rows); if ProcessInfo.processInfo.environment["ORBIT_TEST_DRAG"] != nil { print("resize \(id) \(cols)x\(rows) pty=\(sats[id]?.pty != nil)"); fflush(stdout) }
         case "remove":
             // Satellites Orbit42 started: hang up (like closing a terminal window).
             // Attached background sessions: only the viewer closes; the session keeps running.
@@ -344,6 +344,31 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 v.cacheDisplay(in: v.bounds, to: rep)
                 try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out)); print("term shot saved \(out) \(v.frame)"); fflush(stdout)
             }
+        }
+        // 測試：模擬拖右下角「縮小→停→放大→停」，每段停下後把終端機內容倒到 <prefix>_1.txt／_2.txt（查調大小錯位）
+        // ORBIT_TEST_DRAG="<prefix>@<開始秒數>"
+        if let spec = env["ORBIT_TEST_DRAG"], let at = spec.split(separator: "@").last.flatMap({ Double($0) }) {
+            let prefix = String(spec.split(separator: "@").first ?? "/tmp/drag")
+            func dump(_ n: Int) {
+                host.web.evaluateJavaScript("window.orbitTest.screen()") { r, _ in
+                    try? ((r as? String) ?? "").write(toFile: "\(prefix)_\(n).txt", atomically: true, encoding: .utf8); print("drag dump \(n)"); fflush(stdout)
+                }
+            }
+            func steps(_ k: Int, _ dx: CGFloat, _ dy: CGFloat, then: @escaping () -> Void) {
+                guard k > 0 else { then(); return }
+                term.resizeBy(dx: dx, dy: dy)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { MainActor.assumeIsolated { steps(k - 1, dx, dy, then: then) } }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak self] in MainActor.assumeIsolated {
+                guard self != nil else { return }
+                dump(0)
+                steps(40, -6, 4) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { MainActor.assumeIsolated {
+                        dump(1)
+                        steps(40, 6, -4) { DispatchQueue.main.asyncAfter(deadline: .now() + 3) { MainActor.assumeIsolated { dump(2) } } }
+                    } }
+                }
+            } }
         }
         if let out = env["ORBIT_TEST_LOGIN_SHOT"] {        // 測試：登入畫面截圖（等狀態查完）
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
