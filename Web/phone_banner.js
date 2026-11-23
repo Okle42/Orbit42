@@ -43,6 +43,20 @@
   .pb .bar { width: 60%; height: 34px; background: repeating-linear-gradient(0deg, currentColor 0 1px, transparent 1px 3px, currentColor 3px 5px, transparent 5px 6px, currentColor 6px 7px, transparent 7px 10px); }
   .pb .hz { width: 100%; height: 22px; background: repeating-linear-gradient(-45deg, currentColor 0 5px, transparent 5px 10px); }
   .pb .no { writing-mode: vertical-rl; font: 700 8px/1 ui-monospace, Menlo, monospace; letter-spacing: 1px; opacity: .7; }
+  /* 11-24 Keng「第四到第六條合成一條粗一點的警告帶、第七條放空、對面鏡像，不然太亂」：
+     粗警告帶＝斜紋（會往上／下跑）＋正中間一塊直書標籤；最靠終端那條空著（.gap） */
+  .pb .band.warn { background: repeating-linear-gradient(-45deg, var(--pb-a) 0 12px, var(--pb-bg) 12px 24px);
+             background-size: 100% 67.88px; animation: pbHazUp 3s linear infinite; box-shadow: inset 0 0 0 1.5px var(--pb-a); }
+  .pb .band.warn.down { animation-name: pbHazDown; }
+  .pb .band.warn::before, .pb .band.warn::after { display: none; }
+  .pb .band.warn .lab { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2;
+             background: var(--pb-bg); color: var(--pb-a); box-shadow: 0 0 0 2px var(--pb-a), 0 0 0 6px var(--pb-bg);
+             border-radius: 3px; padding: 14px 6px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .pb .band.warn .lab .zh { writing-mode: vertical-rl; font: 900 20px/1 -apple-system, "PingFang TC", sans-serif; letter-spacing: 6px; }
+  .pb .band.warn .lab .en { writing-mode: vertical-rl; font: 800 10px/1 "Arial Narrow", -apple-system, sans-serif; letter-spacing: 3px; }
+  .pb .gap { flex: none; }
+  @keyframes pbHazUp { to { background-position: 0 -67.88px; } }
+  @keyframes pbHazDown { to { background-position: 0 67.88px; } }
   @keyframes pbUp { from { transform: translateY(0); } to { transform: translateY(-50%); } }
   @keyframes pbDown { from { transform: translateY(-50%); } to { transform: translateY(0); } }
   @keyframes pbBlink { 50% { opacity: .15; } }
@@ -67,15 +81,18 @@
     const n = Math.max(1, Math.min(14, Math.floor((w - GAP) / (BAND_W + GAP))));
     const bw = Math.min(40, Math.floor((w - GAP * (n + 1)) / n));
     const el = document.createElement("div"); el.className = "pb " + cls; el.style.width = w + "px";
-    let h = "";
-    for (let i = 0; i < n; i++) {
-      // 最靠終端那條放標牌；條帶深淺交錯、方向與速度錯開，看起來才像好幾條在跑
-      const near = cls === "l" ? i === n - 1 : i === 0;
-      const kind = (i % 2 === 0) === (cls === "l") ? "a" : "b";
-      const d = (i % 2 === 0) ? dir : (dir === "up" ? "down" : "up");
-      h += `<div class="col" style="width:${bw}px">${near ? tag : ""}${band(kind, d, 4200 + i * 17, 14 + (i * 7) % 11)}</div>`;
+    // 11-24 Keng：由外往內＝一般票帶…、粗警告帶（佔 3 條寬，頂端放標牌）、空一條；右邊鏡像（由內往外）。
+    // 條數不夠時：粗警告帶吃掉「空的那條」以外全部
+    const gapN = n >= 2 ? 1 : 0, warnN = n >= 5 ? 3 : n - gapN, regN = n - gapN - warnN;
+    const warnW = warnN * bw + (warnN - 1) * GAP;
+    const cols = [];                                   // 由外往內
+    for (let i = 0; i < regN; i++) {
+      const kind = i % 2 === 0 ? "a" : "b", d = i % 2 === 0 ? dir : (dir === "up" ? "down" : "up");
+      cols.push(`<div class="col" style="width:${bw}px">${band(kind, d, 4200 + i * 17, 14 + (i * 7) % 11)}</div>`);
     }
-    el.innerHTML = h; return el;
+    cols.push(`<div class="col" style="width:${warnW}px">${tag}<div class="band warn ${dir}"><div class="lab"><div class="zh">手機使用中</div><div class="en">PHONE IN USE</div></div></div></div>`);
+    if (gapN) cols.push(`<div class="gap" style="width:${bw}px"></div>`);
+    el.innerHTML = (cls === "l" ? cols : cols.reverse()).join(""); return el;
   }
 
   function sync(t) {
