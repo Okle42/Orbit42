@@ -97,13 +97,13 @@ final class TermWindowView: NSView {
         guard on != breathing, let clip = subviews.first?.layer, let me = layer else { return }
         breathing = on
         if on {
-            let red = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 1).cgColor
+            // 11-23 Keng 第二輪：呼吸光改白光、範圍再減半（光暈半徑 3→6、邊框 1→1.3）
+            let white = NSColor.white.cgColor
             let border = CABasicAnimation(keyPath: "borderColor")
-            border.fromValue = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 0.25).cgColor; border.toValue = red
-            // 11-23 Keng「呼吸光範圍太大」：光暈只貼著邊框一圈（半徑 6→12），不再往外擴散一大片
-            let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 1.6
-            let glow = CABasicAnimation(keyPath: "shadowColor"); glow.fromValue = NSColor.black.cgColor; glow.toValue = red
-            let gr = CABasicAnimation(keyPath: "shadowRadius"); gr.fromValue = 6; gr.toValue = 12
+            border.fromValue = NSColor(white: 1, alpha: 0.35).cgColor; border.toValue = white
+            let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 1.3
+            let glow = CABasicAnimation(keyPath: "shadowColor"); glow.fromValue = NSColor.black.cgColor; glow.toValue = white
+            let gr = CABasicAnimation(keyPath: "shadowRadius"); gr.fromValue = 3; gr.toValue = 6
             for a in [border, width, glow, gr] {
                 a.duration = 1.4; a.autoreverses = true; a.repeatCount = .infinity
                 a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
