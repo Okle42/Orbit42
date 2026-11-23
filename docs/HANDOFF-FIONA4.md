@@ -1,6 +1,6 @@
 # Fiona4 交接（2026-11-23 21:45）
 
-## 已完成（都在本機 commit，**沒有 push**：Okle42 要 Keng 審過才推）
+## 已完成（21:50：Ruby4 經 Keng 同意已 push 到 Orbit42 b86f5c8、sphere 2d58d2f；之後只剩 sphere 07c5efc 未 push）
 - Orbit42 Windows 版：windows/Orbit42.Win＋pack.ps1，Surface 螢幕上實測完整流程（docs/WINDOWS-PROGRESS.md）
 - iPhone App（ios/，xcodegen）：內建 Tailscale（TailscaleKit，框架不進 git，見 ios/README.md）、球體、衛星唯讀鏡像、回答答案卡
   - 已裝在 Keng 的 iPhone 16 Pro Max（devicectl），配對完成、連線穩（1 分鐘成功 51／失敗 1）
@@ -13,8 +13,9 @@
 1. **（最優先，Keng 21:47 回報）語音輸入常被打斷**：字重複已修好（Keng 實測長句不重複），但在 Orbit42 答案卡補充框講話時，macOS 聽寫常自己停掉、要手動再啟動。
    懷疑方向（還沒驗）：①球體播報（karaToast／TTS 唸 session 狀態）一出聲就搶走麥克風，聽寫停掉 ②ShoWork 引擎的光暈／面板視窗 orderFront 搶走 key window ③renderAsk 簽名變了重畫整張卡（輸入框被換掉）④Orbit42 原生 watchAskCard／raise 改 first responder。
    先查：Keng 講話時是不是剛好有播報（SphereAudio、karaToast 時間點）；有輸入框焦點時暫停播報／不重畫答案卡
+   **已交給 Ruby4**（它發現焦點卡在衛星終端機輸入框、⌘C 不能複製，可能同根），接手前先問 Ruby4 進度，別兩邊一起改焦點
 2. （已確認）字不再重複
-2. 要 push 的話先問 Keng（Orbit42 main、ShoWork42 bella/sphere-tab）
+2. sphere 07c5efc（修正 ?phone 被放到 </html> 後面、已推上去的 61b62c2 有這個錯）要 push 先問 Keng
 3. 新版 iPhone 上 TestFlight：archive → Xcode Organizer 或 exportArchive（上傳會被閘門擋，要 Keng 放行）
 4. 手機打字進衛星（P4）Keng 還沒決定
 5. 模擬器跑不了 TailscaleKit（只有真機 arm64），要模擬器得另編 make ios-sim
