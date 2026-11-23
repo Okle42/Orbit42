@@ -37,18 +37,114 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// 11-23 Keng「叉叉關閉連背景 session 都要能被我關掉」⇒ 拉進來看的背景 session 也用官方 `claude stop <job>` 停掉（對話保留，之後可以 claude attach 接回來）
     func end(_ id: String) {
         guard let s = sats[id] else { onRemoved(id); return }
+        wrapping.remove(id)
         s.pty?.hangup(); sats[id] = nil; order.removeAll { $0 == id }; views[id] = nil
-        if let job = s.attachedJob { Self.stopBackground(job) }
+        if let job = s.attachedJob { closedJobs[job] = Date(); Self.stopBackground(job) }
         onRemoved(id); pushSats()
     }
-    /// 背景跑，不卡畫面；結果印在 log（ORBIT_TEST_STOP_CMD 測試時換掉指令，不碰真的 session）
+    /// 背景跑，不卡畫面；結果印在 log（ORBIT_TEST_STOP_CMD／ORBIT_TEST_RM_CMD 測試時換掉指令，不碰真的 session）
+    /// 11-24 Keng「叉叉就是要真正關閉這個 session」（06:06 錄影：關掉後戰情列表還留著「Claude 1 · 待命」，一點又被叫醒）
+    /// ⇒ 停掉之後再 `claude rm`：從背景 session 清單拿掉，之後點不回來（對話紀錄照樣留著，claude --resume 找得到）
     nonisolated static func stopBackground(_ job: String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        let cmd = ProcessInfo.processInfo.environment["ORBIT_TEST_STOP_CMD"] ?? "claude stop"
-        p.arguments = ["-l", "-c", "\(cmd) \"$1\"", "orbit-stop", job]
-        p.terminationHandler = { t in print("stop background \(job) exit=\(t.terminationStatus)"); fflush(stdout) }
+        let env = ProcessInfo.processInfo.environment
+        let stop = env["ORBIT_TEST_STOP_CMD"] ?? "claude stop", rm = env["ORBIT_TEST_RM_CMD"] ?? "claude rm"
+        p.arguments = ["-l", "-c", "\(stop) \"$1\"; s=$?; \(rm) \"$1\"; echo \"stop=$s rm=$?\"", "orbit-stop", job]
+        let out = Pipe(); p.standardOutput = out; p.standardError = out
+        p.terminationHandler = { _ in
+            let s = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            print("stop background \(job): \(s.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " | "))"); fflush(stdout)
+        }
         do { try p.run() } catch { print("stop background \(job) failed: \(error)"); fflush(stdout) }
+    }
+
+    // MARK: 11-24 Keng「按叉叉＝收工：先確認要不要 commit＋push，不用就進入 clear，然後真正關閉；中間灰鈕才是收起」
+    /// 剛關掉的背景 job：戰情列表最多 10 秒才更新，這段時間點到那一列不要又 attach 把它叫醒
+    private var closedJobs: [String: Date] = [:]
+    func recentlyClosed(_ job: String) -> Bool { closedJobs[job].map { Date().timeIntervalSince($0) < 90 } ?? false }
+    /// 正在收工（等它 commit＋push）的衛星
+    private(set) var wrapping: Set<String> = []
+    /// 裡面跑的是 Claude（自己開的或拉進來看的背景 session），才有 commit＋push／clear 這套收工
+    func isClaude(_ id: String) -> Bool { guard let s = sats[id] else { return false }; return s.brain == .claude && s.command.hasPrefix("claude") }
+    static let wrapUpPrompt = "收工（Orbit42 叉叉關閉）：把這個 session 改過、還沒 commit 的東西 commit，有遠端就 push（照收工規矩：先掃客戶關鍵字，技術性禁推的 repo 只 commit 不推）。沒有東西要收就回「沒有要收的」。不要問我問題；真的卡住就回一行「收工卡住：原因」。做完 Orbit42 會自動 /clear 並關掉這個 session。"
+
+    /// 收工：commit＝true 先打收工指令、等它做完（忙→閒），再 /clear → 停掉並從清單拿掉；commit＝false 直接 /clear → 關閉
+    /// 有狀況（指令沒送出去、它說收工卡住）就不關，回呼 onProblem 讓使用者決定
+    func wrapUp(_ id: String, commit: Bool, onProblem: @escaping @MainActor (String) -> Void) {
+        guard let s = sats[id], s.pty != nil, s.exited == nil, isClaude(id) else { end(id); return }
+        wrapping.insert(id)
+        guard commit else { clearThenEnd(id); return }
+        onOpen(id)                                     // 讓你看得到它在收工
+        submit(id, Self.wrapUpPrompt)
+        let t0 = Date()
+        var seenBusy = false, lastBusy = Date.distantPast
+        func tick() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in MainActor.assumeIsolated {
+                guard let self, let s = self.sats[id], self.wrapping.contains(id) else { return }
+                if s.exited != nil { self.end(id); return }
+                let rec = self.sessionRecord(s), st = self.testStatus ?? rec?.status
+                if st == "busy" { seenBusy = true; lastBusy = Date() }
+                if seenBusy, st != "busy", Date().timeIntervalSince(lastBusy) >= 3 {
+                    // 看它最後一句回覆（對話紀錄，不看終端機畫面：畫面上也有收工指令本身，裡面就有「收工卡住」四個字）
+                    if Self.lastReply(rec?.sessionId).contains("收工卡住") {
+                        self.wrapping.remove(id); onProblem("它說收工卡住了，視窗先留著，看一下它寫的原因。")
+                    } else { self.clearThenEnd(id) }
+                    return
+                }
+                if !seenBusy, Date().timeIntervalSince(t0) > 25 {
+                    self.wrapping.remove(id); onProblem("收工指令好像沒送進去（25 秒都沒開始做），視窗先留著。")
+                    return
+                }
+                tick()
+            } }
+        }
+        tick()
+    }
+    /// 打一行字再按 Enter（分兩次送：一次送整串會被當成貼上，Enter 要另外按）
+    private func submit(_ id: String, _ text: String) {
+        type(id, text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in MainActor.assumeIsolated { self?.type(id, "\r") } }
+    }
+    private func clearThenEnd(_ id: String) {
+        print("wrap-up \(id): /clear → end"); fflush(stdout)
+        submit(id, "/clear")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated { self?.end(id) } }
+    }
+    /// 這顆衛星裡 Claude 的狀態（~/.claude/sessions/<pid>.json 的 busy／idle）；背景 session 用 job 對，自己開的用程序對
+    /// 測試：ORBIT_TEST_STATUS_FILE＝檔案路徑，內容就是狀態
+    private var testStatus: String? {
+        ProcessInfo.processInfo.environment["ORBIT_TEST_STATUS_FILE"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private func sessionRecord(_ s: Satellite) -> SessionRecord? {
+        let fm = FileManager.default, dir = NSHomeDirectory() + "/.claude/sessions", pid = s.pty?.pid
+        for f in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where f.hasSuffix(".json") {
+            guard let d = fm.contents(atPath: dir + "/" + f), let r = SessionRecord.decode(d), kill(r.pid, 0) == 0 else { continue }
+            if let j = s.attachedJob { if r.jobId == j { return r } }
+            else if let pid, r.pid == pid || Self.parent(of: r.pid) == pid { return r }
+        }
+        return nil
+    }
+    /// 這個 session 最後一句文字回覆（~/.claude/projects/*/<sid>.jsonl；session 換目錄做事時紀錄會跟著搬 ⇒ 找最新的那份）
+    /// 測試：ORBIT_TEST_LAST_REPLY＝直接當成回覆
+    nonisolated static func lastReply(_ sid: String?) -> String {
+        if let t = ProcessInfo.processInfo.environment["ORBIT_TEST_LAST_REPLY"] { return t }
+        guard let sid else { return "" }
+        let fm = FileManager.default, root = NSHomeDirectory() + "/.claude/projects"
+        let files = ((try? fm.contentsOfDirectory(atPath: root)) ?? []).map { "\(root)/\($0)/\(sid).jsonl" }.filter { fm.fileExists(atPath: $0) }
+        guard let f = files.max(by: { ((try? fm.attributesOfItem(atPath: $0)[.modificationDate]) as? Date ?? .distantPast) < ((try? fm.attributesOfItem(atPath: $1)[.modificationDate]) as? Date ?? .distantPast) }),
+              let h = FileHandle(forReadingAtPath: f) else { return "" }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        try? h.seek(toOffset: size > 524_288 ? size - 524_288 : 0)
+        let text = String(decoding: h.readDataToEndOfFile(), as: UTF8.self)
+        for line in text.split(separator: "\n").reversed() where line.contains("\"type\":\"assistant\"") {
+            guard let o = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  let content = (o["message"] as? [String: Any])?["content"] as? [[String: Any]] else { continue }
+            let t = content.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n")
+            if !t.isEmpty { return t }
+        }
+        return ""
     }
     func attachForTest(job: String) {
         userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": "測試背景", "cwd": NSHomeDirectory()]))
@@ -167,6 +263,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             add(s); onOpen(s.id)
         case "attach":
             guard let job = m["job"] as? String else { return }
+            if recentlyClosed(job) { print("attach \(job) skipped: just closed"); fflush(stdout); return }   // 11-24：剛按叉叉關掉的，列表還沒更新，點到不要又叫醒
             if let existing = sats.values.first(where: { $0.attachedJob == job }) { onOpen(existing.id); return }
             let s = Satellite(id: "bg-" + job, name: m["name"] as? String ?? job, brain: .claude, cwd: m["cwd"] as? String ?? NSHomeDirectory(),
                               command: "claude attach \(job)", attachedJob: job)
@@ -247,6 +344,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             onOpen(s.id); return true
         }
         if ref.kind == "bg", let job = ref.jobId {
+            if recentlyClosed(job) { return true }      // 11-24：剛按叉叉關掉、戰情列表還沒更新的那一列：點了不叫醒（也不跳 Ghostty）
             userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": ref.name, "cwd": ref.cwd ?? NSHomeDirectory()]))
             return true
         }
@@ -641,6 +739,38 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 }
             } }
         }
+        // 測試：ORBIT_TEST_WRAP=<開始秒數> ⇒ 叉叉收工（11-24）：開一顆假 Claude（指令名 claude 開頭、其實是 cat，打進去的字會回顯），
+        // 配 ORBIT_TEST_STATUS_FILE（假的 busy／idle）、ORBIT_TEST_RAW（終端機輸出全記下來，事後查有沒有打收工指令和 /clear）。
+        // 真的點叉叉 → 印確認視窗的按鈕 → 按「先 commit＋push 再關閉」→ 1 秒後假裝開始忙、4 秒後做完 → 12 秒查視窗和程序都不見。
+        // ORBIT_TEST_WRAP_NOBUSY=1 ⇒ 一直不忙：要跳出「收工指令好像沒送進去」、視窗留著
+        if let at = env["ORBIT_TEST_WRAP"].flatMap(Double.init), let sf = env["ORBIT_TEST_STATUS_FILE"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak self] in MainActor.assumeIsolated {
+                guard let self else { return }
+                @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+                func status(_ v: String) { try? v.write(toFile: sf, atomically: true, encoding: .utf8) }
+                status("idle")
+                let id = self.host.runCommand(name: "測試收工", brain: .claude, command: "claude_t() { cat; }; claude_t")
+                after(3) {
+                    let pid = self.host.pid(id) ?? -1
+                    print("wrap: opened pid=\(pid) claude=\(self.host.isClaude(id))"); fflush(stdout)
+                    guard let w = self.satWins[id] else { print("wrap: no window"); return }
+                    for t in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                        if let e = NSEvent.mouseEvent(with: t, location: w.closeLightPoint, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: self.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { NSApp.postEvent(e, atStart: false) }
+                    }
+                    after(1) {
+                        print("wrap: sheet=\(self.confirmAlert?.messageText ?? "-") buttons=\(self.confirmAlert?.buttons.map(\.title) ?? [])"); fflush(stdout)
+                        self.confirmAlert?.buttons[0].performClick(nil)
+                        let noBusy = env["ORBIT_TEST_WRAP_NOBUSY"] != nil
+                        if !noBusy { after(1) { status("busy") }; after(4) { status("idle") } }
+                        after(noBusy ? 29 : 13) {
+                            print("wrap: end win=\(self.satWins[id] != nil) sats=\(self.host.satCount) alive=\(kill(pid, 0) == 0) wrapping=\(self.host.wrapping.contains(id)) problem=\(self.confirmAlert?.informativeText ?? "-")"); fflush(stdout)
+                            NSApp.terminate(nil)
+                        }
+                    }
+                }
+            } }
+        }
         // 測試：模擬拖右下角「縮小→停→放大→停」，每段停下後把終端機內容倒到 <prefix>_1.txt／_2.txt（查調大小錯位）
         // 測試：ORBIT_TEST_FOCUS=<開始秒數> ⇒ 開一顆跑 sleep 的衛星（焦點到終端機），再真的點一下智能體網頁（衛星以外的地方），
         // 印出點之前／之後的 first responder 和「拷貝」有沒有人接（查 ⌘C 複製不了：焦點卡在衛星終端機）
@@ -960,6 +1090,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     /// 拉進來看的背景 session 也一起停掉（claude stop）
     private func confirmEnd(_ id: String) {
         guard window.attachedSheet == nil else { return }
+        if host.isClaude(id) { return confirmWrapUp(id) }
         let a = NSAlert()
         a.alertStyle = .warning
         a.messageText = "關閉「\(host.name(id))」？"
@@ -975,6 +1106,53 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 if r == .alertFirstButtonReturn { self?.host.end(id) }
             }
         }
+    }
+    /// 11-24 Keng「叉叉＝收工關閉：先確認要不要 commit 跟 push，不用就進入 clear，然後真正關閉這個 session；中間灰鈕才是收起」
+    /// Claude 衛星按叉叉：①先 commit＋push 再關（它自己收工，做完自動 /clear、停掉、從清單拿掉） ②取消 ③不用，直接 /clear 並關閉
+    private func confirmWrapUp(_ id: String) {
+        let a = NSAlert()
+        a.alertStyle = .warning
+        if host.wrapping.contains(id) {
+            a.messageText = "「\(host.name(id))」正在收工"
+            a.informativeText = "它還在 commit／push。要等它做完（做完會自動 /clear 並關閉），還是現在就直接關？"
+            a.addButton(withTitle: "繼續等")
+            let now = a.addButton(withTitle: "現在直接關閉"); now.hasDestructiveAction = true
+            confirmAlert = a
+            a.beginSheetModal(for: window) { [weak self] r in
+                MainActor.assumeIsolated { self?.confirmAlert = nil; if r == .alertSecondButtonReturn { self?.host.end(id) } }
+            }
+            return
+        }
+        a.messageText = "收工並關閉「\(host.name(id))」？"
+        a.informativeText = (host.isAttached(id) ? "關閉＝真的結束這個背景 session，並從戰情列表拿掉（對話紀錄保留，claude --resume 找得到）。" : "關閉＝結束這個 Claude，並清掉這個視窗的內容。")
+            + "\n\n要先讓它 commit＋push 嗎？做完會自動 /clear 再關閉。只想收起來不關，請按中間的灰色鈕。"
+        a.addButton(withTitle: "先 commit＋push 再關閉")
+        a.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        let direct = a.addButton(withTitle: "不用，直接 clear 並關閉"); direct.hasDestructiveAction = true
+        confirmAlert = a
+        a.beginSheetModal(for: window) { [weak self] r in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.confirmAlert = nil
+                guard r == .alertFirstButtonReturn || r == .alertThirdButtonReturn else { return }
+                self.host.wrapUp(id, commit: r == .alertFirstButtonReturn) { [weak self] msg in self?.wrapUpProblem(id, msg) }
+            }
+        }
+    }
+    private func wrapUpProblem(_ id: String, _ msg: String) {
+        let a = NSAlert()
+        a.messageText = "「\(host.name(id))」還沒關"
+        a.informativeText = msg
+        a.addButton(withTitle: "好，視窗留著")
+        let now = a.addButton(withTitle: "還是直接 clear 並關閉"); now.hasDestructiveAction = true
+        confirmAlert = a
+        let show = { [weak self] in
+            guard let self else { return }
+            a.beginSheetModal(for: self.window) { [weak self] r in
+                MainActor.assumeIsolated { self?.confirmAlert = nil; if r == .alertSecondButtonReturn { self?.host.wrapUp(id, commit: false) { _ in } } }
+            }
+        }
+        if window.attachedSheet == nil { show() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { show() } } }
     }
     private var confirmAlert: NSAlert?          // 測試 hook 用（按確認視窗的按鈕）
     private func closeSat(_ id: String) {
