@@ -9,6 +9,7 @@ final class TermWindowView: NSView {
     let content: NSView
     let titleLabel = NSTextField(labelWithString: "")
     var onClose: () -> Void = {}
+    var onResized: (NSSize) -> Void = { _ in }     // 11-23：拉右下角改大小 ⇒ 其他衛星跟著變一樣大
     var onMinimize: () -> Void = {}
     var wantShown = false                 // 目前該不該顯示（收起動畫跑到一半又被打開時用）
     private let bar = NSView()
@@ -198,6 +199,7 @@ final class TermWindowView: NSView {
         f.origin.y += f.height - h; f.size.height = h
         frame = f; zoomedFrom = nil
         needsLayout = true
+        onResized(frame.size)
     }
 
     @objc private func light(_ s: TrafficLight) {
@@ -206,6 +208,13 @@ final class TermWindowView: NSView {
         case .minimize: onMinimize()
         case .zoom: toggleZoom()
         }
+    }
+
+    /// 跟著別的衛星改大小：左上角不動、寬高照對方，超出 Orbit42 視窗就縮進來
+    func matchSize(_ size: NSSize) {
+        guard let sup = superview, frame.size != size else { return }
+        var f = frame; f.origin.y = f.maxY - size.height; f.size = size
+        frame = Self.fit(f, in: sup.bounds); zoomedFrom = nil; needsLayout = true
     }
 
     func toggleZoom() {
