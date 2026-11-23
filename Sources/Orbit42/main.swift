@@ -651,8 +651,10 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             ?? NSRect(x: 16, y: 40, width: root.bounds.width - 32, height: H - 40 - 52)
         let base = TermWindowView.fit(wins[0].restoredFrame(in: root.bounds), in: root.bounds)
         let n = CGFloat(wins.count)
-        let w = min(base.width, n > 1 ? area.width * 0.62 : area.width), h = min(base.height, n > 1 ? area.height * 0.78 : area.height)
-        let dx = n > 1 ? (area.width - w) / (n - 1) : 0, dy = n > 1 ? (area.height - h) / (n - 1) : 0
+        // 11-23 審查 #9：範圍再窄，衛星也不小於 420×260（TermWindow 自己的下限），寧可超出範圍也要看得到字
+        let w = max(min(420, root.bounds.width - 32), min(base.width, n > 1 ? area.width * 0.62 : area.width))
+        let h = max(min(260, root.bounds.height - 80), min(base.height, n > 1 ? area.height * 0.78 : area.height))
+        let dx = n > 1 ? max(0, area.width - w) / (n - 1) : 0, dy = n > 1 ? max(0, area.height - h) / (n - 1) : 0
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.32; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
             for (i, v) in wins.enumerated() {
