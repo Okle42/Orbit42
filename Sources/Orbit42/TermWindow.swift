@@ -73,6 +73,11 @@ final class TermWindowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     private var grip: ResizeGrip!
 
+    // 11-23 Keng「這個終端機的字還是好糊」：拖動／調大小用的是滑鼠的小數位移，小視窗常停在 x=186.5 這種半個像素上，
+    // 1x 螢幕會把整個視窗內容（終端機的字）內插拉糊。位置和大小一律對齊到整數像素
+    override func setFrameOrigin(_ p: NSPoint) { super.setFrameOrigin(NSPoint(x: p.x.rounded(), y: p.y.rounded())) }
+    override func setFrameSize(_ s: NSSize) { super.setFrameSize(NSSize(width: s.width.rounded(), height: s.height.rounded())) }
+
     /// 11-23 Keng：打開時邊框亮一下紅光（跟 ShoWork 光暈同一個感覺），0.9 秒淡掉
     func flash() {
         guard let clip = subviews.first?.layer, let me = layer else { return }
