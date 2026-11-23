@@ -5,7 +5,12 @@
 #   zsh ~/github-repos/Orbit42/scripts/phone_pair.sh --new    換一組新密碼（舊的手機要重新掃）
 set -e
 SW="$HOME/Library/Application Support/ShoWork42/bin/showork"
-out=$("$SW" web enable 2>&1) || { print -r -- "$out"; exit 1; }
+# 埠：預設 8742；被別的程式佔走（11-23：AIStar 示範伺服器聽 127.0.0.1:8742 ⇒ 綁不上、手機連不到）就往後找空的
+port=8742
+taken() { [[ -n "$(lsof -nP -iTCP:$1 -sTCP:LISTEN 2>/dev/null | grep -v -E '^COMMAND|Orbit42|ShoWorkA')" ]]; }
+while taken $port; do port=$((port + 1)); [[ $port -gt 8790 ]] && { print "8742–8790 都被佔走了"; exit 1; }; done
+out=$("$SW" web enable --port $port 2>&1) || { print -r -- "$out"; exit 1; }
+sleep 2   # 讓 Orbit42／ShoWorkAgent 收到通知、在新埠上開好
 url=$(print -r -- "$out" | grep -oE 'http://[0-9.]+:[0-9]+/\?t=[0-9a-f]+' | head -1)
 if [[ -z "$url" || "$1" == "--new" ]]; then
   # 已經開過、網址不重印 ⇒ 換一組新的（只有這樣才拿得到網址）
@@ -26,5 +31,7 @@ swift "$TMPDIR/orbit42qr.swift" "$url" "$png" 2>/dev/null
 rm -f "$TMPDIR/orbit42qr.swift"
 # 用「快速查看」顯示（11-23：預覽程式卡住時 open 會 -1712 逾時、什麼都沒出現）；不行再退回 open
 (qlmanage -p "$png" >/dev/null 2>&1 &) || open "$png"
+if lsof -nP -iTCP:$port -sTCP:LISTEN 2>/dev/null | grep -q -E "Orbit42|ShoWorkA"; then print "Mac 這邊已經在 Tailscale 上等手機連線（埠 $port）。"
+else print "⚠️ Mac 這邊還沒在埠 $port 上聽：Orbit42 或 ShoWork42 有開著嗎？"; fi
 print "已打開 QR code：用 iPhone 的 Orbit42 →「掃 QR code」掃它（手機要先連上 Tailscale）。"
 print "掃完就把那個圖片視窗關掉；這個網址就是密碼，別傳給別人。"
