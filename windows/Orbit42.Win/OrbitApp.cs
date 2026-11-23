@@ -311,6 +311,26 @@ sealed class OrbitApp
         PushSats();
     }
 
+    /// 11-23 Keng「點左上角綠燈應該是完全關閉：按下去先跟我確認，確認後清掉整個內容再關掉」（Mac confirmEnd 的 Windows 版，系統原生對話框）
+    bool confirming;
+    void ConfirmEnd(string id)
+    {
+        if (confirming || !sats.TryGetValue(id, out var s)) { if (!sats.ContainsKey(id)) End(id); return; }
+        confirming = true;
+        try
+        {
+            var close = new TaskDialogButton("關閉");
+            var page = new TaskDialogPage
+            {
+                Caption = "Orbit42", Heading = $"關閉「{s.Name}」？", Icon = TaskDialogIcon.Warning,
+                Text = "會結束這顆衛星裡正在跑的程式，並清掉這個視窗的全部內容，無法還原。",
+                Buttons = { close, TaskDialogButton.Cancel }, DefaultButton = TaskDialogButton.Cancel,
+            };
+            if (TaskDialog.ShowDialog(form, page) == close) End(id);
+        }
+        finally { confirming = false; }
+    }
+
     // MARK: 衛星小視窗
 
     async void ShowSat(string id)
@@ -324,7 +344,7 @@ sealed class OrbitApp
             int n = wins.Values.Count(x => x.Visible);
             var f = w.RestoredFrame(form.ClientRectangle); f.Offset(n * 28, n * 28);
             w.Bounds = SatWindow.Fit(f, form.ClientRectangle);
-            w.OnClose = () => End(id);
+            w.OnClose = () => ConfirmEnd(id);                  // 11-23 Keng：綠燈＝完全關閉（先確認 → 結束程式、清內容 → 關視窗），同 Mac
             w.OnMinimize = () => Animate(w, false, AutoArrange);
             w.OnDropPaths = paths => s.Pty?.Write(Encoding.UTF8.GetBytes(string.Join(" ", paths) + " "));
             w.OnResized = size => { foreach (var o in wins.Values) if (o != w && o.Visible) o.MatchSize(size); };

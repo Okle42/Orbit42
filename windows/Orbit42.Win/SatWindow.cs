@@ -25,7 +25,9 @@ sealed class SatWindow : Control
     Rectangle? zoomedFrom;
     Point? dragMouse; Point dragOrigin;
     Point? gripMouse; Size gripSize;
-    int hoverLight = -1;
+    int hoverLight = -1, tipOn = -1;
+    readonly ToolTip tips = new() { InitialDelay = 500 };
+    static readonly string[] LightTips = { "關閉（先確認；結束裡面的程式、清掉內容）", "收起（衛星繼續跑）", "放大／還原（也可以雙擊標題列）" };
 
     // 邊框動畫：閃一下（0.9 秒）、工作中呼吸（1.4 秒來回）
     readonly System.Windows.Forms.Timer anim = new() { Interval = 16 };
@@ -195,6 +197,9 @@ sealed class SatWindow : Control
         base.OnMouseMove(e);
         int hv = e.Y < BarHeight && e.X < 80 ? 0 : -1;
         if (hv != hoverLight) { hoverLight = hv; Invalidate(new Rectangle(0, 0, 80, BarHeight)); }
+        // 三顆燈的說明（同 Mac toolTip）
+        int on = -1; for (int i = 0; i < 3; i++) if (Rectangle.Inflate(LightRect(i), 3, 3).Contains(e.Location)) on = i;
+        if (on != tipOn) { tipOn = on; tips.SetToolTip(this, on < 0 ? null : LightTips[on]); }
         Cursor = InGrip(e.Location) || gripMouse != null ? Cursors.SizeNWSE : Cursors.Default;
         if (dragMouse is { } d && Parent is { } sup)
         {
@@ -279,5 +284,5 @@ sealed class SatWindow : Control
     }
     public void Save() { if (zoomedFrom == null) try { File.WriteAllText(Key, $"{Left},{Top},{Width},{Height}"); } catch { } }
 
-    protected override void Dispose(bool disposing) { if (disposing) anim.Dispose(); base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) { if (disposing) { anim.Dispose(); tips.Dispose(); grow?.Dispose(); } base.Dispose(disposing); }
 }
