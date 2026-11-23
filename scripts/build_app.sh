@@ -6,7 +6,7 @@ cd "${0:A:h}/.."
 swift build -c release
 APP="$HOME/Applications/Orbit42.app"
 TMP="$APP.new"
-SW=".build/checkouts/ShoWork42"; [ -d "$SW" ] || SW="Packages/ShoWork42"   # swift package edit 時用本機那份
+SW="Packages/ShoWork42"; [ -d "$SW" ] || SW=".build/checkouts/ShoWork42"   # 平常用 GitHub 抓下來的；暫時 swift package edit 時用本機那份（跟 ios/project.yml 同一個順序）
 rm -rf "$TMP"; mkdir -p "$TMP/Contents/MacOS" "$TMP/Contents/Resources"
 cp .build/release/Orbit42 "$TMP/Contents/MacOS/Orbit42"
 cp Support/Info.plist "$TMP/Contents/Info.plist"
