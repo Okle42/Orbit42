@@ -1,6 +1,7 @@
 import AppKit
 import WebKit
 import ShoWorkApp
+import ShoWorkCore
 
 // Orbit42: the sphere is the home screen; every AI worker is a satellite with its own real terminal.
 // Web UI (Web/index.html: three.js sphere + xterm.js) talks to this host through `webkit.messageHandlers.orbit`.
@@ -218,7 +219,50 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
     }
 
-    func shutdown() { for s in sats.values { s.pty?.hangup() } }
+    // MARK: 重開後衛星回來（11-23 Keng「重開前有兩個衛星，重開後只剩一個」）
+    // 關掉 Orbit42 時把自己開的衛星記下來（Claude 記 session id，重開用 --resume 接回同一段對話；背景 session 記 job 重新 attach），
+    // 下次打開就照原樣開回來，像 macOS 重開機恢復視窗。登入／安裝用的臨時視窗（cmd-）不記。
+    // 測試：ORBIT_TEST_RESTORE=save／load ⇒ 用另一個紀錄名稱（不碰真正的），load 時 3 秒後直接恢復
+    static var restoreKey: String { ProcessInfo.processInfo.environment["ORBIT_TEST_RESTORE"] != nil ? "orbit.restore.test" : "orbit.restore" }
+    static var restoreBlocked: Bool { let e = ProcessInfo.processInfo.environment; return e["ORBIT_OFFSCREEN"] != nil && e["ORBIT_TEST_RESTORE"] == nil }
+    private func saveForRestore() {
+        if Self.restoreBlocked { return }      // 測試不碰真正的紀錄
+        let dir = NSHomeDirectory() + "/.claude/sessions", fm = FileManager.default
+        let recs = ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".json") }
+            .compactMap { fm.contents(atPath: dir + "/" + $0).flatMap(SessionRecord.decode) }
+        var out: [[String: String]] = []
+        for id in order {
+            guard let s = sats[id], !id.hasPrefix("cmd-"), s.exited == nil else { continue }
+            if let job = s.attachedJob { out.append(["job": job, "name": s.name, "cwd": s.cwd]); continue }
+            guard let p = s.pty else { continue }
+            var e = ["brain": s.brain.rawValue, "name": s.name, "cwd": s.cwd]
+            if s.brain == .claude, let r = recs.first(where: { $0.pid == p.pid || Self.parent(of: $0.pid) == p.pid }) { e["sid"] = r.sessionId; e["cwd"] = r.cwd }
+            out.append(e)
+        }
+        if let d = try? JSONSerialization.data(withJSONObject: out) { UserDefaults.standard.set(String(decoding: d, as: UTF8.self), forKey: Self.restoreKey) }
+    }
+    /// 打開 Orbit42 時：把上次關掉時開著的衛星開回來（開完就清掉紀錄，下次關掉再記）
+    func restore() {
+        if Self.restoreBlocked { return }
+        guard let str = UserDefaults.standard.string(forKey: Self.restoreKey), let d = str.data(using: .utf8),
+              let list = try? JSONSerialization.jsonObject(with: d) as? [[String: String]], !list.isEmpty else { return }
+        UserDefaults.standard.removeObject(forKey: Self.restoreKey)
+        for e in list {
+            let cwd = e["cwd"] ?? NSHomeDirectory()
+            if let job = e["job"] {
+                userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": e["name"] ?? job, "cwd": cwd]))
+                continue
+            }
+            let brain = Brain(rawValue: e["brain"] ?? "claude") ?? .claude
+            let name = e["name"] ?? brain.label
+            if let n = Int(name.split(separator: " ").last ?? ""), n > (counter[brain] ?? 0) { counter[brain] = n }
+            let cmd = brain == .claude && e["sid"] != nil ? brain.command + " --resume " + e["sid"]! : brain.command
+            let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: name, brain: brain, cwd: cwd, command: cmd)
+            add(s); onOpen(s.id)
+        }
+    }
+
+    func shutdown() { saveForRestore(); for s in sats.values { s.pty?.hangup() } }
 }
 
 /// Serves files under Web/ as orbit://app/<path>
@@ -350,6 +394,9 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         host.onRemoved = { [weak self] id in self?.closeSat(id) }
         host.onBusy = { [weak self] id, busy in guard let w = self?.satWins[id], !w.isHidden else { return }; w.setBreathing(busy) }
         host.startTimers()
+        if ProcessInfo.processInfo.environment["ORBIT_TEST_RESTORE"] == "load" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated { self?.host.restore() } }
+        }
         // 點到哪個小視窗（標題列或終端機內容都算），那個就疊到最上面
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in self?.raiseUnder(e); return e }
         SphereEmbed.openSession = { [weak self] ref in
@@ -510,6 +557,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     /// 進入：收起登入畫面，球體的「＋ 新衛星」只列登入過的大腦
     func enter(_ list: [Provider]) {
         hideAllSats()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in MainActor.assumeIsolated { self?.host.restore() } }   // 過場完把上次的衛星開回來
         // 過場：登入卡片往前飛出（網頁自己動）＋整個登入層淡出，同時球體從遠處拉近打開
         (sphereView as? WKWebView)?.evaluateJavaScript("window.karaIntro && window.karaIntro()")
         NSAnimationContext.runAnimationGroup({ ctx in
