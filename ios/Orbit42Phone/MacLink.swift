@@ -77,9 +77,13 @@ struct OrbitAPI: Sendable {
             r.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
         let (d, resp): (Data, URLResponse)
-        // App 內建 Tailscale 上線了就走它（不用開 Tailscale App）；還沒上線就用系統網路（手機有開 Tailscale App 時也通）
-        let session = Tailnet.session ?? URLSession.shared
-        do { (d, resp) = try await session.data(for: r) } catch { throw Failure.offline(error.localizedDescription) }
+        // App 內建 Tailscale 上線了就走它（不用開 Tailscale App）；還沒上線才用系統網路（手機有開 Tailscale App 時也通）。
+        // 11-23：通道可能被 iOS 收回（背景、切 App）⇒ 連不上就重開通道再試一次
+        do { (d, resp) = try await Tailnet.sessionForRequest(retry: false).data(for: r) }
+        catch {
+            do { (d, resp) = try await Tailnet.sessionForRequest(retry: true).data(for: r) }
+            catch { throw Failure.offline(error.localizedDescription) }
+        }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
             let msg = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["error"] as? String ?? "出錯了"

@@ -139,6 +139,7 @@ struct MainView: View {
                     }
                     Section {
                         Text(link.isDemo ? "示範模式" : "已連到 \(link.host):\(link.port)").font(.footnote).foregroundStyle(.secondary)
+                        if !link.isDemo { Text("連線方式：\(tailnet.route)").font(.footnote).foregroundStyle(.secondary) }
                         Button(link.isDemo ? "連到我的 Mac" : "中斷並忘記這台 Mac", role: .destructive, action: onForget)
                     }
                 }

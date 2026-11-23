@@ -38,15 +38,36 @@ final class Tailnet: ObservableObject {
         }
     }
 
+    /// 連線方式（畫面上顯示，方便看是不是真的走內建 Tailscale）
+    @Published private(set) var route = "還沒建立"
+
     /// 從背景回來：iOS 可能收回本機的 SOCKS5 listener（Ruby4 提醒）⇒ 重新拿一次連線設定
-    func refresh() {
-        guard let n = node, isRunning else { return }
-        Task {
-            if let (c, _) = try? await URLSessionConfiguration.tailscaleSession(n) {
-                c.timeoutIntervalForRequest = 10
-                Tailnet.session = URLSession(configuration: c)
-            }
+    func refresh() { Task { _ = await makeSession() } }
+
+    /// 開（或重開）走內建 Tailscale 的連線；失敗就留著錯誤原因，不偷偷改走一般網路
+    @discardableResult
+    func makeSession() async -> URLSession? {
+        guard let n = node, isRunning else { return nil }
+        do {
+            let (c, _) = try await URLSessionConfiguration.tailscaleSession(n)
+            c.timeoutIntervalForRequest = 10
+            c.timeoutIntervalForResource = 20
+            let s = URLSession(configuration: c)
+            Tailnet.session = s
+            route = "內建 Tailscale"
+            return s
+        } catch {
+            Tailnet.session = nil
+            route = "內建 Tailscale 通道開不起來：\(error)"
+            return nil
         }
+    }
+
+    /// OrbitAPI 用：內建 Tailscale 上線了就一定要拿到它的連線（沒有就現開）；還沒上線才用一般網路
+    nonisolated static func sessionForRequest(retry: Bool) async -> URLSession {
+        if !retry, let s = session { return s }
+        if let s = await Tailnet.shared.makeSession() { return s }
+        return .shared
     }
 
     private func poll(_ n: TailscaleNode) {
@@ -58,11 +79,8 @@ final class Tailnet: ObservableObject {
                     if st == "Running" {
                         if !isRunning {
                             let ip = (try? await n.addrs())?.ip4 ?? ""
-                            if let (c, _) = try? await URLSessionConfiguration.tailscaleSession(n) {
-                                c.timeoutIntervalForRequest = 10
-                                Tailnet.session = URLSession(configuration: c)
-                            }
                             state = .running(ip)
+                            await makeSession()
                         }
                     } else if let u = j["AuthURL"] as? String, !u.isEmpty, let url = URL(string: u) {
                         if state != .needsLogin(url) { state = .needsLogin(url) }
