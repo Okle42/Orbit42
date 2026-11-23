@@ -1,4 +1,4 @@
-// Generates assets/Orbit42.icns: a wireframe sphere on a dark rounded square, a tilted orbit and one red satellite.
+// 舊版圖示（灰線球＋紅點），11-24 起改用 scripts/make_icon_render.py（App 實際渲染的球）。保留當參考。
 //   swift scripts/make_icon.swift
 import AppKit
 
