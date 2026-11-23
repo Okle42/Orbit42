@@ -6,7 +6,13 @@ import ShoWorkCore
 enum Brain: String, CaseIterable, Sendable {
     case claude, codex, gemini
     var label: String { ["claude": "Claude", "codex": "ChatGPT", "gemini": "Gemini"][rawValue]! }
-    var command: String { ["claude": "claude", "codex": "codex", "gemini": "agy"][rawValue]! }   // Gemini 走 Antigravity CLI（2026-05 起取代 Gemini CLI）
+    /// 11-23 Keng：所有 AI 都用最高權限開（跟他的 `ccc` = claude --dangerously-skip-permissions 一樣）
+    /// Gemini 走 Antigravity CLI（2026-05 起取代 Gemini CLI，`agy --help` 確認有同名參數）；Codex 用它的全自動參數（本機還沒裝，未實測）
+    var command: String {
+        ["claude": "claude --dangerously-skip-permissions",
+         "gemini": "agy --dangerously-skip-permissions",
+         "codex": "codex --dangerously-bypass-approvals-and-sandbox"][rawValue]!
+    }
 }
 
 /// One AI worker on the sphere: a terminal (PTY) plus what it is running.
