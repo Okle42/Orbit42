@@ -358,7 +358,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     /// 網頁的 z-index 管不到 ⇒ 每 0.3 秒問球體答案卡（＋送出後的「復原」提示）在哪，蓋到它的衛星整個淡出、點擊穿過去；答完恢復
     private func watchAskCard() {
         let js = """
-        (() => { const r = []; for (const id of ["askCard", "askUndo"]) { const e = document.getElementById(id);
+        (() => { const r = []; for (const id of ["askCard", "askUndo", "askDot"]) { const e = document.getElementById(id);
           if (!e || !e.classList.contains("on")) continue; const b = e.getBoundingClientRect();
           if (b.width && b.height) r.push([b.left, b.top, b.width, b.height]); } return JSON.stringify(r); })()
         """
