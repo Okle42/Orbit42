@@ -355,7 +355,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private var sphereView: NSView?
     private var askTimer: Timer?
     /// 11-23 Keng「4 選項答案卡跳出來應該在終端機上方，它要幫我們加速工作流程」：衛星小視窗是原生 view、蓋在球體網頁上，
-    /// 網頁的 z-index 管不到 ⇒ 每 0.3 秒問球體答案卡（＋送出後的「復原」提示）在哪，蓋到它的衛星淡到 12%、點擊穿過去；答完恢復
+    /// 網頁的 z-index 管不到 ⇒ 每 0.3 秒問球體答案卡（＋送出後的「復原」提示）在哪，蓋到它的衛星整個淡出、點擊穿過去；答完恢復
     private func watchAskCard() {
         let js = """
         (() => { const r = []; for (const id of ["askCard", "askUndo"]) { const e = document.getElementById(id);
@@ -377,7 +377,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                             w.yieldingToAsk = y
                             NSAnimationContext.runAnimationGroup { ctx in
                                 ctx.duration = 0.25; ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                                w.animator().alphaValue = y ? 0.12 : 1
+                                w.animator().alphaValue = y ? 0 : 1          // 11-23 Keng「答案卡太透明會看到底下的字」⇒ 整個淡出（原 12%）
                             }
                         }
                     }
