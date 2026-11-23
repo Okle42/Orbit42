@@ -195,11 +195,14 @@ struct TermScreen: View {
                 WebBox(web: model.web)
                 if let e = model.error { Banner(text: e) }
             }
-            KeyBar(send: { model.send(Data($0.utf8)) })
+            KeyBar(light: model.light, send: { model.send(Data($0.utf8)) })
         }
-        .background(Color.black)
+        .background(model.light ? Color(uiColor: TermModel.lightBG) : Color.black)
+        .preferredColorScheme(model.light ? .light : .dark)          // 標題列、鍵盤跟著終端機深淺
         .navigationTitle(model.sat.name).navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) {
+        .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
+            Button { model.toggleTheme() } label: { Image(systemName: model.light ? "moon" : "sun.max") }
+                .accessibilityLabel(model.light ? "換深色" : "換淺色")
             Button { model.toggleKeyboard() } label: { Image(systemName: model.keyboard ? "keyboard.chevron.compact.down" : "keyboard") }
                 .accessibilityLabel(model.keyboard ? "收起鍵盤" : "打字")
         } }
@@ -210,6 +213,7 @@ struct TermScreen: View {
 
 /// 11-24 手機鍵盤沒有的鍵（Claude Code 常用：Esc 中斷、方向鍵選選項、Tab、Ctrl+C）
 struct KeyBar: View {
+    var light = false
     let send: (String) -> Void
     private let keys: [(String, String)] = [("Esc", "\u{1b}"), ("Tab", "\t"), ("↑", "\u{1b}[A"), ("↓", "\u{1b}[B"),
                                             ("←", "\u{1b}[D"), ("→", "\u{1b}[C"), ("⏎", "\r"), ("^C", "\u{03}")]
@@ -218,11 +222,12 @@ struct KeyBar: View {
             ForEach(keys, id: \.0) { k in
                 Button { send(k.1) } label: {
                     Text(k.0).font(.system(.callout, design: .monospaced)).frame(maxWidth: .infinity, minHeight: 36)
-                        .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                }.buttonStyle(.plain).foregroundStyle(.white)
+                        .background(light ? Color.black.opacity(0.06) : Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(light ? Color.black.opacity(0.10) : Color.clear))
+                }.buttonStyle(.plain).foregroundStyle(light ? Color(white: 0.07) : .white)
             }
         }
-        .padding(.horizontal, 8).padding(.vertical, 6).background(Color.black)
+        .padding(.horizontal, 8).padding(.vertical, 6).background(light ? Color(uiColor: TermModel.lightBG) : Color.black)
     }
 }
 

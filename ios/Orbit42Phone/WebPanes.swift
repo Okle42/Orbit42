@@ -136,13 +136,30 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
     let link: MacLink, sat: Sat
     private(set) lazy var web: WKWebView = {
         let w = makeWeb(handler: self, name: "orbit")
-        let q = "term=1&mirror=1&sat=\(sat.id)&theme=dark"
+        let q = "term=1&mirror=1&sat=\(sat.id)&theme=\(light ? "light" : "dark")"
         w.load(URLRequest(url: URL(string: "orbit://app/OrbitWeb/index.html?" + q)!))
+        paint(w)
         return w
     }()
+    /// 11-24 淺色終端機：右上角太陽／月亮切換，記住選擇；第一次照 iPhone 系統外觀（App 其他畫面維持深色）
+    @Published private(set) var light: Bool = UserDefaults.standard.object(forKey: "orbit.term.light") as? Bool
+        ?? (UIScreen.main.traitCollection.userInterfaceStyle == .light)
+    static let lightBG = UIColor(red: 0xfb / 255, green: 0xfb / 255, blue: 0xf9 / 255, alpha: 1)
+    private func paint(_ w: WKWebView) {
+        let c = light ? Self.lightBG : .black
+        w.backgroundColor = c; w.scrollView.backgroundColor = c
+    }
+    func toggleTheme() {
+        light.toggle(); UserDefaults.standard.set(light, forKey: "orbit.term.light")
+        paint(web)
+        js(web, "window.orbitTheme", [light ? "light" : "dark"])
+        // 已經畫上去的字是照舊色票換過的顏色 ⇒ 清空、從頭重抓一次 Mac 的輸出（gen 讓正在路上的那一份作廢）
+        js(web, "window.orbitReset", [sat.id]); gen += 1; offset = 0; kick = true
+        if link.isDemo { start() }          // 示範模式：重新印示範字
+    }
     @Published var error: String?
     private var poll: Task<Void, Never>?
-    private var offset = 0, ready = false
+    private var offset = 0, ready = false, gen = 0
     private var want: (cols: Int, rows: Int)?          // 網頁量好的手機行列數（{action:"size"}）
     @Published var keyboard = false
     private var pending = Data(), sending = false, kick = false
@@ -173,7 +190,9 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
+                    let g = self.gen
                     let r = try await api.screen(id, from: self.offset, want: self.want)
+                    guard g == self.gen else { continue }          // 切深淺時已經重來，這份作廢
                     self.error = nil
                     if let size = r.size { js(self.web, "window.orbitMirror", [size.cols, size.rows]) }
                     if !r.data.isEmpty {

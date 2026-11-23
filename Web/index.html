@@ -49,10 +49,20 @@
   html:has(body.termOnly), body.termOnly, body.termOnly #panel, body.termOnly #terms { background: transparent !important; }      /* 標題列和三顆燈由原生小視窗畫（可以拖動） */
   html:has(body.termOnly.lowdpi), body.termOnly.lowdpi, body.termOnly.lowdpi #panel, body.termOnly.lowdpi #terms { background: var(--term) !important; }   /* 11-23：1x 螢幕實色底（見 LOWDPI） */
   /* 11-23 Windows（WebView2）：預設捲軸是一條粗灰條 ⇒ 跟 Mac 一樣細、半透明，只在 Windows 生效 */
-  html.win .xterm-viewport::-webkit-scrollbar { width: 8px; }
-  html.win .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
-  html.win .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(128,128,128,.35); border-radius: 4px; }
-  html.win .xterm-viewport::-webkit-scrollbar-button { display: none; }
+  /* 11-24 Keng「這條（衛星終端機右邊整條白色捲軸）很糟糕，完全沒有視覺感」⇒ Mac、Windows 同一套黑白灰紅：
+     平常是貼右邊的 2px 細線、淡到幾乎看不見；捲動時浮出灰色膠囊；滑鼠移上去變寬、變品牌紅；捲到底（沒有舊內容）時不畫 */
+  .xterm-viewport::-webkit-scrollbar { width: 10px; background: transparent; }
+  .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+  .xterm-viewport::-webkit-scrollbar-button, .xterm-viewport::-webkit-scrollbar-corner { display: none; }
+  .xterm-viewport::-webkit-scrollbar-thumb { background: transparent; border-radius: 6px; border: 4px solid transparent; border-left-width: 6px; background-clip: padding-box; min-height: 28px; }
+  /* WebKit 換 class 不會重畫捲軸 ⇒ 每個狀態的捲軸寬度差 1px，逼它重新排版重畫 */
+  .xterm-viewport.has-back::-webkit-scrollbar { width: 11px; }
+  .xterm-viewport.scrolling::-webkit-scrollbar { width: 12px; }
+  .xterm-viewport.has-back::-webkit-scrollbar-thumb { background-color: rgba(237,237,237,.10); }
+  .xterm-viewport.scrolling::-webkit-scrollbar-thumb { background-color: rgba(237,237,237,.38); border-left-width: 4px; border-right-width: 3px; }
+  .xterm-viewport:hover::-webkit-scrollbar-thumb:hover, .xterm-viewport::-webkit-scrollbar-thumb:active { background-color: #d7261b; border-left-width: 3px; border-right-width: 2px; }
+  :root[data-theme="light"] .xterm-viewport.has-back::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.10); }
+  :root[data-theme="light"] .xterm-viewport.scrolling::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.35); }
 </style>
 <script>if (window.chrome?.webview) document.documentElement.classList.add("win");</script>
 </head>
@@ -245,6 +255,17 @@ function makeTerm(id) {
   term.parser.registerCsiHandler({ prefix: "?", final: "h" }, params => { if (params.includes(2031)) t2031.add(id); return false; });
   term.parser.registerCsiHandler({ prefix: "?", final: "l" }, params => { if (params.includes(2031)) t2031.delete(id); return false; });
   term.onResize(({ cols, rows }) => { if (!terms.get(id)?.phone) post({ action: "resize", id, cols, rows }); });   // 手機在看時的縮小置中不算 Mac 的大小
+  // 捲軸（樣式見 CSS .xterm-viewport）：人在捲（滾輪、觸控、拖捲軸）才浮出 0.9 秒——程式有輸出時 xterm 自己捲到底不算，
+  // 不然 Claude 一直在輸出捲軸就一直亮著；往上捲、在看舊內容時留一條淡線（在最底下＝平常狀態就不畫）
+  const vp = el.querySelector(".xterm-viewport");
+  if (vp) {
+    let hideT = 0;
+    const back = () => vp.classList.toggle("has-back", vp.scrollTop + vp.clientHeight < vp.scrollHeight - 2);
+    const show = () => { vp.classList.add("scrolling"); clearTimeout(hideT); hideT = setTimeout(() => vp.classList.remove("scrolling"), 900); };
+    for (const ev of ["wheel", "touchmove", "pointerdown"]) el.addEventListener(ev, show, { passive: true });
+    vp.addEventListener("scroll", back, { passive: true });
+    term.onRender(back);
+  }
   const t = { term, fit, el, started: false }; terms.set(id, t); attachDoll(t); return t;
 }
 function dropTerm(id) { const t = terms.get(id); if (!t) return; clearInterval(t.dollTimer); t.doll?.stop(); t.term.dispose(); t.el.remove(); terms.delete(id); if (active === id) closePanel(); }
@@ -516,6 +537,8 @@ function okColors(id, bytes) {
 }
 window.orbitData = (id, data) => { const t = terms.get(id) || makeTerm(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); };
 window.orbitReplay = (id, data) => { const t = terms.get(id); if (t && !t.term.buffer.active.length) { carry.delete(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); } };
+// 11-24 iPhone 淺色終端機：切深淺後清空重來（App 從頭重抓 Mac 的輸出，用新色票重新換顏色；已經畫上去的字不會自己變色）
+window.orbitReset = id => { const t = terms.get(id); if (!t) return; carry.delete(id); t.term.reset(); };
 window.orbitExit = (id, code) => { terms.get(id)?.term.write(`\r\n\x1b[90m[已結束 ${code}] 點衛星可以重新開\x1b[0m\r\n`); const t = terms.get(id); if (t) t.started = false; };
 window.orbitOpened = id => openTerm(id);
 
