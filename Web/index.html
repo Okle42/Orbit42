@@ -15,6 +15,7 @@
          -webkit-app-region: drag; border-bottom: 1px solid var(--line); background: rgba(11,11,12,.6); backdrop-filter: blur(8px); z-index: 5; }
   .brand { font: 600 11px ui-monospace, Menlo, monospace; letter-spacing: .26em; }
   .brand b { color: var(--gold); font-weight: 600; }
+  .brand .bdim { color: var(--dim); }   /* 11-23 Keng：品牌一定帶 OKLE42 署名 */
   .sp { flex: 1; }
   button { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 14px; padding: 4px 11px; cursor: pointer; }
   button:hover { border-color: var(--dim); }
@@ -48,7 +49,7 @@
 <body>
 <canvas id="gl"></canvas>
 <div id="bar">
-  <span class="brand">ORBIT<b>42</b></span>
+  <span class="brand">OKLE<b>42</b> <span class="bdim">· ORBIT<b>42</b></span></span>
   <span class="sp"></span>
   <button id="bBg" title="把正在背景跑的 Claude session 拉進來看">背景 session</button>
   <button id="bNew" class="acc" title="開一顆新衛星（新的 AI 工作者）">＋ 新衛星</button>
@@ -88,7 +89,8 @@ renderer?.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
 camera.position.set(0, 0, 11);
 const root = new THREE.Group(); scene.add(root);
-const ink = new THREE.Color("#ededed"), red = new THREE.Color("#ff3b30");
+const ink = new THREE.Color("#ededed");
+const accColor = () => new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--acc").trim() || "#4fc36a");   // 11-23 深色護眼綠、淺色紅
 const lm = op => new THREE.LineBasicMaterial({ color: ink, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false });
 root.add(new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(1.4, 3)), lm(0.12)));
 const shell = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.75, 1)), lm(0.28)); root.add(shell);
@@ -139,7 +141,7 @@ const clock = new THREE.Clock(), v = new THREE.Vector3();
     const busy = s.data.state === "busy";
     s.a += dt * (busy ? 0.9 : 0.35);
     s.mesh.position.set(Math.cos(s.a) * s.r, Math.sin(s.a) * s.r, 0);
-    s.mesh.material.color.copy(s.data.state === "exited" ? new THREE.Color("#555") : busy ? red : ink);
+    s.mesh.material.color.copy(s.data.state === "exited" ? new THREE.Color("#555") : busy ? accColor() : ink);
     s.halo.material.opacity = busy ? 0.3 + 0.15 * Math.sin(t * 6) : s.data.id === active ? 0.3 : 0.12;
     s.mesh.getWorldPosition(v).project(camera);
     s.label.style.left = ((v.x + 1) / 2 * innerWidth) + "px"; s.label.style.top = ((1 - v.y) / 2 * innerHeight) + "px";

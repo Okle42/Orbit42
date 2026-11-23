@@ -84,10 +84,16 @@ final class TermWindowView: NSView {
     override func setFrameOrigin(_ p: NSPoint) { super.setFrameOrigin(NSPoint(x: p.x.rounded(), y: p.y.rounded())) }
     override func setFrameSize(_ s: NSSize) { super.setFrameSize(NSSize(width: s.width.rounded(), height: s.height.rounded())) }
 
+    /// 11-23 Keng「怎麼還有紅色」：強調色跟三顆燈一致＝深色護眼綠、淺色紅（閃框、拖檔外框都用這個）
+    func accent(alpha: CGFloat = 1) -> CGColor {
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return (dark ? NSColor(srgbRed: 0.310, green: 0.765, blue: 0.416, alpha: alpha) : NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: alpha)).cgColor
+    }
+
     /// 11-23 Keng：打開時邊框亮一下紅光（跟 ShoWork 光暈同一個感覺），0.9 秒淡掉
     func flash() {
         guard let clip = subviews.first?.layer, let me = layer else { return }
-        let red = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 1).cgColor
+        let red = accent()   // 深色＝護眼綠、淺色＝紅
         let base = clip.borderColor
         let border = CAKeyframeAnimation(keyPath: "borderColor")
         border.values = [red, red, base as Any]; border.keyTimes = [0, 0.35, 1]
@@ -136,12 +142,12 @@ final class TermWindowView: NSView {
             w.onFiles = { [weak self] urls in self?.onDropPaths(urls.map { Self.shellEscape($0.path) }) }
             w.onHover = { [weak self] on in
                 self?.layer?.borderWidth = on ? 2 : 0
-                self?.layer?.borderColor = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 0.9).cgColor
+                self?.layer?.borderColor = self?.accent(alpha: 0.9)
             }
         }
     }
     override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation {
-        layer?.borderWidth = 2; layer?.borderColor = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 0.9).cgColor; return .copy
+        layer?.borderWidth = 2; layer?.borderColor = self.accent(alpha: 0.9); return .copy
     }
     override func draggingExited(_ s: NSDraggingInfo?) { layer?.borderWidth = 0 }
     override func performDragOperation(_ s: NSDraggingInfo) -> Bool {
