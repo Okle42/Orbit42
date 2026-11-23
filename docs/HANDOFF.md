@@ -14,6 +14,13 @@
 - 11-23 散熱資訊拆成獨立「散熱」小卡（cardCool，右欄戰情下面）
 - 全螢幕桌面模式預設開（⌃⌘F／球體 ⛶ 切換，記住）；主視窗最上方一條可拖動（11-23 剛修，Keng 還沒試）
 
+## 11-23 12:50 主畫面整頓＋重開後衛星回來（commit 未 push）
+- 衛星狀態列：~/.claude/scripts/statusline.py 看 TERM_PROGRAM=Orbit42 只畫一行 CONTEXT（備份 statusline.py.bak-20261123）；Claude 衛星帶 --settings 關 flightdeck
+- 球體 Orbit42 模式（ShoWork42 ac671af）：額度／散熱卡預設收起（localStorage sphere.hide.orbit）、工具列收進「⋯」、拿掉桌面版；戰情「還沒交代工作」→ 英文名＋待命；每列完成度分段條（白→灰→黑→紅）
+- 衛星多視窗：Fiona3 做的（4750b38）
+- 重開後衛星回來（8ea087b）：關掉時存 UserDefaults orbit.restore（Claude 存 session id → --resume；背景 session 存 job → attach），進入後 1.2 秒開回來。測試 ORBIT_TEST_RESTORE=save／load（用 orbit.restore.test，不碰真的）
+- 已預先把 Fiona3（46c254db）和 attach ff1edf55 寫進 orbit.restore，Keng 下次重開會回來
+
 ## 11-23 12:10 隊長派工兩件（commit 未 push；Orbit42 目前 `swift package edit ShoWork42` 指向 _wt-ShoWork42-sphere）
 - **T1123114256 按住講話只送最後一句**：本機辨識停頓後文字從頭來，SphereListener 改成累加段落（段間補「，」）、辨識器自己收尾就接新的。測試：`SHOWORK_TEST_LISTEN_FILE=<音檔>`＋`SHOWORK_TEST_SPHERE_SHOT`＋`SHOWORK_TEST_SPHERE_JS='webkit.messageHandlers.sphere.postMessage({action:"listen",on:true})'`，要用有 Info.plist 的 bundle 跑（語音權限）
 - **T1123115042 點 board（隊長）開舊工作視窗**：Keng 選 A——Orbit42 `showBoard` 用 TermWindowView 外框裝 `SphereEmbed.workView`（work.html?orbit=1 黑白灰紅）。測試：`ORBIT_TEST_BOARD="<sid>@<png>"`＋`ORBIT_TEST_THEME`
