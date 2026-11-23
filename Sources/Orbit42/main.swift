@@ -115,9 +115,23 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
     }
 
+    /// 11-24 手機在看／離開：先讓衛星判斷要不要還原，再把狀態告訴 Mac 這邊的終端機網頁（縮小置中或恢復）
+    private var phoneShown: [String: String] = [:]
+    func syncPhone() {
+        for (id, s) in sats {
+            s.phoneCheck()
+            let now = s.phoneActive ? s.pty.map { "\($0.size.cols)x\($0.size.rows)" } ?? "" : ""
+            guard phoneShown[id, default: ""] != now else { continue }
+            phoneShown[id] = now
+            guard let v = views[id] else { continue }
+            if now.isEmpty { Self.call(v, "window.orbitPhoneSize", [id, NSNull(), NSNull()]) }
+            else if let p = s.pty { Self.call(v, "window.orbitPhoneSize", [id, p.size.cols, p.size.rows]) }
+        }
+    }
+
     func startTimers() {
         flushTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
-        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushSats(); self?.sats.values.forEach { $0.phoneCheck() } } }
+        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushSats(); self?.syncPhone() } }
     }
 
     static var webDir: URL? {

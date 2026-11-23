@@ -244,7 +244,7 @@ function makeTerm(id) {
   // 程式打開模式 2031（主題變了要通知）：記下來，切深淺時主動告訴它
   term.parser.registerCsiHandler({ prefix: "?", final: "h" }, params => { if (params.includes(2031)) t2031.add(id); return false; });
   term.parser.registerCsiHandler({ prefix: "?", final: "l" }, params => { if (params.includes(2031)) t2031.delete(id); return false; });
-  term.onResize(({ cols, rows }) => post({ action: "resize", id, cols, rows }));
+  term.onResize(({ cols, rows }) => { if (!terms.get(id)?.phone) post({ action: "resize", id, cols, rows }); });   // 手機在看時的縮小置中不算 Mac 的大小
   const t = { term, fit, el, started: false }; terms.set(id, t); attachDoll(t); return t;
 }
 function dropTerm(id) { const t = terms.get(id); if (!t) return; clearInterval(t.dollTimer); t.doll?.stop(); t.term.dispose(); t.el.remove(); terms.delete(id); if (active === id) closePanel(); }
@@ -275,6 +275,7 @@ new ResizeObserver(() => {
   window.__fitT = setTimeout(() => {
     const t = active && terms.get(active); if (!t) return;
     if (MIRROR) return mirrorFit(t);
+    if (t.phone) return fitPhone(t);
     const before = t.term.cols + "x" + t.term.rows;
     t.fit.fit();
     // 寬度變了：舊內容按新寬度重新折行，表格框線一定錯位 ⇒ 清空畫面與捲軸，再請程式（Ctrl+L）照新寬度整個重畫
@@ -282,6 +283,30 @@ new ResizeObserver(() => {
     // 變窄時舊內容只是被切掉（不是錯位），再拉寬就回來
   }, 300);
 }).observe($("terms"));
+// 11-24 Keng「手機在看時，Mac 這顆衛星整片變形又醜；視窗大小不變沒關係，內容縮小放進視窗置中」：
+// 手機在看（Mac 主程式送 window.orbitPhoneSize(id, cols, rows)）⇒ xterm 用手機的行列數、字縮到塞得進視窗、置中；
+// 手機離開（cols 為 null）⇒ 字級還原、照視窗重新量（這時才把 Mac 的大小送回主程式）
+function fitPhone(t) {
+  const box = $("terms"), w = box.clientWidth - 14, h = box.clientHeight - 12, p = t.phone;
+  const base = t.baseFont || (t.baseFont = t.term.options.fontSize), lh = t.term.options.lineHeight || 1.15;
+  t.term.options.fontSize = Math.max(5, Math.min(base, Math.floor(Math.min(w / (p.cols * 0.6), h / (p.rows * lh * 1.08)) * 10) / 10));
+  if (t.term.cols !== p.cols || t.term.rows !== p.rows) t.term.resize(p.cols, p.rows);
+  clearTimeout(t.centerT);
+  t.centerT = setTimeout(() => {
+    const sc = t.el.querySelector(".xterm-screen"); if (!sc) return;
+    const r = sc.getBoundingClientRect();
+    t.el.style.paddingLeft = Math.max(0, Math.floor((w - r.width) / 2)) + "px";
+    t.el.style.paddingTop = Math.max(0, Math.floor((h - r.height) / 2)) + "px";
+  }, 80);
+}
+window.orbitPhoneSize = (id, cols, rows) => {
+  const t = terms.get(id); if (!t || MIRROR) return;
+  if (cols) { t.phone = { cols, rows }; return fitPhone(t); }
+  if (!t.phone) return;
+  t.phone = null; clearTimeout(t.centerT); t.el.style.paddingLeft = t.el.style.paddingTop = "";
+  if (t.baseFont) t.term.options.fontSize = t.baseFont;
+  setTimeout(() => { t.fit.fit(); post({ action: "resize", id, cols: t.term.cols, rows: t.term.rows }); }, 50);
+};
 function fitActive() { const t = active && terms.get(active); if (t) MIRROR ? mirrorFit(t) : t.fit.fit(); }
 // 鏡像：行列數照 Mac（window.orbitMirror(cols, rows)），字級依手機寬度算（等寬字寬約 0.6 個字級）
 // 11-24 Keng「手機終端機只顯示一半，上面補更早的對話、塞滿整個畫面」：寬度照 Mac 的行數縮完，高度通常只用到一半
