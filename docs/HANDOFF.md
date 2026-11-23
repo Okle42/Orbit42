@@ -31,7 +31,7 @@
 - 拖檔案進終端機沒反應：WKWebView 自己重新註冊拖放、搶在小視窗前 ⇒ 改成 `DropWebView`（TermWindow.swift）本身接檔案轉路徑。**螢幕外無法模擬拖曳，要 Keng 實測**
 - 終端機顏色只留黑白灰紅：色票的綠黃藍紫青改灰；Claude／狀態列的真彩色碼在 index.html `okColors()` 進畫面前改寫（紅橘→品牌紅、其他→同亮度灰）。表情符號（🌀）改不了
 - 球體溫度環外加風扇轉速環（ShoWork42 a27f71d，LAYER 7，尖端標 RPM）
-- 衛星終端機毛玻璃：TermWindow 底層 NSVisualEffectView（.withinWindow／.hudWindow），標題列 35% 底、終端機底色 #…8c（xterm allowTransparency）；**透明時不能用 WebGL addon（會殘影）**，小視窗改 DOM 繪圖。模糊效果螢幕外截圖拍不到，要實機看
+- 衛星終端機毛玻璃：TermWindow 底層 NSVisualEffectView（.withinWindow／.hudWindow），標題列 35% 底、終端機底色 #…8c（xterm allowTransparency）；11-23 下午改回 **WebGL addon**（DOM 繪圖的框線字元會斷、中文字寬誤差讓「│」左右歪；底色 #…1f 下 Keng 實機確認框線直、無殘影），WebGL 掛掉自動退回 DOM。模糊效果螢幕外截圖拍不到，要實機看
 
 ## 11-23 中午最後狀態（Keng 準備 /clear）
 - 已做且已打包、推 main（b8c451c）：帳號頁空白修好（疊放順序）、登入卡片等球拉遠到 0.8 秒才進場、終端機打開邊框閃紅光、衛星工作中紅色呼吸光
