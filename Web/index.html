@@ -37,6 +37,8 @@
   #terms { flex: 1; position: relative; }
   .term { position: absolute; inset: 8px 4px 4px 10px; display: none; }
   .term.on { display: block; }
+  .term { overflow: hidden; }
+  .clawd { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 5; display: none; }   /* 11-23 Keng：取代 Claude Code 開頭的字元娃娃（動態夜視版） */
   /* ?term=1：嵌在 Orbit42 主視窗右邊當終端機面板（球體由 ShoWork 的完整球體負責） */
   body.termOnly #gl, body.termOnly #bar, body.termOnly #hint, body.termOnly #labels, body.termOnly #menu, body.termOnly #bgMenu { display: none !important; }
   body.termOnly #panel { top: 0; width: 100%; transform: none; transition: none; border-left: 0; }
@@ -73,6 +75,7 @@
 <script src="vendor/xterm-5.5.0/addon-fit.js"></script>
 <script src="vendor/xterm-5.5.0/addon-unicode11.js"></script>
 <script src="vendor/xterm-5.5.0/addon-webgl.js"></script>
+<script src="clawd_nv.js"></script>
 <script type="importmap">{ "imports": { "three": "./vendor/three-r170/three.module.min.js" } }</script>
 <script type="module">
 import * as THREE from "three";
@@ -192,6 +195,7 @@ window.orbitTheme = name => {
   const was = themeName;
   themeName = THEMES[name] ? name : (sysDark.matches ? "dark" : "light"); THEME = solid(THEMES[themeName]);
   document.documentElement.dataset.theme = themeName;
+  for (const t of terms.values()) t.doll?.setColor(dollColor());
   for (const t of terms.values()) { t.term.options.theme = THEME; t.term.options.minimumContrastRatio = themeName === "dark" ? (LOWDPI ? 3 : 1) : 4.5; }
   if (was !== themeName) for (const id of t2031) post({ action: "input", id, data: `\x1b[?997;${themeName === "dark" ? 1 : 2}n` });
 };
@@ -226,9 +230,9 @@ function makeTerm(id) {
   term.parser.registerCsiHandler({ prefix: "?", final: "h" }, params => { if (params.includes(2031)) t2031.add(id); return false; });
   term.parser.registerCsiHandler({ prefix: "?", final: "l" }, params => { if (params.includes(2031)) t2031.delete(id); return false; });
   term.onResize(({ cols, rows }) => post({ action: "resize", id, cols, rows }));
-  const t = { term, fit, el, started: false }; terms.set(id, t); return t;
+  const t = { term, fit, el, started: false }; terms.set(id, t); attachDoll(t); return t;
 }
-function dropTerm(id) { const t = terms.get(id); if (!t) return; t.term.dispose(); t.el.remove(); terms.delete(id); if (active === id) closePanel(); }
+function dropTerm(id) { const t = terms.get(id); if (!t) return; clearInterval(t.dollTimer); t.doll?.stop(); t.term.dispose(); t.el.remove(); terms.delete(id); if (active === id) closePanel(); }
 function openTerm(id) {
   const t = terms.get(id) || makeTerm(id);
   for (const x of terms.values()) x.el.classList.toggle("on", x === t);
@@ -307,17 +311,59 @@ function okSGR(params) {
   }
   return out.join(";");
 }
+// 11-23 Keng「我要取代原本的這個娃娃」：Claude Code 開頭用方塊字（▐▛█▜▌▝▘）畫的娃娃，前 3 行、左邊約 10 格。
+// 進畫面前把那幾個方塊字換成點字空白 U+2800（一樣佔 1 格、畫出來是空的，也拿掉眼睛的黑底），
+// 再找畫面上那一塊 U+2800，把動態夜視娃娃（clawd_nv.js）疊在同一位置；捲動時跟著走、捲出去就收起來。
+// 一個位元組一個字元：方塊字 U+2580–259F＝E2 96 80–9F，點字空白 U+2800＝E2 A0 80（同樣 3 位元組）
+const CLAWD_RE = /\x1b\[38;2;215;119;87m((?:\xe2\x96[\x80-\x9f]| |\x1b\[[0-9;]*m)+)/g;
+const BLANK = "\xe2\xa0\x80";
+function hideClawd(s) {
+  return s.replace(CLAWD_RE, (m, body) => /\xe2\x96/.test(body)
+    ? "\x1b[38;2;215;119;87m" + body.replace(/\x1b\[48;2;0;0;0m/g, "").replace(/\xe2\x96[\x80-\x9f]/g, BLANK) : m);
+}
+const dollColor = () => themeName === "dark" ? "#4fc36a" : "#d7261b";
+function attachDoll(t) {
+  if (!window.mountClawdNV) return;
+  const cv = document.createElement("canvas"); cv.className = "clawd"; t.el.appendChild(cv);
+  t.dollCv = cv; t.doll = mountClawdNV(cv, { color: dollColor() });
+  let queued = false;
+  const place = () => { queued = false; try { placeDoll(t); } catch {} };
+  const later = () => { if (!queued) { queued = true; setTimeout(place, 16); } };
+  t.placeDoll = later; t.term.onRender(later); t.term.onScroll(later); t.term.onResize(later);
+  // 寫入完成的回呼有時比畫面處理早（實測掃不到），再每 0.4 秒對一次位置；只掃畫面上那幾十行，很省
+  t.dollTimer = setInterval(() => { if (t.el.classList.contains("on")) later(); }, 400);
+}
+function placeDoll(t) {
+  const term = t.term, b = term.buffer.active, cv = t.dollCv;
+  const dims = term._core?._renderService?.dimensions?.css?.cell;
+  const cw = dims?.width || (term.element?.clientWidth || 0) / term.cols, ch = dims?.height || (term.element?.clientHeight || 0) / term.rows;
+  let top = -1, bottom = -1, c0 = 99, c1 = -1;
+  for (let y = Math.max(0, b.viewportY - 3); y < b.viewportY + term.rows; y++) {
+    const s = b.getLine(y)?.translateToString(false, 0, 14) || "";
+    let hit = false;
+    for (let x = 0; x < s.length; x++) if (s[x] === "\u2800") { hit = true; c0 = Math.min(c0, x); c1 = Math.max(c1, x); }
+    if (hit) { if (top < 0) top = y; bottom = y; } else if (top >= 0) break;
+  }
+  if (top < 0 || !cw || bottom - (b.viewportY - 3) < 0 || top - b.viewportY >= term.rows) { cv.style.display = "none"; return; }
+  // 娃娃本來是 3 行 × 10 格（左右各空 1 格）：上下抓 3 行、左右從第 0 格到最右邊那格
+  const rowsN = Math.max(3, bottom - top + 1), colsN = Math.max(10, c1 + 1);
+  const W = Math.round(colsN * cw), H = Math.round(rowsN * ch);
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  cv.style.transform = `translate(0px, ${Math.round((top - b.viewportY) * ch)}px)`;
+  cv.style.display = "block";
+}
 const carry = new Map();                // 每個終端機：上一塊結尾沒收完的 ESC[…（顏色碼被切成兩塊）
 function okColors(id, bytes) {
   let s = carry.get(id) || "";           // 一個位元組一個字元（UTF-8 原封不動，只動 ASCII 的顏色碼）
   for (let i = 0; i < bytes.length; i += 30000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 30000));
   const tail = s.match(/\x1b(\[[0-9;:]*)?$/); carry.set(id, tail ? tail[0] : "");
   if (tail) s = s.slice(0, s.length - tail[0].length);
+  s = hideClawd(s);
   s = s.replace(/\x1b\[([0-9;]*)m/g, (m, ps) => themeName !== "dark" || ps.includes("2;") || ps.includes("5;") ? "\x1b[" + okSGR(ps) + "m" : m);
   const out = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out;
 }
-window.orbitData = (id, data) => { (terms.get(id) || makeTerm(id)).term.write(okColors(id, b64(data))); };
-window.orbitReplay = (id, data) => { const t = terms.get(id); if (t && !t.term.buffer.active.length) { carry.delete(id); t.term.write(okColors(id, b64(data))); } };
+window.orbitData = (id, data) => { const t = terms.get(id) || makeTerm(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); };
+window.orbitReplay = (id, data) => { const t = terms.get(id); if (t && !t.term.buffer.active.length) { carry.delete(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); } };
 window.orbitExit = (id, code) => { terms.get(id)?.term.write(`\r\n\x1b[90m[已結束 ${code}] 點衛星可以重新開\x1b[0m\r\n`); const t = terms.get(id); if (t) t.started = false; };
 window.orbitOpened = id => openTerm(id);
 
@@ -332,7 +378,7 @@ window.orbitBg = list => {
 $("bgMenu").onclick = e => { const mi = e.target.closest("[data-job]"); if (!mi) return; $("bgMenu").classList.remove("on"); post({ action: "attach", job: mi.dataset.job, name: mi.dataset.name, cwd: mi.dataset.cwd }); };
 document.addEventListener("click", () => { $("menu").classList.remove("on"); $("bgMenu").classList.remove("on"); });
 // 測試用：在目前打開的終端機打字（跟手打一樣走 input）
-window.orbitTest = { type: text => active && post({ action: "input", id: active, data: text }), active: () => active,
+window.orbitTest = { doll: () => { const t = terms.get(active); return t?.dollCv ? t.dollCv.style.cssText : "no doll"; }, type: text => active && post({ action: "input", id: active, data: text }), active: () => active,
   screen: () => { const t = terms.get(active); if (!t) return ""; const b = t.term.buffer.active, out = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true)); return out.join("\n"); } };
 window.orbitTheme(themeName);
 post({ action: "ready" });
