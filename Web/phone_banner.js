@@ -44,6 +44,11 @@
   .pb .hz { width: 100%; height: 22px; background: repeating-linear-gradient(-45deg, currentColor 0 5px, transparent 5px 10px); }
   .pb .no { writing-mode: vertical-rl; font: 700 8px/1 ui-monospace, Menlo, monospace; letter-spacing: 1px; opacity: .7; }
   .pb .gap { flex: none; }      /* 11-24 Keng：外側空白區、最靠終端空一條 */
+  /* 11-24 Keng「票帶上的 42 也要是金色」：品牌的 42 一律金色；黑底用亮金、白底用深金、淺色模式紅底用淡金（看得清楚） */
+  .pb .g { font-weight: inherit; color: #a8801a; }
+  .pb .band.b .g { color: #d4af37; }
+  :root[data-theme="light"] .pb .band.a .g { color: #ffd76a; }
+  :root[data-theme="light"] .pb .band.b .g { color: #a8801a; }
   @keyframes pbUp { from { transform: translateY(0); } to { transform: translateY(-50%); } }
   @keyframes pbDown { from { transform: translateY(-50%); } to { transform: translateY(0); } }
   @keyframes pbBlink { 50% { opacity: .15; } }
@@ -55,7 +60,7 @@
   const unit = n => `<div class="unit">
       <div class="txt">Phone in use</div><div class="bar"></div>
       <div class="txt zh">手機使用中</div><div class="hz"></div>
-      <div class="txt">Orbit42 · Live</div><div class="no">No.${n}</div>
+      <div class="txt">Orbit<b class="g">42</b> · Live</div><div class="no">No.${n}</div>
       <div class="txt zh">勿動鍵盤</div><div class="bar"></div>
       <div class="txt">Mirror on</div><div class="hz"></div></div>`;
   // 起點錯開（負的 delay），一打開每條的字就不在同一高度
