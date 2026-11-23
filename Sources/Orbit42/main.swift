@@ -332,23 +332,56 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
 
     /// 進入：收起登入畫面，球體的「＋ 新衛星」只列登入過的大腦
     func enter(_ list: [Provider]) {
-        login.web.isHidden = true
         setTerm(false)
+        // 過場：登入卡片往前飛出（網頁自己動）＋整個登入層淡出，同時球體從遠處拉近打開
+        (sphereView as? WKWebView)?.evaluateJavaScript("window.karaIntro && window.karaIntro()")
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.75; ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            login.web.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in MainActor.assumeIsolated { self?.login.web.isHidden = true } })
         let ids = list.filter(\.signedIn).map(\.id)
         if let d = try? JSONSerialization.data(withJSONObject: ids), let w = sphereView as? WKWebView {
             w.evaluateJavaScript("window.orbitBrains && window.orbitBrains(\(String(decoding: d, as: UTF8.self)))")
         }
     }
-    func showLogin() { login.web.isHidden = false; login.check() }
+    func showLogin() {
+        setTerm(false)
+        (sphereView as? WKWebView)?.evaluateJavaScript("window.karaOutro && window.karaOutro()")      // 球拉遠消失
+        login.web.alphaValue = 0; login.web.isHidden = false
+        login.web.evaluateJavaScript("window.loginShow && window.loginShow()")
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.6; ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            login.web.animator().alphaValue = 1
+        }
+        login.check()
+    }
 
     private func layoutTerm() {
-        guard let root = window.contentView else { return }
+        guard let root = window.contentView, termShown || host.web.isHidden else { return }
         let w = termWidth
         host.web.frame = NSRect(x: root.bounds.width - w, y: 0, width: w, height: root.bounds.height - 28)
     }
+    /// 終端機面板從右邊滑入／滑出
     func setTerm(_ on: Bool) {
-        termShown = on; layoutTerm(); host.web.isHidden = !on
-        if on { window.makeFirstResponder(host.web) }
+        guard on != termShown || host.web.isHidden == on else { return }
+        termShown = on; layoutTerm()
+        let shown = host.web.frame, hidden = shown.offsetBy(dx: shown.width + 40, dy: 0)
+        if on {
+            host.web.frame = hidden; host.web.alphaValue = 0.4; host.web.isHidden = false
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.32; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+                host.web.animator().frame = shown; host.web.animator().alphaValue = 1
+            }
+            window.makeFirstResponder(host.web)
+        } else if !host.web.isHidden {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.25; ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                host.web.animator().frame = hidden; host.web.animator().alphaValue = 0.4
+            }, completionHandler: { [weak self] in MainActor.assumeIsolated {
+                guard let self, !self.termShown else { return }
+                self.host.web.isHidden = true; self.host.web.alphaValue = 1; self.layoutTerm()
+            } })
+        }
     }
     func windowDidResize(_ n: Notification) { layoutTerm() }
     func windowWillClose(_ n: Notification) { host.shutdown(); NSApp.terminate(nil) }
