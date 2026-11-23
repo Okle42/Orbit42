@@ -40,7 +40,7 @@ final class TermWindowView: NSView {
 
         // 11-23 Keng「衛星終端機也要毛玻璃半透明」：最底層是 macOS 原生模糊材質，透出後面的球體；標題列和終端機底色都半透明
         glass.blendingMode = .withinWindow
-        glass.material = .hudWindow
+        glass.material = .popover          // 11-23：hudWindow 太霧，popover 比較透
         glass.state = .active
         glass.autoresizingMask = [.width, .height]
         clip.addSubview(glass)
@@ -160,7 +160,7 @@ final class TermWindowView: NSView {
     private func applyColors() {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         glass.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        bar.layer?.backgroundColor = (dark ? NSColor(white: 0.09, alpha: 0.35) : NSColor(white: 0.97, alpha: 0.35)).cgColor
+        bar.layer?.backgroundColor = (dark ? NSColor(white: 0.09, alpha: 0.12) : NSColor(white: 0.97, alpha: 0.12)).cgColor   // 11-23 Keng：再透一點
         subviews.first?.layer?.borderColor = (dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)).cgColor
         titleLabel.textColor = dark ? NSColor(white: 0.93, alpha: 1) : NSColor(white: 0.08, alpha: 1)
         lights.forEach { $0.needsDisplay = true }

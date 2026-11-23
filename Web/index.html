@@ -164,13 +164,13 @@ let active = null;
 // 11-23 Keng「終端機好多種顏色，要符合我們的風格」：只留黑白灰＋紅 ⇒ 綠黃藍紫青改成不同深淺的灰
 // Okle42 深／淺兩套色票（跟 Ghostty 的 Okle42-Dark／Okle42-Light 同一份）：Claude Code 的 okle42 樣式用 ANSI 色名，所以對話框跟著換
 const THEMES = {
-  dark: { background: "#0d0d0f59", foreground: "#ededed", cursor: "#ff3b30", cursorAccent: "#0d0d0f", selectionBackground: "#3a1a19",
+  dark: { background: "#0d0d0f1f", foreground: "#ededed", cursor: "#ff3b30", cursorAccent: "#0d0d0f", selectionBackground: "#3a1a19",
     black: "#1a1a1b", red: "#ff3b30", green: "#b0b0b0", yellow: "#e0e0e0", blue: "#9a9a9a", magenta: "#c8c8c8", cyan: "#bdbdbd", white: "#d4d4d4",
     brightBlack: "#5c5c5c", brightRed: "#ff6b61", brightGreen: "#c4c4c4", brightYellow: "#f0f0f0", brightBlue: "#ababab", brightMagenta: "#d6d6d6", brightCyan: "#cccccc", brightWhite: "#ffffff" },
   // 11-23 Keng「淺色看得好累」：淺色版提高對比——底稍微亮一點、一般字幾乎黑、灰字和各顏色都壓深到對比 4.5:1 以上
-  light: { background: "#fbfbf959", foreground: "#111111", cursor: "#d7261b", cursorAccent: "#ffffff", selectionBackground: "#f2c4bf",
+  light: { background: "#fbfbf91f", foreground: "#111111", cursor: "#d7261b", cursorAccent: "#ffffff", selectionBackground: "#f2c4bf",
     black: "#111111", red: "#c4211a", green: "#3a3a3a", yellow: "#2a2a2a", blue: "#4f4f4f", magenta: "#333333", cyan: "#444444", white: "#4a4a4a",
-    brightBlack: "#6a6a6a", brightRed: "#d7261b", brightGreen: "#303030", brightYellow: "#222222", brightBlue: "#454545", brightMagenta: "#2e2e2e", brightCyan: "#3d3d3d", brightWhite: "#111111" },
+    brightBlack: "#555555", brightRed: "#d7261b", brightGreen: "#303030", brightYellow: "#222222", brightBlue: "#454545", brightMagenta: "#2e2e2e", brightCyan: "#3d3d3d", brightWhite: "#111111" },
 };
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
 let themeName = new URLSearchParams(location.search).get("theme") || (sysDark.matches ? "dark" : "light");
@@ -181,14 +181,14 @@ window.orbitTheme = name => {
   const was = themeName;
   themeName = THEMES[name] ? name : (sysDark.matches ? "dark" : "light"); THEME = THEMES[themeName];
   document.documentElement.dataset.theme = themeName;
-  for (const t of terms.values()) t.term.options.theme = THEME;
+  for (const t of terms.values()) { t.term.options.theme = THEME; t.term.options.minimumContrastRatio = themeName === "dark" ? 1 : 4.5; }
   if (was !== themeName) for (const id of t2031) post({ action: "input", id, data: `\x1b[?997;${themeName === "dark" ? 1 : 2}n` });
 };
 sysDark.addEventListener("change", () => { if (!new URLSearchParams(location.search).get("theme")) window.orbitTheme(); });
 function makeTerm(id) {
   const el = document.createElement("div"); el.className = "term"; $("terms").appendChild(el);
   const term = new Terminal({ fontFamily: '"SF Mono", Menlo, "PingFang TC", monospace', fontSize: 13, lineHeight: 1.15, theme: THEME,
-    cursorBlink: true, allowProposedApi: true, allowTransparency: true, scrollback: 10000, macOptionIsMeta: true });
+    cursorBlink: true, allowProposedApi: true, allowTransparency: true, minimumContrastRatio: themeName === "dark" ? 1 : 4.5, scrollback: 10000, macOptionIsMeta: true });
   const fit = new FitAddon.FitAddon(); term.loadAddon(fit);
   try { term.loadAddon(new Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion = "11"; } catch {}
   term.open(el);
@@ -264,7 +264,11 @@ const okRGB = (r, g, b, bg) => {
     if (!bg) return THEME.red;
     return themeName === "dark" ? "#3a1a19" : "#f6d4d1";
   }
-  const L = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b), x = L.toString(16).padStart(2, "0");
+  let L = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  // 11-23 Keng「淺色模式不能有白字、淺灰字，至少要深灰到紅」：淺色時字一律壓到 #1a1a1a～#555555（原本越亮→這區間越淺），
+  // 底色一律壓到很淺的 #e4～#f4（原本深底的地方也變淺底，字才看得到）
+  if (themeName !== "dark") L = bg ? Math.round(0xe4 + L / 255 * (0xf4 - 0xe4)) : Math.round(0x1a + L / 255 * (0x55 - 0x1a));
+  const x = L.toString(16).padStart(2, "0");
   return "#" + x + x + x;
 };
 const C256 = n => {                     // 256 色 → RGB（16 色以下交給色票，不在這裡處理）
@@ -281,7 +285,8 @@ function okSGR(params) {
     } else if ((k === "38" || k === "48" || k === "58") && p[i + 1] === "5" && i + 2 < p.length && +p[i + 2] >= 16) {
       const [r, g, b] = C256(+p[i + 2]), hex = okRGB(r, g, b, k === "48");
       out.push(k, "2", parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)); i += 2;
-    } else out.push(k);
+    } else if (k === "2" && themeName !== "dark") { /* 淺色：不用「淡化」字（會變淺灰），字色已經分深淺 */ }
+    else out.push(k);
   }
   return out.join(";");
 }
@@ -291,7 +296,7 @@ function okColors(id, bytes) {
   for (let i = 0; i < bytes.length; i += 30000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 30000));
   const tail = s.match(/\x1b(\[[0-9;:]*)?$/); carry.set(id, tail ? tail[0] : "");
   if (tail) s = s.slice(0, s.length - tail[0].length);
-  s = s.replace(/\x1b\[([0-9;]*)m/g, (m, ps) => ps.includes("2;") || ps.includes("5;") ? "\x1b[" + okSGR(ps) + "m" : m);
+  s = s.replace(/\x1b\[([0-9;]*)m/g, (m, ps) => themeName !== "dark" || ps.includes("2;") || ps.includes("5;") ? "\x1b[" + okSGR(ps) + "m" : m);
   const out = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out;
 }
 window.orbitData = (id, data) => { (terms.get(id) || makeTerm(id)).term.write(okColors(id, b64(data))); };
