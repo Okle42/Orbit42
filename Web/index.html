@@ -6,7 +6,8 @@
 <title>Orbit42</title>
 <link rel="stylesheet" href="vendor/xterm-5.5.0/xterm.css">
 <style>
-  :root { --bg:#0b0b0c; --panel:rgba(18,18,20,.92); --line:#2a2a2d; --ink:#ededed; --dim:#8a8a8f; --acc:#4fc36a; --gold:#d9b45a; --term:#0d0d0f; }
+  /* 11-24 Keng 深色「綠白對調」：原本綠的（強調、游標、娃娃）改白，原本白的（一般字）改綠；灰字、黑底維持 */
+  :root { --bg:#0b0b0c; --panel:rgba(18,18,20,.92); --line:#2a2a2d; --ink:#4fc36a; --dim:#8a8a8f; --acc:#ffffff; --gold:#d9b45a; --term:#0d0d0f; }
   :root[data-theme="light"] { --bg:#fbfbf9; --panel:rgba(250,250,248,.94); --line:#d8d8d4; --ink:#141414; --dim:#6e6e6e; --acc:#d7261b; --gold:#a8801f; --term:#fbfbf9; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px -apple-system, "PingFang TC", sans-serif; overflow: hidden; }
@@ -61,6 +62,7 @@
   .xterm-viewport.has-back::-webkit-scrollbar-thumb { background-color: rgba(237,237,237,.10); }
   .xterm-viewport.scrolling::-webkit-scrollbar-thumb { background-color: rgba(237,237,237,.38); border-left-width: 4px; border-right-width: 3px; }
   .xterm-viewport:hover::-webkit-scrollbar-thumb:hover, .xterm-viewport::-webkit-scrollbar-thumb:active { background-color: #d7261b; border-left-width: 3px; border-right-width: 2px; }
+  :root:not([data-theme="light"]) .xterm-viewport:hover::-webkit-scrollbar-thumb:hover, :root:not([data-theme="light"]) .xterm-viewport::-webkit-scrollbar-thumb:active { background-color: #ffffff; }      /* 深色：強調色＝白 */
   :root[data-theme="light"] .xterm-viewport.has-back::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.10); }
   :root[data-theme="light"] .xterm-viewport.scrolling::-webkit-scrollbar-thumb { background-color: rgba(20,20,20,.35); }
 </style>
@@ -196,9 +198,10 @@ let active = null;
 // Okle42 深／淺兩套色票（跟 Ghostty 的 Okle42-Dark／Okle42-Light 同一份）：Claude Code 的 okle42 樣式用 ANSI 色名，所以對話框跟著換
 // 11-23 Keng：深色的紅全部改護眼綠（像軍用夜視綠，眼睛不疲勞）；淺色維持紅。Claude Code 的真彩色紅也經 okRGB 換成 THEME.red ⇒ 一起變綠
 const THEMES = {
-  dark: { background: "#0d0d0f1f", foreground: "#ededed", cursor: "#4fc36a", cursorAccent: "#0d0d0f", selectionBackground: "#173a20",
-    black: "#1a1a1b", red: "#4fc36a", green: "#b0b0b0", yellow: "#e0e0e0", blue: "#9a9a9a", magenta: "#c8c8c8", cyan: "#bdbdbd", white: "#d4d4d4",
-    brightBlack: "#5c5c5c", brightRed: "#7fd98f", brightGreen: "#c4c4c4", brightYellow: "#f0f0f0", brightBlue: "#ababab", brightMagenta: "#d6d6d6", brightCyan: "#cccccc", brightWhite: "#ffffff" },
+  // 11-24 Keng 深色綠白對調：原本綠的（紅槽＝強調、游標、選取底）改白，原本白的（一般字、亮白）改綠；灰階槽維持灰
+  dark: { background: "#0d0d0f1f", foreground: "#4fc36a", cursor: "#ffffff", cursorAccent: "#0d0d0f", selectionBackground: "#3a3a3d",
+    black: "#1a1a1b", red: "#ffffff", green: "#b0b0b0", yellow: "#e0e0e0", blue: "#9a9a9a", magenta: "#c8c8c8", cyan: "#bdbdbd", white: "#d4d4d4",
+    brightBlack: "#5c5c5c", brightRed: "#f2f2f2", brightGreen: "#c4c4c4", brightYellow: "#f0f0f0", brightBlue: "#ababab", brightMagenta: "#d6d6d6", brightCyan: "#cccccc", brightWhite: "#4fc36a" },
   // 11-23 Keng「淺色看得好累」：淺色版提高對比——底稍微亮一點、一般字幾乎黑、灰字和各顏色都壓深到對比 4.5:1 以上
   light: { background: "#fbfbf91f", foreground: "#111111", cursor: "#d7261b", cursorAccent: "#ffffff", selectionBackground: "#f2c4bf",
     black: "#111111", red: "#c4211a", green: "#3a3a3a", yellow: "#2a2a2a", blue: "#4f4f4f", magenta: "#333333", cyan: "#444444", white: "#4a4a4a",
@@ -454,12 +457,14 @@ const okRGB = (r, g, b, bg) => {
   if (mx !== mn) { const d = mx - mn; h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h = (h * 60 + 360) % 360; }
   if (sat > 0.35 && (h <= 30 || h >= 335) && mx > 90) {              // 紅、橘 ⇒ 品牌紅（底色用暗紅／淡紅，字才看得到）
     if (!bg) return THEME.red;
-    return themeName === "dark" ? "#173a20" : "#f6d4d1";
+    return themeName === "dark" ? "#2e2e30" : "#f6d4d1";       // 11-24 深色：強調底色跟著綠改白 ⇒ 暗灰底
   }
   let L = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
   // 11-23 Keng「淺色模式不能有白字、淺灰字，至少要深灰到紅」：淺色時字一律壓到 #1a1a1a～#555555（原本越亮→這區間越淺），
   // 底色一律壓到很淺的 #e4～#f4（原本深底的地方也變淺底，字才看得到）
   if (themeName !== "dark") L = bg ? Math.round(0xe4 + L / 255 * (0xf4 - 0xe4)) : Math.round(0x1a + L / 255 * (0x55 - 0x1a));
+  // 11-24 Keng 深色綠白對調：Claude Code 的真彩色白字（內文）是「原本白的」⇒ 改綠；灰字維持灰（Keng：灰字繼續維持）
+  else if (!bg && L >= 230) return "#4fc36a";
   const x = L.toString(16).padStart(2, "0");
   return "#" + x + x + x;
 };
@@ -494,7 +499,7 @@ function hideClawd(s) {
   return s.replace(CLAWD_RE, (m, body) => /\xe2\x96/.test(body)
     ? "\x1b[38;2;215;119;87m" + body.replace(/\x1b\[48;2;0;0;0m/g, "").replace(/\xe2\x96[\x80-\x9f]/g, BLANK) : m);
 }
-const dollColor = () => themeName === "dark" ? "#4fc36a" : "#d7261b";
+const dollColor = () => themeName === "dark" ? "#ffffff" : "#d7261b";      // 11-24 深色綠白對調：娃娃原本綠 ⇒ 白
 function attachDoll(t) {
   if (!window.mountClawdNV) return;
   const cv = document.createElement("canvas"); cv.className = "clawd"; t.el.appendChild(cv);
@@ -532,7 +537,12 @@ function okColors(id, bytes) {
   const tail = s.match(/\x1b(\[[0-9;:]*)?$/); carry.set(id, tail ? tail[0] : "");
   if (tail) s = s.slice(0, s.length - tail[0].length);
   s = hideClawd(s);
-  s = s.replace(/\x1b\[([0-9;]*)m/g, (m, ps) => themeName !== "dark" || ps.includes("2;") || ps.includes("5;") ? "\x1b[" + okSGR(ps) + "m" : m);
+  s = s.replace(/\x1b\[([0-9;]*)m/g, (m, ps) => {
+    // 11-24 深色綠白對調：一般字變綠後，Claude Code 的提示字（單獨 ESC[2m＝預設字色淡化）會變淡綠；Keng「灰字繼續維持」⇒ 固定成灰，ESC[22m 結束時一起還原字色
+    if (themeName === "dark" && ps === "2") return "\x1b[2;38;2;150;150;155m";
+    if (themeName === "dark" && ps === "22") return "\x1b[22;39m";
+    return themeName !== "dark" || ps.includes("2;") || ps.includes("5;") ? "\x1b[" + okSGR(ps) + "m" : m;
+  });
   const out = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out;
 }
 window.orbitData = (id, data) => { const t = terms.get(id) || makeTerm(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); };

@@ -2,12 +2,18 @@ import SwiftUI
 import VisionKit
 
 /// Orbit42 iPhone App：連到 Mac 上的 Orbit42（經 Tailscale），看球體、看衛星的終端機畫面（可以點、捲、打字）、回答答案卡。
-/// 不能在衛星裡打字、不能開新衛星（11-23：先做「看＋回答」，打字等加了每台手機配對／撤銷／稽核再說）
+/// 不能開新衛星。
 @main
 struct Orbit42PhoneApp: App {
     @State private var link: MacLink? = ProcessInfo.processInfo.environment["ORBIT_PHONE_DEMO"] != nil ? .demo : MacLink.load()
     @StateObject private var tailnet = Tailnet.shared
     @Environment(\.scenePhase) private var phase
+    init() {
+        // 11-24 深色白綠對調：導覽列標題（系統畫的）深色時用綠；淺色終端機頁維持系統黑字
+        let title = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1) : .label }
+        UINavigationBar.appearance().titleTextAttributes = [.foregroundColor: title]
+        UINavigationBar.appearance().largeTitleTextAttributes = [.foregroundColor: title]
+    }
     var body: some Scene {
         WindowGroup {
             Group {
@@ -21,7 +27,8 @@ struct Orbit42PhoneApp: App {
                     Task { try? await Task.sleep(for: .seconds(t)); tailnet.heal(reason: "測試") } } } }        // App 內建 Tailscale：一打開就上線（第一次要登入）
             .onChange(of: phase) { _, p in if p == .active { tailnet.refresh() } }
             .preferredColorScheme(.dark)
-            .tint(Color(red: 0.31, green: 0.765, blue: 0.416))
+            .foregroundStyle(Color.okGreen)          // 11-24 深色綠白對調：原本白的字改綠、原本綠的強調改白；灰字、黑底維持
+            .tint(Color.white)
         }
     }
 }
@@ -39,7 +46,7 @@ struct ConnectView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                (Text("OKLE").foregroundStyle(.white) + Text("42").foregroundStyle(.yellow) + Text("  ·  ORBIT").foregroundStyle(.secondary) + Text("42").foregroundStyle(.yellow))
+                (Text("OKLE").foregroundStyle(Color.okGreen) + Text("42").foregroundStyle(.yellow) + Text("  ·  ORBIT").foregroundStyle(.secondary) + Text("42").foregroundStyle(.yellow))
                     .font(.system(size: 12, weight: .semibold, design: .monospaced)).kerning(3)
                 Text("連到你的 Mac").font(.largeTitle.bold())
                 TailnetBox()
@@ -133,7 +140,7 @@ struct MainView: View {
                     ForEach(sats) { s in
                         NavigationLink(value: s) {
                             HStack {
-                                Circle().fill(s.state == "busy" ? Color.green : s.state == "exited" ? .gray : .white.opacity(0.6)).frame(width: 8, height: 8)
+                                Circle().fill(s.state == "busy" ? Color.white : s.state == "exited" ? .gray : Color.okGreen).frame(width: 8, height: 8)
                                 VStack(alignment: .leading) {
                                     Text(s.name).font(.headline)
                                     Text("\(s.brainLabel) · \(stateText(s.state))").font(.caption).foregroundStyle(.secondary)
@@ -224,7 +231,7 @@ struct KeyBar: View {
                     Text(k.0).font(.system(.callout, design: .monospaced)).frame(maxWidth: .infinity, minHeight: 36)
                         .background(light ? Color.black.opacity(0.06) : Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(light ? Color.black.opacity(0.10) : Color.clear))
-                }.buttonStyle(.plain).foregroundStyle(light ? Color(white: 0.07) : .white)
+                }.buttonStyle(.plain).foregroundStyle(light ? Color(white: 0.07) : Color.okGreen)
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 6).background(light ? Color(uiColor: TermModel.lightBG) : Color.black)
@@ -262,5 +269,10 @@ struct TailnetBox: View {
         .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
     }
     var icon: String { if case .running = tailnet.state { return "checkmark.shield.fill" }; if case .failed = tailnet.state { return "exclamationmark.triangle.fill" }; return "network" }
-    var color: Color { if case .running = tailnet.state { return .green }; if case .failed = tailnet.state { return .red }; return .secondary }
+    var color: Color { if case .running = tailnet.state { return .white }; if case .failed = tailnet.state { return .red }; return .secondary }
+}
+
+/// 11-24 Okle42 深色綠白對調（跟 Mac 衛星終端機同一套）：一般字綠、強調白、次要字灰、黑底
+extension Color {
+    static let okGreen = Color(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255)
 }

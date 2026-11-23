@@ -87,7 +87,7 @@ final class TermWindowView: NSView {
     /// 11-23 Keng「怎麼還有紅色」：強調色跟三顆燈一致＝深色護眼綠、淺色紅（閃框、拖檔外框都用這個）
     func accent(alpha: CGFloat = 1) -> CGColor {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return (dark ? NSColor(srgbRed: 0.310, green: 0.765, blue: 0.416, alpha: alpha) : NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: alpha)).cgColor
+        return (dark ? NSColor(white: 1, alpha: alpha)      /* 11-24 深色綠白對調：呼吸光原本綠 ⇒ 白 */ : NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: alpha)).cgColor
     }
 
     /// 11-23 Keng：打開時邊框亮一下紅光（跟 ShoWork 光暈同一個感覺），0.9 秒淡掉
@@ -182,7 +182,7 @@ final class TermWindowView: NSView {
         glass.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         bar.layer?.backgroundColor = (dark ? NSColor(white: 0.09, alpha: 0.12) : NSColor(white: 0.97, alpha: 0.12)).cgColor   // 11-23 Keng：再透一點
         subviews.first?.layer?.borderColor = (dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)).cgColor
-        titleLabel.textColor = dark ? NSColor(white: 0.93, alpha: 1) : NSColor(white: 0.08, alpha: 1)
+        titleLabel.textColor = dark ? NSColor(srgbRed: 0x4f / 255.0, green: 0xc3 / 255.0, blue: 0x6a / 255.0, alpha: 1) : NSColor(white: 0.08, alpha: 1)      // 11-24 深色綠白對調：標題字原本白 ⇒ 綠
         lights.forEach { $0.needsDisplay = true }
     }
 
@@ -282,9 +282,9 @@ final class TrafficLight: NSButton {
         //   淺色：紅 #d7261b／灰 #8c8c8c／白 #ffffff，外圈加深一點（白點在淺灰標題列上才看得到）
         let fill: NSColor, ring: NSColor
         switch kind {
-        case .close: fill = dark ? NSColor(srgbRed: 0.310, green: 0.765, blue: 0.416, alpha: 1) : NSColor(srgbRed: 0.843, green: 0.149, blue: 0.106, alpha: 1)
+        case .close: fill = dark ? NSColor(srgbRed: 0.929, green: 0.929, blue: 0.929, alpha: 1)      /* 11-24 綠白對調：關閉燈綠 ⇒ 白、放大燈白 ⇒ 綠 */ : NSColor(srgbRed: 0.843, green: 0.149, blue: 0.106, alpha: 1)
         case .minimize: fill = dark ? NSColor(srgbRed: 0.541, green: 0.541, blue: 0.561, alpha: 1) : NSColor(white: 0.55, alpha: 1)
-        case .zoom: fill = dark ? NSColor(srgbRed: 0.929, green: 0.929, blue: 0.929, alpha: 1) : .white
+        case .zoom: fill = dark ? NSColor(srgbRed: 0.310, green: 0.765, blue: 0.416, alpha: 1) : .white
         }
         ring = kind == .zoom && !dark ? NSColor(white: 0, alpha: 0.35) : NSColor(white: 0, alpha: dark ? 0.45 : 0.18)
         let c = NSBezierPath(ovalIn: bounds.insetBy(dx: 0.5, dy: 0.5))
@@ -299,7 +299,7 @@ final class TrafficLight: NSButton {
         case .minimize: g.move(to: NSPoint(x: b.minX, y: b.midY)); g.line(to: NSPoint(x: b.maxX, y: b.midY))
         case .zoom: g.move(to: NSPoint(x: b.minX, y: b.midY)); g.line(to: NSPoint(x: b.maxX, y: b.midY)); g.move(to: NSPoint(x: b.midX, y: b.minY)); g.line(to: NSPoint(x: b.midX, y: b.maxY))
         }
-        (kind == .close ? (dark ? NSColor(srgbRed: 0.02, green: 0.22, blue: 0.07, alpha: 0.85) : NSColor(srgbRed: 0.35, green: 0.02, blue: 0.0, alpha: 0.85)) : NSColor(white: 0.1, alpha: 0.75)).setStroke(); g.stroke()
+        (kind == .close ? (dark ? NSColor(white: 0.1, alpha: 0.75) : NSColor(srgbRed: 0.35, green: 0.02, blue: 0.0, alpha: 0.85)) : NSColor(white: 0.1, alpha: 0.75)).setStroke(); g.stroke()
     }
 }
 
