@@ -52,6 +52,28 @@ struct MacLink: Equatable, Sendable {
     }
 }
 
+/// 連線統計（衛星分頁顯示；紅條只在連續失敗時才出現）
+@MainActor final class NetStats: ObservableObject {
+    static let shared = NetStats()
+    @Published private(set) var ok = 0
+    @Published private(set) var fail = 0
+    @Published private(set) var streak = 0
+    @Published private(set) var lastError = ""
+    func success() { ok += 1; streak = 0 }
+    func failure(_ e: String) { fail += 1; streak += 1; lastError = e }
+    /// 連續失敗 3 次（約 6 秒都沒成功）才算真的斷線；偶爾一次失敗就安靜重試
+    var down: Bool { streak >= 3 }
+}
+
+/// 一次只送一個請求（11-23：球體、衛星清單、衛星畫面三條同時擠進內建 Tailscale 的轉接通道，常有一條失敗）
+actor RequestGate {
+    static let shared = RequestGate()
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func enter() async { if !busy { busy = true; return }; await withCheckedContinuation { waiters.append($0) } }
+    func leave() { if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() } }
+}
+
 /// Mac 上 Orbit42 的唯讀 API（＋回答答案卡）。全部帶 X-ShoWork-Token 標頭
 struct OrbitAPI: Sendable {
     let link: MacLink
@@ -76,14 +98,17 @@ struct OrbitAPI: Sendable {
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             r.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
+        await RequestGate.shared.enter()
+        defer { Task { await RequestGate.shared.leave() } }
         let (d, resp): (Data, URLResponse)
         // App 內建 Tailscale 上線了就走它（不用開 Tailscale App）；還沒上線才用系統網路（手機有開 Tailscale App 時也通）。
         // 11-23：通道可能被 iOS 收回（背景、切 App）⇒ 連不上就重開通道再試一次
         do { (d, resp) = try await Tailnet.sessionForRequest(retry: false).data(for: r) }
         catch {
             do { (d, resp) = try await Tailnet.sessionForRequest(retry: true).data(for: r) }
-            catch { throw Failure.offline(error.localizedDescription) }
+            catch { await NetStats.shared.failure(error.localizedDescription); throw Failure.offline(error.localizedDescription) }
         }
+        await NetStats.shared.success()
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
             let msg = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["error"] as? String ?? "出錯了"

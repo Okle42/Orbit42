@@ -93,7 +93,7 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
                     guard let self else { return }
                     self.error = nil
                     if d != self.last { self.last = d; self.web.evaluateJavaScript("window.karaUpdate && window.karaUpdate(\(String(decoding: d, as: UTF8.self)))", completionHandler: nil) }
-                } catch { self?.error = error.localizedDescription }
+                } catch { if NetStats.shared.down { self?.error = error.localizedDescription } }    // 偶爾失敗一次不跳紅條（下一輪就重試）
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -174,7 +174,7 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
                         js(self.web, "window.orbitData", [id, r.data.base64EncodedString()])
                         self.offset = r.from + r.data.count
                     }
-                } catch { self.error = error.localizedDescription }
+                } catch { if NetStats.shared.down { self.error = error.localizedDescription } }
                 try? await Task.sleep(for: .seconds(1))
             }
         }

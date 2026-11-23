@@ -102,6 +102,7 @@ struct MainView: View {
     var onForget: () -> Void
     @StateObject private var sphere: SphereModel
     @EnvironmentObject var tailnet: Tailnet
+    @ObservedObject private var stats = NetStats.shared
     @State private var tab = 0
     @State private var sats: [Sat] = []
     @State private var path: [Sat] = []
@@ -139,7 +140,10 @@ struct MainView: View {
                     }
                     Section {
                         Text(link.isDemo ? "示範模式" : "已連到 \(link.host):\(link.port)").font(.footnote).foregroundStyle(.secondary)
-                        if !link.isDemo { Text("連線方式：\(tailnet.route)").font(.footnote).foregroundStyle(.secondary) }
+                        if !link.isDemo {
+                            Text("連線方式：\(tailnet.route)").font(.footnote).foregroundStyle(.secondary)
+                            Text("連線紀錄：成功 \(stats.ok)・失敗 \(stats.fail)" + (stats.fail > 0 ? "（最後一次：\(stats.lastError)）" : "")).font(.footnote).foregroundStyle(.secondary)
+                        }
                         Button(link.isDemo ? "連到我的 Mac" : "中斷並忘記這台 Mac", role: .destructive, action: onForget)
                     }
                 }
@@ -172,7 +176,7 @@ struct MainView: View {
     func loadSats() async {
         if link.isDemo { sats = Sat.demo; return }
         do { sats = Sat.list(try await OrbitAPI(link: link).sats()); satError = nil }
-        catch { satError = error.localizedDescription }
+        catch { if NetStats.shared.down { satError = error.localizedDescription } }     // 偶爾失敗一次不換掉清單、不跳紅字
     }
     func satLoop() async {
         while !Task.isCancelled { await loadSats(); try? await Task.sleep(for: .seconds(3)) }
