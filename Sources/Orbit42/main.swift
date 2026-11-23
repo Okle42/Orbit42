@@ -41,7 +41,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     static var webDir: URL? {
         var c: [URL] = []
-        if let r = Bundle.main.resourceURL { c.append(r.appendingPathComponent("Web")) }
+        if let r = Bundle.main.resourceURL { c.append(r.appendingPathComponent("OrbitWeb")) }   // Orbit42.app：Resources/OrbitWeb（Resources/Web 放 ShoWork 的球體網頁）
         c.append(URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Web"))
         return c.first { FileManager.default.fileExists(atPath: $0.appendingPathComponent("index.html").path) }
     }

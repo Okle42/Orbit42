@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>ai.okle42.orbit42</string>
+    <key>CFBundleName</key>
+    <string>Orbit42</string>
+    <key>CFBundleDisplayName</key>
+    <string>Orbit42</string>
+    <key>CFBundleExecutable</key>
+    <string>Orbit42</string>
+    <key>CFBundleIconFile</key>
+    <string>Orbit42</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2</string>
+    <key>CFBundleVersion</key>
+    <string>2</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Orbit42 opens and arranges your terminal windows (Ghostty) for sessions that run outside Orbit42.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Hold the sphere (or Space) to talk to your AI; speech is turned into text on this Mac.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Turns what you say while holding the sphere into text on this Mac. No audio is stored.</string>
+</dict>
+</plist>
