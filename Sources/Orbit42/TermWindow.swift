@@ -99,8 +99,11 @@ final class TermWindowView: NSView {
         if on {
             // 11-23 Keng 第四輪「陰影跟黑光打架，陰影立體感比較好」：不再動陰影（維持原本柔和的下方陰影），
             // 呼吸只在邊框：深灰邊線變深變淡、稍微變粗
+            // 11-23 Keng「深色模式應該是白光」：深色＝白邊呼吸、淺色＝深灰邊呼吸（跟底色反過來才看得到）
+            let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             let border = CABasicAnimation(keyPath: "borderColor")
-            border.fromValue = NSColor(white: 0.3, alpha: 0.25).cgColor; border.toValue = NSColor(white: 0.2, alpha: 0.9).cgColor
+            border.fromValue = (dark ? NSColor(white: 1, alpha: 0.18) : NSColor(white: 0.3, alpha: 0.25)).cgColor
+            border.toValue = (dark ? NSColor(white: 1, alpha: 0.85) : NSColor(white: 0.2, alpha: 0.9)).cgColor
             let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 1.6
             for a in [border, width] {
                 a.duration = 1.4; a.autoreverses = true; a.repeatCount = .infinity
@@ -153,7 +156,10 @@ final class TermWindowView: NSView {
         grip.frame = NSRect(x: bounds.width - 16, y: 0, width: 16, height: 16)
     }
 
-    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyColors() }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance(); applyColors()
+        if breathing { setBreathing(false); setBreathing(true) }      // 呼吸中切深淺：換成新顏色重來
+    }
     private func applyColors() {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         glass.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
