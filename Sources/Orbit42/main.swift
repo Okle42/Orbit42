@@ -407,6 +407,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         SphereEmbed.command = { [weak self] cmd in
             if cmd == "fullscreen" { self?.window.toggleFullScreen(nil) }
             if cmd.hasPrefix("theme:") { self?.applyTheme(String(cmd.dropFirst(6))) }
+            if cmd == "arrangeSats" { self?.arrangeSats() }
         }
         // ⌃⌘F：全螢幕桌面模式切換（macOS 標準快捷鍵）
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
@@ -461,6 +462,10 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out)); print("board shot saved"); fflush(stdout)
                 } }
             } }
+        }
+        // 測試：ORBIT_TEST_ARRANGE=<秒數> ⇒ 幾秒後執行「衛星斜對角排開」（跟球體按自動排版一樣）
+        if let t = env["ORBIT_TEST_ARRANGE"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in MainActor.assumeIsolated { self?.arrangeSats() } }
         }
         // 測試：ORBIT_TEST_MULTI="<個數>@<輸出前綴>" ⇒ 開好幾個跑簡單指令的衛星，印出各小視窗位置／疊放順序，
         // 點最底下那個（模擬滑鼠）看它有沒有疊到最上面，再把每個終端機內容倒到 <前綴>_<i>.txt
@@ -581,6 +586,26 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.5; ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 self.login.web.animator().alphaValue = 1
+            }
+        }
+    }
+
+    /// 11-23 Keng「自動排版，我也要能讓我的衛星終端機像之前那樣斜對角排開」：開著的衛星小視窗統一大小，
+    /// 照疊放順序沿斜對角均勻排開（最底下的在左上、最上面的在右下），每個標題列都看得到
+    func arrangeSats() {
+        guard let root = window.contentView else { return }
+        let wins = root.subviews.compactMap { $0 as? TermWindowView }.filter { !$0.isHidden }
+        guard !wins.isEmpty else { return }
+        let area = NSRect(x: 16, y: 40, width: root.bounds.width - 32, height: root.bounds.height - 40 - 52)
+        let base = TermWindowView.fit(wins[0].restoredFrame(in: root.bounds), in: root.bounds)
+        let n = CGFloat(wins.count)
+        let w = min(base.width, n > 1 ? area.width * 0.62 : area.width), h = min(base.height, n > 1 ? area.height * 0.78 : area.height)
+        let dx = n > 1 ? (area.width - w) / (n - 1) : 0, dy = n > 1 ? (area.height - h) / (n - 1) : 0
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.32; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+            for (i, v) in wins.enumerated() {
+                let f = n > 1 ? NSRect(x: area.minX + CGFloat(i) * dx, y: area.maxY - h - CGFloat(i) * dy, width: w, height: h) : base
+                v.animator().frame = f.integral
             }
         }
     }
