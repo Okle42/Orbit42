@@ -80,6 +80,30 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return v
     }
 
+    /// 11-23 iPhone App（經 ShoWork 網頁伺服器：Tailscale＋token，唯讀）：衛星清單與畫面
+    func registerRemote() {
+        SphereEmbed.remoteSats = { [weak self] in
+            // 附上 Claude 的 session id（手機點球上的 session 時，用這個對到是哪顆衛星）
+            let dir = NSHomeDirectory() + "/.claude/sessions", fm = FileManager.default
+            let recs = ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".json") }
+                .compactMap { fm.contents(atPath: dir + "/" + $0).flatMap(SessionRecord.decode) }
+            let list: [[String: Any]] = MainActor.assumeIsolated {
+                guard let h = self else { return [] }
+                return h.order.compactMap { id -> [String: Any]? in
+                    guard let s = h.sats[id] else { return nil }
+                    var o = s.json
+                    if let p = s.pty, let r = recs.first(where: { $0.pid == p.pid || Host.parent(of: $0.pid) == p.pid }) { o["sessionId"] = r.sessionId }
+                    return o
+                }
+            }
+            return (try? JSONSerialization.data(withJSONObject: list)) ?? Data("[]".utf8)
+        }
+        SphereEmbed.remoteScreen = { [weak self] id, from in
+            let o: [String: Any]? = MainActor.assumeIsolated { self?.sats[id]?.remote(from: from) }
+            return o.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+        }
+    }
+
     func startTimers() {
         flushTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.flush() } }
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushSats() } }
@@ -463,6 +487,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         host.onRemoved = { [weak self] id in self?.closeSat(id) }
         host.onBusy = { [weak self] id, busy in guard let w = self?.satWins[id], !w.isHidden else { return }; w.setBreathing(busy) }
         host.startTimers()
+        host.registerRemote()                 // 11-23 iPhone App：衛星清單與畫面（ShoWork 網頁伺服器唯讀端點）
         if ProcessInfo.processInfo.environment["ORBIT_TEST_RESTORE"] == "load" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated { self?.host.restore() } }
         }
@@ -618,6 +643,23 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                             left -= 1; if left == 0 { print("multi dumped"); fflush(stdout); if env["ORBIT_TEST_QUIT"] != nil { self.host.shutdown(); NSApp.terminate(nil) } }
                         }
                     }
+                } }
+            } }
+        }
+        // 測試：ORBIT_TEST_REMOTE=1 ⇒ 開一顆印字的衛星，4 秒後印出 iPhone App 會拿到的衛星清單與畫面（/api/sats、/api/sat 背後那兩個掛勾）
+        if env["ORBIT_TEST_REMOTE"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated {
+                guard let self else { return }
+                let id = self.host.runCommand(name: "遠端測試", brain: .claude, command: "printf 'iPhone 鏡像測試 OK\\n'; sleep 30")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated {
+                    print("remote sats=" + String(decoding: SphereEmbed.remoteSats?() ?? Data(), as: UTF8.self))
+                    let scr = SphereEmbed.remoteScreen?(id, 0).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                    let txt = (scr["data"] as? String).flatMap { Data(base64Encoded: $0) }.map { String(decoding: $0, as: UTF8.self) } ?? ""
+                    print("remote screen total=\(scr["total"] ?? -1) cols=\(scr["cols"] ?? -1) rows=\(scr["rows"] ?? -1) text=\(txt.contains("iPhone 鏡像測試 OK"))")
+                    let tail = SphereEmbed.remoteScreen?(id, (scr["total"] as? Int) ?? 0).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                    print("remote screen from=end data=\((tail?["data"] as? String)?.count ?? -1)")
+                    print("remote sphere=\(SphereEmbed.latestSphere?.count ?? -1) bytes"); fflush(stdout)
+                    self.host.shutdown(); NSApp.terminate(nil)
                 } }
             } }
         }

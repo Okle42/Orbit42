@@ -28,6 +28,7 @@ final class Satellite: @unchecked Sendable {
     var exited: Int32?
     var lastOutput = Date.distantPast
     private(set) var scrollback = Data()     // replayed when the terminal panel is reopened
+    private(set) var total = 0               // 11-23 iPhone App：開始到現在一共輸出幾個位元組（手機照這個位置續讀）
     private let lock = NSLock()
 
     init(id: String, name: String, brain: Brain, cwd: String, command: String, attachedJob: String? = nil) {
@@ -37,11 +38,24 @@ final class Satellite: @unchecked Sendable {
     func append(_ d: Data) {
         lock.lock(); defer { lock.unlock() }
         scrollback.append(d)
+        total += d.count
         let cap = 2 * 1024 * 1024
         if scrollback.count > cap { scrollback.removeFirst(scrollback.count - cap) }
         lastOutput = Date()
     }
     func snapshot() -> Data { lock.lock(); defer { lock.unlock() }; return scrollback }
+
+    /// iPhone App：從第 from 個位元組起的輸出（太舊已經丟掉就從還留著的最前面；一次最多 256 KB，取最新的）
+    func remote(from: Int) -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        let start = total - scrollback.count
+        var f = max(from, start)
+        if total - f > 256 * 1024 { f = total - 256 * 1024 }
+        let chunk = f >= total ? Data() : scrollback.suffix(total - f)
+        var o: [String: Any] = ["total": total, "from": f, "data": chunk.base64EncodedString()]
+        if let s = pty?.size { o["cols"] = s.cols; o["rows"] = s.rows }
+        return o
+    }
 
     var json: [String: Any] {
         let state = exited != nil ? "exited" : pty == nil ? "idle" : Date().timeIntervalSince(lastOutput) < 3 ? "busy" : "open"

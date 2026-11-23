@@ -1,0 +1,183 @@
+import SwiftUI
+import WebKit
+
+/// App 裡帶著的網頁（Web＝ShoWork 球體、OrbitWeb＝衛星終端機）用 orbit://app/<路徑> 讀：
+/// ES module 在 file:// 底下載不進來（跟 Mac main.swift WebFiles 同一招）
+final class BundleFiles: NSObject, WKURLSchemeHandler {
+    let root = Bundle.main.resourceURL!.standardizedFileURL
+    func webView(_ w: WKWebView, start task: any WKURLSchemeTask) {
+        let rel = task.request.url?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
+        let file = root.appendingPathComponent(rel).standardizedFileURL
+        guard file.path.hasPrefix(root.path + "/"), let data = try? Data(contentsOf: file) else {
+            task.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist)); return
+        }
+        let types = ["html": "text/html", "js": "text/javascript", "mjs": "text/javascript", "css": "text/css", "json": "application/json",
+                     "png": "image/png", "svg": "image/svg+xml", "woff2": "font/woff2", "wasm": "application/wasm"]
+        let resp = HTTPURLResponse(url: task.request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                   headerFields: ["Content-Type": (types[file.pathExtension.lowercased()] ?? "application/octet-stream") + "; charset=utf-8"])!
+        task.didReceive(resp); task.didReceive(data); task.didFinish()
+    }
+    func webView(_ w: WKWebView, stop task: any WKURLSchemeTask) {}
+}
+
+/// 網頁 → App 的訊息（WKScriptMessageHandler 會強引用 handler ⇒ 弱轉接）
+final class WeakHandler: NSObject, WKScriptMessageHandler {
+    weak var target: (any WKScriptMessageHandler)?
+    init(_ t: any WKScriptMessageHandler) { target = t }
+    func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) { target?.userContentController(u, didReceive: m) }
+}
+
+@MainActor
+func makeWeb(handler: any WKScriptMessageHandler, name: String) -> WKWebView {
+    let cfg = WKWebViewConfiguration()
+    cfg.setURLSchemeHandler(BundleFiles(), forURLScheme: "orbit")
+    cfg.userContentController.add(WeakHandler(handler), name: name)
+    cfg.allowsInlineMediaPlayback = true
+    let w = WKWebView(frame: .zero, configuration: cfg)
+    w.isOpaque = false
+    w.backgroundColor = .black
+    w.scrollView.backgroundColor = .black
+    w.scrollView.contentInsetAdjustmentBehavior = .never
+    w.scrollView.bounces = false
+    #if DEBUG
+    w.isInspectable = true
+    #endif
+    return w
+}
+
+func js(_ w: WKWebView?, _ fn: String, _ args: [Any]) {
+    guard let w, let d = try? JSONSerialization.data(withJSONObject: args) else { return }
+    w.evaluateJavaScript("\(fn) && \(fn)(...\(String(decoding: d, as: UTF8.self)))", completionHandler: nil)
+}
+
+// MARK: - 球體（跟 Mac Orbit42 同一份 sphere.html；資料每 2 秒從 Mac 拿一次）
+
+@MainActor
+final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
+    let link: MacLink
+    private(set) lazy var web: WKWebView = {
+        let w = makeWeb(handler: self, name: "sphere")
+        w.load(URLRequest(url: URL(string: "orbit://app/Web/sphere.html?orbit=1&phone=1")!))
+        return w
+    }()
+    @Published var error: String?
+    private var poll: Task<Void, Never>?
+    private var last: Data?
+    /// 點球上的衛星（Mac 上 Orbit42 開的）→ 切到那顆衛星的鏡像畫面
+    var onFocus: (String) -> Void = { _ in }
+
+    init(link: MacLink) { self.link = link }
+
+    /// 示範模式的假資料（名字、專案都是假的）：一個在等你回答的 session（4 選項答案卡）＋一個在工作的
+    static let demoPayload = #"{"sessions":2,"five_hour":38,"seven_day":52,"five_reset":124,"seven_reset":3100,"ctx":21,"doneToday":3,"#
+        + #""team":[{"name":"Demo-整理報表","status":"需要你","sessionId":"demo-a","progress":80,"doing":"整理報表","summary":"報表草稿做好了，格式有兩種寫法","#
+        + #""ask":"報表要用哪一種格式？","options":["用表格版（建議）","用條列版","兩種都做","先不用，我看過再說"]},"#
+        + #"{"name":"Demo-修登入頁","status":"工作中","sessionId":"demo-b","progress":40,"doing":"修登入頁"}],"runs":[],"heat":null,"paused":false,"#
+        + #""disks":[{"name":"內建","used":61,"freeGB":98,"totalGB":256}]}"#
+
+    func start() {
+        if link.isDemo, poll == nil {
+            last = Data(Self.demoPayload.utf8)
+            poll = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(1.5))
+                guard let self, let d = self.last else { return }
+                self.web.evaluateJavaScript("window.karaUpdate && window.karaUpdate(\(String(decoding: d, as: UTF8.self)))", completionHandler: nil)
+            }
+        }
+        guard poll == nil, !link.isDemo else { return }
+        let api = OrbitAPI(link: link)
+        poll = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    let d = try await api.sphere()
+                    guard let self else { return }
+                    self.error = nil
+                    if d != self.last { self.last = d; self.web.evaluateJavaScript("window.karaUpdate && window.karaUpdate(\(String(decoding: d, as: UTF8.self)))", completionHandler: nil) }
+                } catch { self?.error = error.localizedDescription }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+    func stop() { poll?.cancel(); poll = nil }
+
+    func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard let o = m.body as? [String: Any], let a = o["action"] as? String else { return }
+        func toast(_ s: String) { js(web, "window.karaToast", [s]) }
+        switch a {
+        case "ready":
+            if let last { web.evaluateJavaScript("window.karaUpdate && window.karaUpdate(\(String(decoding: last, as: UTF8.self)))", completionHandler: nil) }
+        case "answer":
+            guard let sid = o["sessionId"] as? String, let text = o["text"] as? String else { return }
+            if link.isDemo { return toast("示範模式：不送出") }
+            Task {
+                do { toast(try await OrbitAPI(link: link).answer(session: sid, text: text)) }
+                catch { toast("沒送出：\(error.localizedDescription)") }
+            }
+        case "focus":
+            if let sid = o["sessionId"] as? String { onFocus(sid) }
+        case "permit", "captain", "ask", "listen", "speak", "newSatellite", "orbit", "audit", "timeline", "openBoard":
+            if a != "speak" && a != "listen" { toast("這個要在 Mac 上做（手機版只能看和回答答案卡）") }
+            if a == "speak" { js(web, "window.karaVoice", ["end"]) }       // 手機不出聲；網頁要收到結束才不會卡住
+        default: break
+        }
+    }
+}
+
+struct WebBox: UIViewRepresentable {
+    let web: WKWebView
+    func makeUIView(context: Context) -> WKWebView { web }
+    func updateUIView(_ v: WKWebView, context: Context) {}
+}
+
+// MARK: - 衛星鏡像（唯讀：照 Mac 的行列數顯示終端機，每秒拿新的輸出）
+
+@MainActor
+final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
+    let link: MacLink, sat: Sat
+    private(set) lazy var web: WKWebView = {
+        let w = makeWeb(handler: self, name: "orbit")
+        let q = "term=1&mirror=1&sat=\(sat.id)&theme=dark"
+        w.load(URLRequest(url: URL(string: "orbit://app/OrbitWeb/index.html?" + q)!))
+        return w
+    }()
+    @Published var error: String?
+    private var poll: Task<Void, Never>?
+    private var offset = 0, ready = false
+
+    init(link: MacLink, sat: Sat) { self.link = link; self.sat = sat }
+
+    func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard let o = m.body as? [String: Any], o["action"] as? String == "ready" else { return }      // 唯讀：打字、改大小一律不送
+        ready = true
+        js(web, "window.orbitSats", [[sat.json]])
+        js(web, "window.orbitOpened", [sat.id])
+        start()
+    }
+
+    func start() {
+        guard poll == nil, ready else { return }
+        if link.isDemo {
+            js(web, "window.orbitMirror", [80, 24])
+            let demo = "\u{1b}[32m●\u{1b}[0m 示範模式：連上 Mac 之後，這裡會即時顯示這顆衛星的終端機畫面（唯讀）。\r\n"
+            js(web, "window.orbitData", [sat.id, Data(demo.utf8).base64EncodedString()])
+            return
+        }
+        let api = OrbitAPI(link: link), id = sat.id
+        poll = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                do {
+                    let r = try await api.screen(id, from: self.offset)
+                    self.error = nil
+                    if let size = r.size { js(self.web, "window.orbitMirror", [size.cols, size.rows]) }
+                    if !r.data.isEmpty {
+                        js(self.web, "window.orbitData", [id, r.data.base64EncodedString()])
+                        self.offset = r.from + r.data.count
+                    }
+                } catch { self.error = error.localizedDescription }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+    func stop() { poll?.cancel(); poll = nil }
+}

@@ -87,6 +87,9 @@
 import * as THREE from "three";
 const $ = id => document.getElementById(id);
 const TERM_ONLY = new URLSearchParams(location.search).has("term");
+// 11-23 iPhone App：鏡像模式（?mirror）＝照 Mac 那顆衛星的行列數顯示、字縮到塞得下手機寬度；不量自己的大小、不收輸入
+const MIRROR = new URLSearchParams(location.search).has("mirror");
+let mirrorSize = null;
 if (TERM_ONLY) document.body.classList.add("termOnly");
 const post = o => { try { if (window.webkit?.messageHandlers?.orbit) window.webkit.messageHandlers.orbit.postMessage(o); else window.chrome?.webview?.postMessage(o); } catch {}   /* Windows：WebView2 */ };
 
@@ -245,6 +248,7 @@ function openTerm(id) {
   active = id; $("panel").classList.add("on"); paintHead();
   // 11-23：等終端機視窗的大小定下來（連續 3 格一樣、不是 0）才量行列數、才啟動程式。
   // 之前一打開就量，視窗還在動畫／排版中，Claude 用錯的寬度畫完畫面，下一刻寬度一變就整片亂掉
+  if (MIRROR) { t.term.options.disableStdin = true; mirrorFit(t); return; }
   whenStable($("terms"), () => { t.fit.fit(); t.term.focus();
     if (!t.started || sats.get(id)?.data.state === "exited") { t.started = true; post({ action: "open", id, cols: t.term.cols, rows: t.term.rows }); }
   });
@@ -264,6 +268,7 @@ new ResizeObserver(() => {
   clearTimeout(window.__fitT);
   window.__fitT = setTimeout(() => {
     const t = active && terms.get(active); if (!t) return;
+    if (MIRROR) return mirrorFit(t);
     const before = t.term.cols + "x" + t.term.rows;
     t.fit.fit();
     // 寬度變了：舊內容按新寬度重新折行，表格框線一定錯位 ⇒ 清空畫面與捲軸，再請程式（Ctrl+L）照新寬度整個重畫
@@ -271,7 +276,18 @@ new ResizeObserver(() => {
     // 變窄時舊內容只是被切掉（不是錯位），再拉寬就回來
   }, 300);
 }).observe($("terms"));
-function fitActive() { const t = active && terms.get(active); if (t) t.fit.fit(); }
+function fitActive() { const t = active && terms.get(active); if (t) MIRROR ? mirrorFit(t) : t.fit.fit(); }
+// 鏡像：行列數照 Mac（window.orbitMirror(cols, rows)），字級依手機寬度算（等寬字寬約 0.6 個字級）
+function mirrorFit(t) {
+  if (!mirrorSize) return;
+  const w = $("terms").clientWidth - 8;
+  t.term.options.fontSize = Math.max(5, Math.min(14, Math.floor(w / (mirrorSize.cols * 0.6) * 10) / 10));
+  if (t.term.cols !== mirrorSize.cols || t.term.rows !== mirrorSize.rows) t.term.resize(mirrorSize.cols, mirrorSize.rows);
+}
+window.orbitMirror = (cols, rows) => {
+  if (mirrorSize && mirrorSize.cols === cols && mirrorSize.rows === rows) return;
+  mirrorSize = { cols, rows }; const t = active && terms.get(active); if (t) mirrorFit(t);
+};
 function paintHead() {
   const s = sats.get(active)?.data; if (!s) return;
   $("pName").textContent = s.name; $("pState").textContent = `${s.brainLabel}${s.job ? " · 背景 session（關掉只關檢視）" : ""} · ${s.cwd}`;

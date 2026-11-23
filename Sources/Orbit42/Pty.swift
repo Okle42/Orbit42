@@ -13,7 +13,11 @@ final class Pty: @unchecked Sendable {
     var onExit: (Int32) -> Void = { _ in }
 
     /// Runs `command` through the user's login zsh (so PATH, nvm, etc. match a normal terminal).
+    /// 目前的行列數（iPhone App 照這個大小鏡像顯示，不然手機上的畫面會亂折行）
+    private(set) var size = (cols: 0, rows: 0)
+
     init?(command: String, cwd: String, cols: Int, rows: Int, env extra: [String: String] = [:]) {
+        size = (max(cols, 10), max(rows, 2))
         // Build argv/envp before fork: the child may only call async-signal-safe functions.
         var env = ProcessInfo.processInfo.environment
         // Don't leak the launching agent's session markers (e.g. Orbit42 started from inside Claude Code):
@@ -87,6 +91,7 @@ final class Pty: @unchecked Sendable {
 
     func resize(cols: Int, rows: Int) {
         var win = winsize(ws_row: UInt16(max(rows, 2)), ws_col: UInt16(max(cols, 10)), ws_xpixel: 0, ws_ypixel: 0)
+        size = (max(cols, 10), max(rows, 2))
         // 11-23 修：之前用 @_silgen_name 自己宣告 ioctl（非可變參數），在 Apple 晶片上可變參數走堆疊、不走暫存器
         // ⇒ 指標傳錯、改尺寸從來沒成功，程式收不到 SIGWINCH，調視窗大小後畫面整片錯位。改用 Darwin 內建的 ioctl 包裝
         _ = ioctl(fd, UInt(TIOCSWINSZ), &win)
