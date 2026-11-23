@@ -40,18 +40,27 @@ final class Satellite: @unchecked Sendable {
         macSize = (cols, rows)
         if !phoneActive { pty?.resize(cols: cols, rows: rows) }
     }
-    /// 手機來拿畫面時附上自己的行列數
-    func phoneView(cols: Int, rows: Int) {
-        guard let p = pty, cols >= 20, rows >= 5 else { return }
+    /// 手機來拿畫面時附上自己的行列數。回傳要改成的大小（不用改回 nil）；真正改 pty 由 Host 做（要先通知 Mac 網頁換格子）
+    func phoneView(cols: Int, rows: Int) -> (cols: Int, rows: Int)? {
+        guard let p = pty, cols >= 20, rows >= 5 else { return nil }
         if !phoneActive, macSize == nil { macSize = p.size }
         phoneUntil = Date().addingTimeInterval(5)
-        if p.size.cols != cols || p.size.rows != rows { p.resize(cols: cols, rows: rows) }
+        return (p.size.cols != cols || p.size.rows != rows) ? (cols, rows) : nil
     }
-    /// 手機離開（5 秒沒來）：套回 Mac 的大小
-    func phoneCheck() {
-        guard let u = phoneUntil, u <= Date() else { return }
+    /// 手機離開（5 秒沒來）：回傳要套回的 Mac 大小（不用改回 nil）
+    func phoneCheck() -> (cols: Int, rows: Int)? {
+        guard let u = phoneUntil, u <= Date() else { return nil }
         phoneUntil = nil
-        if let m = macSize, let p = pty, p.size.cols != m.cols || p.size.rows != m.rows { p.resize(cols: m.cols, rows: m.rows) }
+        if let m = macSize, let p = pty, p.size.cols != m.cols || p.size.rows != m.rows { return m }
+        return nil
+    }
+    /// 11-24 3:48 錄影：切大小後 Mac 衛星錯位、輸入框不見 ⇒ 換完格子 0.4 秒後再推一次（少一行再改回），讓程式用對的格子整頁重畫
+    func nudge() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let p = self?.pty else { return }
+            let s = p.size; p.resize(cols: s.cols, rows: max(2, s.rows - 1))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { p.resize(cols: s.cols, rows: s.rows) }
+        }
     }
 
     init(id: String, name: String, brain: Brain, cwd: String, command: String, attachedJob: String? = nil) {

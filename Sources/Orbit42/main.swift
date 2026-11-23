@@ -101,7 +101,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         SphereEmbed.remoteScreen = { [weak self] id, from, size in
             let o: [String: Any]? = MainActor.assumeIsolated {
-                if let size { self?.sats[id]?.phoneView(cols: size.cols, rows: size.rows) }      // 手機附上自己的大小 ⇒ 手機在看時用手機大小
+                if let size, let h = self, let s = h.sats[id], let to = s.phoneView(cols: size.cols, rows: size.rows) { h.applyPhone(id, s, to, phone: true) }   // 手機附上自己的大小 ⇒ 手機在看時用手機大小
                 return self?.sats[id]?.remote(from: from)
             }
             return o.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
@@ -119,14 +119,20 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var phoneShown: [String: String] = [:]
     func syncPhone() {
         for (id, s) in sats {
-            s.phoneCheck()
-            let now = s.phoneActive ? s.pty.map { "\($0.size.cols)x\($0.size.rows)" } ?? "" : ""
-            guard phoneShown[id, default: ""] != now else { continue }
-            phoneShown[id] = now
-            guard let v = views[id] else { continue }
-            if now.isEmpty { Self.call(v, "window.orbitPhoneSize", [id, NSNull(), NSNull()]) }
-            else if let p = s.pty { Self.call(v, "window.orbitPhoneSize", [id, p.size.cols, p.size.rows]) }
+            if let m = s.phoneCheck() { applyPhone(id, s, m, phone: false) }
+            else if !s.phoneActive, phoneShown[id, default: ""] != "" { applyPhone(id, s, nil, phone: false) }      // 大小本來就一樣：只要讓網頁還原
         }
+    }
+    /// 先告訴 Mac 這邊的終端機網頁換格子（縮小置中／還原），再改 pty，最後推一次整頁重畫。
+    /// 順序很重要：網頁還是舊格子時程式就照新大小重畫，那一頁會錯位，之後程式只補改過的行，錯位就一直留著（3:48 錄影）
+    func applyPhone(_ id: String, _ s: Satellite, _ to: (cols: Int, rows: Int)?, phone: Bool) {
+        let key = phone ? (to.map { "\($0.cols)x\($0.rows)" } ?? phoneShown[id, default: ""]) : ""
+        if let v = views[id], phoneShown[id, default: ""] != key {
+            if phone, let t = to { Self.call(v, "window.orbitPhoneSize", [id, t.cols, t.rows]) }
+            else if !phone { Self.call(v, "window.orbitPhoneSize", [id, NSNull(), NSNull()]) }
+        }
+        phoneShown[id] = key
+        if let t = to { s.pty?.resize(cols: t.cols, rows: t.rows); s.nudge() }
     }
 
     func startTimers() {
@@ -747,7 +753,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         if env["ORBIT_TEST_REMOTE"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated {
                 guard let self else { return }
-                let id = self.host.runCommand(name: "遠端測試", brain: .claude, command: "printf 'iPhone 鏡像測試 OK\\n'; sleep 30")
+                let id = self.host.runCommand(name: "遠端測試", brain: .claude, command: env["ORBIT_TEST_REMOTE_CMD"] ?? "printf 'iPhone 鏡像測試 OK\\n'; sleep 30")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated {
                     print("remote sats=" + String(decoding: SphereEmbed.remoteSats?() ?? Data(), as: UTF8.self))
                     let scr = SphereEmbed.remoteScreen?(id, 0, nil).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
