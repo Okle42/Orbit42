@@ -575,6 +575,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         }
         SphereEmbed.command = { [weak self] cmd in
             if cmd == "fullscreen" { self?.window.toggleFullScreen(nil) }
+            if cmd == "hideSats" { self?.hideAllSats() }      // 11-24 點球體空白處：衛星終端機全部收下去、露出智能體
             if cmd.hasPrefix("theme:") { self?.applyTheme(String(cmd.dropFirst(6))) }
             if cmd.hasPrefix("arrangeSats") {          // "arrangeSats:x,y,w,h"＝球體量好的空位（網頁座標，左上原點）
                 let v = cmd.split(separator: ":").dropFirst().first?.split(separator: ",").compactMap { Double($0) } ?? []
@@ -747,6 +748,18 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                         }
                     }
                 } }
+            } }
+        }
+        // 測試：ORBIT_TEST_HIDESATS=1 ⇒ 開一顆衛星（視窗打開），5 秒後數一次開著的衛星視窗；網頁（SHOWORK_TEST_SPHERE_JS＋SHOWORK_TEST_SPHERE_SHOT，載完 9 秒才跑）模擬點空白處，18 秒時再數一次
+        if env["ORBIT_TEST_HIDESATS"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in MainActor.assumeIsolated {
+                guard let self else { return }
+                let id = self.host.runCommand(name: "收起測試", brain: .claude, command: "printf 'hide test\\n'; sleep 30")
+                self.showSat(id)
+                let count = { self.satWins.values.filter { !$0.isHidden && $0.wantShown }.count }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { MainActor.assumeIsolated { print("hidesats before=\(count())"); fflush(stdout) } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 16) { MainActor.assumeIsolated {
+                    print("hidesats after=\(count())"); fflush(stdout); self.host.shutdown(); NSApp.terminate(nil) } }
             } }
         }
         // 測試：ORBIT_TEST_REMOTE=1 ⇒ 開一顆印字的衛星，4 秒後印出 iPhone App 會拿到的衛星清單與畫面（/api/sats、/api/sat 背後那兩個掛勾）
