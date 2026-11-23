@@ -194,8 +194,10 @@ function makeTerm(id) {
   const fit = new FitAddon.FitAddon(); term.loadAddon(fit);
   try { term.loadAddon(new Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion = "11"; } catch {}
   term.open(el);
-  // 11-23 毛玻璃：WebGL 繪圖在半透明底色下會留殘影（舊字塊不清掉）⇒ 透明時改用一般 DOM 繪圖
-  if (!TERM_ONLY) try { term.loadAddon(new WebglAddon.WebglAddon()); } catch {}
+  // 11-23 毛玻璃：之前 WebGL 在半透明底色（#…8c）留過殘影 ⇒ 小視窗改 DOM 繪圖。
+  // 11-23 Keng「紅色線框右邊根本不是直線」：DOM 繪圖的「│」是普通字，行距 1.15 會斷、中文字寬誤差會左右歪 ⇒ 小視窗也改回 WebGL
+  // （WebGL 自己畫框線字元，像素對齊、上下接得起來）。現在底色透明度 #…1f，實測轉圈覆寫＋捲動都沒有殘影；WebGL 掛掉就退回 DOM
+  try { const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => gl.dispose()); term.loadAddon(gl); } catch {}
   term.onData(data => post({ action: "input", id, data }));
   // 11-23：Claude Code 的「自動」主題會問終端機背景是什麼顏色（OSC 11／10）。xterm.js 預設不回答，
   // Claude Code 就當成深色背景、用白字 ⇒ 淺色模式下你送出的訊息、標籤都變成白字看不到。這裡照目前色票回答。
