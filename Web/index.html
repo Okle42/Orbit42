@@ -42,6 +42,7 @@
   body.termOnly #phead { display: none; }
   /* 11-23 Keng：毛玻璃——網頁本身全透明，模糊由原生小視窗底層（NSVisualEffectView）做，終端機底色半透明（色票 background 帶 alpha） */
   html:has(body.termOnly), body.termOnly, body.termOnly #panel, body.termOnly #terms { background: transparent !important; }      /* 標題列和三顆燈由原生小視窗畫（可以拖動） */
+  html:has(body.termOnly.lowdpi), body.termOnly.lowdpi, body.termOnly.lowdpi #panel, body.termOnly.lowdpi #terms { background: var(--term) !important; }   /* 11-23：1x 螢幕實色底（見 LOWDPI） */
 </style>
 </head>
 <body>
@@ -176,14 +177,19 @@ const THEMES = {
 };
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
 let themeName = new URLSearchParams(location.search).get("theme") || (sysDark.matches ? "dark" : "light");
-let THEME = THEMES[themeName];
+// 11-23 Keng（Xena3 轉達）「衛星終端機的字還是比面板糊」：WebGL 在透明底（#…1f）上畫字，反鋸齒是對著透明算的，
+// 合成到 1x 螢幕上又細又糊 ⇒ 1x 螢幕改成實色底（不透明、不透出毛玻璃），WebGL 對著實色底做反鋸齒。Retina 維持半透明毛玻璃
+const LOWDPI = (window.devicePixelRatio || 1) < 1.5;
+if (LOWDPI) document.body.classList.add("lowdpi");
+const solid = t => LOWDPI ? { ...t, background: t.background.slice(0, 7) } : t;
+let THEME = solid(THEMES[themeName]);
 // 深淺切換：系統外觀變了、或宿主（Orbit42 跟球體同步）指定
 const t2031 = new Set();
 window.orbitTheme = name => {
   const was = themeName;
-  themeName = THEMES[name] ? name : (sysDark.matches ? "dark" : "light"); THEME = THEMES[themeName];
+  themeName = THEMES[name] ? name : (sysDark.matches ? "dark" : "light"); THEME = solid(THEMES[themeName]);
   document.documentElement.dataset.theme = themeName;
-  for (const t of terms.values()) { t.term.options.theme = THEME; t.term.options.minimumContrastRatio = themeName === "dark" ? ((window.devicePixelRatio || 1) < 1.5 ? 3 : 1) : 4.5; }
+  for (const t of terms.values()) { t.term.options.theme = THEME; t.term.options.minimumContrastRatio = themeName === "dark" ? (LOWDPI ? 3 : 1) : 4.5; }
   if (was !== themeName) for (const id of t2031) post({ action: "input", id, data: `\x1b[?997;${themeName === "dark" ? 1 : 2}n` });
 };
 sysDark.addEventListener("change", () => { if (!new URLSearchParams(location.search).get("theme")) window.orbitTheme(); });
@@ -191,10 +197,9 @@ function makeTerm(id) {
   const el = document.createElement("div"); el.className = "term"; $("terms").appendChild(el);
   // 11-23 Keng（Xena3 轉達）「1080p 螢幕字有點糊」：1x 非 Retina 螢幕沒有次像素反鋸齒 ⇒ 字放大到 14、一般字用 500 粗細、
   // 最低對比提高（深色灰字會被拉亮），跟 Ghostty 那邊的調整一致；Retina 維持原樣
-  const LOWDPI = (window.devicePixelRatio || 1) < 1.5;
   const term = new Terminal({ fontFamily: '"SF Mono", Menlo, "PingFang TC", monospace', fontSize: LOWDPI ? 14 : 13, lineHeight: LOWDPI ? 1.2 : 1.15,
     fontWeight: LOWDPI ? "500" : "normal", fontWeightBold: LOWDPI ? "700" : "bold", theme: THEME,
-    cursorBlink: true, allowProposedApi: true, allowTransparency: true, minimumContrastRatio: LOWDPI ? (themeName === "dark" ? 3 : 4.5) : (themeName === "dark" ? 1 : 4.5), scrollback: 10000, macOptionIsMeta: true });
+    cursorBlink: true, allowProposedApi: true, allowTransparency: !LOWDPI, minimumContrastRatio: LOWDPI ? (themeName === "dark" ? 3 : 4.5) : (themeName === "dark" ? 1 : 4.5), scrollback: 10000, macOptionIsMeta: true });
   const fit = new FitAddon.FitAddon(); term.loadAddon(fit);
   try { term.loadAddon(new Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion = "11"; } catch {}
   term.open(el);
