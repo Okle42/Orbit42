@@ -19,6 +19,13 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var flushTimer: Timer?
     private var tick: Timer?
     var onShow: (Bool) -> Void = { _ in }       // 終端機面板要顯示／收起（嵌在 Orbit42 主視窗右邊）
+    var onTitle: (String) -> Void = { _ in }    // 目前顯示的衛星名稱（終端機小視窗的標題列）
+    private(set) var activeId: String?
+    /// 紅燈：結束目前這顆衛星（Orbit42 開的會關；背景 session 只關檢視）
+    func endActive() {
+        guard let id = activeId, let s = sats[id] else { return }
+        s.pty?.hangup(); sats[id] = nil; order.removeAll { $0 == id }; activeId = nil; pushSats()
+    }
 
     override init() {
         let cfg = WKWebViewConfiguration()
@@ -68,6 +75,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         case "hide": onShow(false)
         case "open":
             guard let s = sats[id] else { return }
+            activeId = id; onTitle("\(s.name) · \(s.brain.label)\(s.attachedJob != nil ? " · 背景 session" : "")")
             if s.pty == nil || s.exited != nil { start(s, cols: cols, rows: rows) }
             else { js("window.orbitReplay", id, s.snapshot().base64EncodedString()); s.pty?.resize(cols: cols, rows: rows) }
         case "input":
@@ -116,11 +124,17 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private func start(_ s: Satellite, cols: Int, rows: Int) {
         s.exited = nil
-        guard let p = Pty(command: s.command, cwd: s.cwd, cols: cols, rows: rows) else {
+        // 淺色／深色先用環境變數告訴終端機程式（COLORFGBG：前景;背景，15＝白、0＝黑），有些程式只看這個
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        guard let p = Pty(command: s.command, cwd: s.cwd, cols: cols, rows: rows, env: ["COLORFGBG": dark ? "15;0" : "0;15"]) else {
             js("window.orbitData", s.id, Data("\r\n[Orbit42] could not start a terminal\r\n".utf8).base64EncodedString()); return
         }
         let id = s.id
+        let rawPath = ProcessInfo.processInfo.environment["ORBIT_TEST_RAW"]
+        if let r = rawPath { FileManager.default.createFile(atPath: r, contents: nil) }
+        let rawLog = rawPath.flatMap { FileHandle(forWritingAtPath: $0) }
         p.onData = { [weak self, weak s] d in
+            rawLog?.write(d)                 // 測試：錄下終端機收到的原始輸出（查顏色碼）
             s?.append(d)
             guard let self else { return }
             self.pendLock.lock(); self.pending[id, default: Data()].append(d); self.pendLock.unlock()
@@ -261,6 +275,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     let host = Host()
     let login = LoginPanel()
     private var sphereView: NSView?
+    private var term: TermWindowView!
     private var termWidth: CGFloat { max(420, (window.contentView?.bounds.width ?? 1200) * 0.56) }
     private var termShown = false
 
@@ -282,13 +297,18 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         root.addSubview(sphere); sphereView = sphere
         // 登入畫面蓋在球體上面（終端機面板再蓋在登入畫面上面：登入指令要看得到）
         login.web.frame = root.bounds; login.web.autoresizingMask = [.width, .height]
-        root.addSubview(login.web)
+        root.addSubview(login.web, positioned: .below, relativeTo: nil)
+        root.sortSubviews({ a, b, _ in a is TermWindowView ? .orderedDescending : b is TermWindowView ? .orderedAscending : .orderedSame }, context: nil)
         login.runInTerminal = { [weak self] name, brain, cmd in self?.host.runCommand(name: name, brain: brain, command: cmd) }
         login.onEnter = { [weak self] list in self?.enter(list) }
         host.onExited = { [weak self] _ in self?.login.check() }
-        host.web.autoresizingMask = [.height, .minXMargin]
-        host.web.isHidden = true
-        root.addSubview(host.web)
+        // 衛星終端機＝一個可以拖、可以調大小的小視窗（左上紅灰白三顆燈）
+        term = TermWindowView(content: host.web)
+        term.isHidden = true
+        root.addSubview(term)
+        term.onClose = { [weak self] in self?.host.endActive(); self?.setTerm(false) }
+        term.onMinimize = { [weak self] in self?.setTerm(false) }
+        host.onTitle = { [weak self] t in self?.term.titleLabel.stringValue = t }
         layoutTerm()
         host.onShow = { [weak self] on in self?.setTerm(on) }
         host.load(termOnly: true)
@@ -302,6 +322,13 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             return e
         }
         SphereEmbed.newSatellite = { [weak self] brain in brain == "accounts" ? self?.showLogin() : self?.host.newSatellite(brain) }
+        if let out = env["ORBIT_TEST_TERM_SHOT"] {         // 測試：終端機小視窗（原生標題列＋三顆燈）截圖
+            DispatchQueue.main.asyncAfter(deadline: .now() + (Double(env["ORBIT_TEST_TERM_SHOT_DELAY"] ?? "") ?? 16)) { [weak self] in
+                guard let v = self?.term, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return }
+                v.cacheDisplay(in: v.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out)); print("term shot saved \(out) \(v.frame)"); fflush(stdout)
+            }
+        }
         if let out = env["ORBIT_TEST_LOGIN_SHOT"] {        // 測試：登入畫面截圖（等狀態查完）
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
                 self?.login.web.takeSnapshot(with: nil) { img, _ in
@@ -357,29 +384,38 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     }
 
     private func layoutTerm() {
-        guard let root = window.contentView, termShown || host.web.isHidden else { return }
-        let w = termWidth
-        host.web.frame = NSRect(x: root.bounds.width - w, y: 0, width: w, height: root.bounds.height - 28)
+        guard let root = window.contentView, term != nil else { return }
+        if term.isHidden { term.frame = term.restoredFrame(in: root.bounds); term.layoutSubtreeIfNeeded() }
+        else {                                            // 視窗變小時把終端機夾回畫面內
+            var f = term.frame
+            f.origin.x = min(max(f.origin.x, -f.width + 120), root.bounds.width - 120)
+            f.origin.y = min(max(f.origin.y, -f.height + 50), root.bounds.height - TermWindowView.barHeight)
+            term.frame = f
+        }
     }
-    /// 終端機面板從右邊滑入／滑出
+    /// 終端機小視窗：打開時從下方放大淡入（像 macOS 開視窗），收起時縮小淡出
     func setTerm(_ on: Bool) {
-        guard on != termShown || host.web.isHidden == on else { return }
-        termShown = on; layoutTerm()
-        let shown = host.web.frame, hidden = shown.offsetBy(dx: shown.width + 40, dy: 0)
+        guard term != nil, on != termShown || term.isHidden == on else { if on { window.makeFirstResponder(host.web) }; return }
+        termShown = on
+        guard let layer = term.layer else { term.isHidden = !on; return }
         if on {
-            host.web.frame = hidden; host.web.alphaValue = 0.4; host.web.isHidden = false
+            layoutTerm()
+            term.isHidden = false; term.alphaValue = 0
+            layer.setAffineTransform(CGAffineTransform(scaleX: 0.94, y: 0.94))
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.32; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
-                host.web.animator().frame = shown; host.web.animator().alphaValue = 1
+                ctx.duration = 0.26; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+                term.animator().alphaValue = 1
+                layer.setAffineTransform(.identity)
             }
             window.makeFirstResponder(host.web)
-        } else if !host.web.isHidden {
+        } else if !term.isHidden {
             NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.25; ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                host.web.animator().frame = hidden; host.web.animator().alphaValue = 0.4
+                ctx.duration = 0.2; ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                term.animator().alphaValue = 0
+                layer.setAffineTransform(CGAffineTransform(scaleX: 0.94, y: 0.94))
             }, completionHandler: { [weak self] in MainActor.assumeIsolated {
                 guard let self, !self.termShown else { return }
-                self.host.web.isHidden = true; self.host.web.alphaValue = 1; self.layoutTerm()
+                self.term.isHidden = true; self.term.alphaValue = 1; layer.setAffineTransform(.identity)
             } })
         }
     }
