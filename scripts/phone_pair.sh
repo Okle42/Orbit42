@@ -20,6 +20,7 @@ ip=$(/usr/local/bin/tailscale ip -4 2>/dev/null | head -1)
 [[ -z "$ip" ]] && ip=$(print -r -- "$out" | grep -oE 'http://[0-9.]+' | head -1 | sed 's#http://##')
 url=""; [[ -n "$tok" && -n "$ip" ]] && url="http://$ip:$port/?t=$tok"
 [[ -z "$url" ]] && { print -r -- "$out"; print "沒拿到網址（Tailscale 連上了嗎？）"; exit 1; }
+print -rn -- "$url" | pbcopy        # 也拷到剪貼簿：iPhone（同一個 Apple ID 的通用剪貼板／iPhone 鏡像輸出）可以直接貼進 App
 png="$TMPDIR/orbit42-pair.png"
 cat > "$TMPDIR/orbit42qr.swift" <<'SWIFT'
 import CoreImage; import AppKit
@@ -36,4 +37,4 @@ rm -f "$TMPDIR/orbit42qr.swift"
 if lsof -nP -iTCP:$port -sTCP:LISTEN 2>/dev/null | grep -q -E "Orbit42|ShoWorkA"; then print "Mac 這邊已經在 Tailscale 上等手機連線（埠 $port）。"
 else print "⚠️ Mac 這邊還沒在埠 $port 上聽：Orbit42 或 ShoWork42 有開著嗎？"; fi
 print "已打開 QR code：用 iPhone 的 Orbit42 →「掃 QR code」掃它（手機要先連上 Tailscale）。"
-print "掃完就把那個圖片視窗關掉；這個網址就是密碼，別傳給別人。"
+print "網址也拷貝到剪貼簿了（可以在 App 的網址欄貼上）。掃完或貼完就把圖片視窗關掉；這個網址就是密碼，別傳給別人。"
