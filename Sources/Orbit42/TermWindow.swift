@@ -86,7 +86,7 @@ final class TermWindowView: NSView {
         let glow = CAKeyframeAnimation(keyPath: "shadowColor")
         glow.values = [red, red, NSColor.black.cgColor]; glow.keyTimes = [0, 0.35, 1]; glow.duration = 0.9
         let gr = CAKeyframeAnimation(keyPath: "shadowRadius")
-        gr.values = [34, 34, 24]; gr.keyTimes = [0, 0.35, 1]; gr.duration = 0.9
+        gr.values = [14, 14, 24]; gr.keyTimes = [0, 0.35, 1]; gr.duration = 0.9
         me.add(glow, forKey: "flashGlow"); me.add(gr, forKey: "flashGlowR")
     }
 
@@ -99,9 +99,10 @@ final class TermWindowView: NSView {
             let red = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 1).cgColor
             let border = CABasicAnimation(keyPath: "borderColor")
             border.fromValue = NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: 0.25).cgColor; border.toValue = red
-            let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 2.2
+            // 11-23 Keng「呼吸光範圍太大」：光暈只貼著邊框一圈（半徑 6→12），不再往外擴散一大片
+            let width = CABasicAnimation(keyPath: "borderWidth"); width.fromValue = 1; width.toValue = 1.6
             let glow = CABasicAnimation(keyPath: "shadowColor"); glow.fromValue = NSColor.black.cgColor; glow.toValue = red
-            let gr = CABasicAnimation(keyPath: "shadowRadius"); gr.fromValue = 22; gr.toValue = 34
+            let gr = CABasicAnimation(keyPath: "shadowRadius"); gr.fromValue = 6; gr.toValue = 12
             for a in [border, width, glow, gr] {
                 a.duration = 1.4; a.autoreverses = true; a.repeatCount = .infinity
                 a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
