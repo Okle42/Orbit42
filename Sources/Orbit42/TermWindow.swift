@@ -270,11 +270,11 @@ final class TrafficLight: NSButton {
     override func draw(_ r: NSRect) {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         // Okle42 色票（跟 Ghostty Okle42-Dark／Light、球體同一組）：
-        //   深色：紅 #ff3b30／灰 #8a8a8f／白 #ededed，外圈淡黑線讓白點在深灰標題列上有邊
+        //   深色：綠 #4fc36a（11-23 Keng：深色的紅全部改護眼綠）／灰 #8a8a8f／白 #ededed，外圈淡黑線讓白點在深灰標題列上有邊
         //   淺色：紅 #d7261b／灰 #8c8c8c／白 #ffffff，外圈加深一點（白點在淺灰標題列上才看得到）
         let fill: NSColor, ring: NSColor
         switch kind {
-        case .close: fill = dark ? NSColor(srgbRed: 1, green: 0.231, blue: 0.188, alpha: 1) : NSColor(srgbRed: 0.843, green: 0.149, blue: 0.106, alpha: 1)
+        case .close: fill = dark ? NSColor(srgbRed: 0.310, green: 0.765, blue: 0.416, alpha: 1) : NSColor(srgbRed: 0.843, green: 0.149, blue: 0.106, alpha: 1)
         case .minimize: fill = dark ? NSColor(srgbRed: 0.541, green: 0.541, blue: 0.561, alpha: 1) : NSColor(white: 0.55, alpha: 1)
         case .zoom: fill = dark ? NSColor(srgbRed: 0.929, green: 0.929, blue: 0.929, alpha: 1) : .white
         }
@@ -291,7 +291,7 @@ final class TrafficLight: NSButton {
         case .minimize: g.move(to: NSPoint(x: b.minX, y: b.midY)); g.line(to: NSPoint(x: b.maxX, y: b.midY))
         case .zoom: g.move(to: NSPoint(x: b.minX, y: b.midY)); g.line(to: NSPoint(x: b.maxX, y: b.midY)); g.move(to: NSPoint(x: b.midX, y: b.minY)); g.line(to: NSPoint(x: b.midX, y: b.maxY))
         }
-        (kind == .close ? NSColor(srgbRed: 0.35, green: 0.02, blue: 0.0, alpha: 0.85) : NSColor(white: 0.1, alpha: 0.75)).setStroke(); g.stroke()
+        (kind == .close ? (dark ? NSColor(srgbRed: 0.02, green: 0.22, blue: 0.07, alpha: 0.85) : NSColor(srgbRed: 0.35, green: 0.02, blue: 0.0, alpha: 0.85)) : NSColor(white: 0.1, alpha: 0.75)).setStroke(); g.stroke()
     }
 }
 
