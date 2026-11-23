@@ -291,8 +291,10 @@ function fitPhone(t) {
   const base = t.baseFont || (t.baseFont = t.term.options.fontSize), lh = t.term.options.lineHeight || 1.15;
   t.term.options.fontSize = Math.max(5, Math.min(base, Math.floor(Math.min(w / (p.cols * 0.6), h / (p.rows * lh * 1.08)) * 10) / 10));
   if (t.term.cols !== p.cols || t.term.rows !== p.rows) t.term.resize(p.cols, p.rows);
+  t.term.scrollToBottom();          // 11-24 Keng 3:40 截圖：改行數後畫面停在往上捲約 10 行，最下面的輸入框、狀態列被切掉
   clearTimeout(t.centerT);
   t.centerT = setTimeout(() => {
+    t.term.scrollToBottom();
     const sc = t.el.querySelector(".xterm-screen"); if (!sc) return;
     const r = sc.getBoundingClientRect();
     t.el.style.paddingLeft = Math.max(0, Math.floor((w - r.width) / 2)) + "px";
@@ -305,7 +307,7 @@ window.orbitPhoneSize = (id, cols, rows) => {
   if (!t.phone) return;
   t.phone = null; clearTimeout(t.centerT); t.el.style.paddingLeft = t.el.style.paddingTop = "";
   if (t.baseFont) t.term.options.fontSize = t.baseFont;
-  setTimeout(() => { t.fit.fit(); post({ action: "resize", id, cols: t.term.cols, rows: t.term.rows }); }, 50);
+  setTimeout(() => { t.fit.fit(); t.term.scrollToBottom(); post({ action: "resize", id, cols: t.term.cols, rows: t.term.rows }); }, 50);
 };
 function fitActive() { const t = active && terms.get(active); if (t) MIRROR ? mirrorFit(t) : t.fit.fit(); }
 // 鏡像：行列數照 Mac（window.orbitMirror(cols, rows)），字級依手機寬度算（等寬字寬約 0.6 個字級）
