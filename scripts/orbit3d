@@ -1,0 +1,6 @@
+#!/bin/zsh
+# 在開著的 Orbit42 裡打開 3D 檔案：scripts/orbit3d <檔案> [更多檔案]
+for f in "$@"; do
+  [[ -r "$f" ]] || { echo "讀不到：$f" >&2; exit 1; }
+  O42_FILE="${f:A}" osascript -l JavaScript -e 'ObjC.import("Foundation"); const e = $.NSProcessInfo.processInfo.environment.objectForKey("O42_FILE"); $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately("ai.okle42.orbit42.open3d", e, $(), true)' >/dev/null
+done
