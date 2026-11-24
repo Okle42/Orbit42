@@ -33,7 +33,7 @@
   #strip .n { color: var(--ink-dim); white-space: nowrap; }
   .top { min-height: 30px; display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: grab; flex-wrap: wrap; }
   .top .tag { color: var(--acc); letter-spacing: .12em; }
-  .top .nm { overflow-wrap: anywhere; } .top .nm:hover, .q:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .top .nm { overflow-wrap: anywhere; max-width: 100%; } .top .nm:hover, .q:hover { text-decoration: underline; text-underline-offset: 3px; }
   .top .ago { color: var(--ink-dim); } .top .nav { margin-left: auto; display: flex; gap: 4px; align-items: center; color: var(--ink-dim); }
   .sum { margin-top: 6px; font-size: 12px; color: var(--ink-dim); overflow-wrap: anywhere; }
   .q { margin-top: 6px; font-size: 14px; cursor: pointer; overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -75,6 +75,8 @@ const agoText = m => m == null ? "" : m < 1 ? "剛剛" : m < 60 ? `等了 ${m} �
 const keyOf = c => c.sessionId + "|" + (c.askId ? "a:" + c.askId : "p:" + c.permit.id);
 const sigOf = c => JSON.stringify([c.ask, c.options || [], c.permit || null]);       // 內容：送出前再比一次
 let live = new Map(), order = [], cur = null, open = true, armed = false, lockUntil = 0, ghost = null, sent = new Map(), drafts = new Map(), undos = new Map(), shiftUntil = 0, note = new Map(), compEnd = -1e9, down = null;
+// 標題＝職責 · 主專案 · 工作標題（同職責同專案才分得出是誰）：展開時整段折行不截，縮成一條才截、點開看全
+const titleOf = c => [c.name, c.doing].filter((x, i, a) => x && a.indexOf(x) === i).join(" · ");
 const visible = () => order.filter(k => live.has(k) && !sent.has(k));
 const lock = () => { lockUntil = now() + LOCK; down = null; };
 const disarm = () => { armed = false; document.body.classList.remove("armed"); };
@@ -109,7 +111,7 @@ function render() {
 function endGhost() { if (!ghost) return; if (typing()) { ghost.held = true; patch(visible()); return; } ghost = null; cur = null; lock(); render(); }
 function drawStrip(list) {
   const c = live.get(cur); if (!c) return;
-  $("strip").innerHTML = `<span class="dot"></span><span class="nm">需要你 · ${esc(c.name || "")}</span>${list.length > 1 ? `<span class="n">共 ${list.length} 題</span>` : ""}`;
+  $("strip").innerHTML = `<span class="dot"></span><span class="nm">需要你 · ${esc(titleOf(c))}</span>${list.length > 1 ? `<span class="n">共 ${list.length} 題</span>` : ""}`;
 }
 /* 整張重畫只在換題時；同一題只補有變的地方，輸入框永遠不換（聽寫、注音不會斷） */
 function drawCard(list) {
@@ -148,7 +150,7 @@ function patch(list) {
   const nav = el.querySelector(".nav"), navSig = list.length > 1 && i >= 0 ? `${i + 1}/${list.length}` : "";
   if (nav.dataset.sig !== navSig) { nav.dataset.sig = navSig; nav.innerHTML = navSig ? `<button tabindex="-1" data-nav="-1" aria-label="上一題">‹</button>${navSig}<button tabindex="-1" data-nav="1" aria-label="下一題">›</button>` : ""; }
   if (!c) return;
-  set(".top .nm", c.name || ""); set(".ago", agoText(c.ago));
+  set(".top .nm", titleOf(c)); set(".ago", agoText(c.ago));
   const sig = sigOf(c);
   if (el.dataset.sig === sig) return;
   if (el.dataset.sig) { lock(); disarm(); }                                        // 同一題但內容、選項變了：剛剛瞄準的那顆可能已經不是原本那個
@@ -183,7 +185,7 @@ function bar(t) { barText = t; clearTimeout(barT); barT = setTimeout(() => { bar
 function drawOver() {
   const c = live.get(cur), open_ = document.body.classList.contains("open"), st = open_ ? blockWhy(c) || noteText(cur) : "";
   const html = (st ? `<div class="st"><span class="t">${esc(st)}</span><button tabindex="-1" data-later>稍後</button><button tabindex="-1" data-jump>去看 →</button></div>` : "")
-    + [...undos.values()].map(u => `<div><span class="t">3 秒後送給 ${esc(u.name)}：${esc(clip(u.label, 60))}</span><button tabindex="-1" data-undo="${esc(u.key)}">復原</button></div>`).join("")
+    + [...undos.values()].map(u => `<div><span class="t">3 秒後送給 ${esc(clip(u.name, 30))}：${esc(clip(u.label, 60))}</span><button tabindex="-1" data-undo="${esc(u.key)}">復原</button></div>`).join("")
     + (barText && !undos.size && barText !== st ? `<div><span class="t">${esc(barText)}</span></div>` : "");
   if ($("over").dataset.h !== html) { $("over").dataset.h = html; $("over").innerHTML = html; }
 }
@@ -200,7 +202,7 @@ function flush(u) {
   render();
 }
 function sendLater(c, msg, label, byMouse) {
-  const key = cur, u = { key, msg, label, name: c.name || "", sig: sigOf(c), draft: drafts.get(key), at: Date.now() };
+  const key = cur, u = { key, msg, label, name: titleOf(c), sig: sigOf(c), draft: drafts.get(key), at: Date.now() };
   u.t = setTimeout(() => flush(u), UNDO); undos.set(key, u);                      // 每題各自倒數 3 秒
   drafts.delete(key); sent.set(key, {}); document.activeElement?.blur?.();
   disarm(); cur = null; lock(); render();
