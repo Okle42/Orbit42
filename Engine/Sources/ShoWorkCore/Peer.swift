@@ -8,7 +8,7 @@ import Foundation
 // 失效時回傳錯誤，看板改提示用秘書 AI 的 SendMessage。
 public enum Peer {
     public static var claudeDir: String {
-        ProcessInfo.processInfo.environment["SHOWORK_CLAUDE_DIR"] ?? FileManager.default.homeDirectoryForCurrentUser.path + "/.claude"
+        TestEnv.path("SHOWORK_CLAUDE_DIR") ?? TestEnv.home.path + "/.claude"
     }
 
     /// 開著的 session（行程還在）

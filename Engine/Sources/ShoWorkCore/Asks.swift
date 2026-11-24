@@ -32,7 +32,7 @@ public enum AskQueue {
     public static let ttl: TimeInterval = 48 * 3600
 
     public static var dir: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_ASKS_DIR"] { return URL(fileURLWithPath: p, isDirectory: true) }
+        if let p = TestEnv.path("SHOWORK_ASKS_DIR") { return URL(fileURLWithPath: p, isDirectory: true) }
         return Paths.supportDir.appendingPathComponent("board/asks", isDirectory: true)
     }
 

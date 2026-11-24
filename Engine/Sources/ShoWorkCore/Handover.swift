@@ -56,7 +56,7 @@ public enum Handover {
     public static let clearTimeout: TimeInterval = 20
 
     public static var dir: URL {
-        if let d = ProcessInfo.processInfo.environment["SHOWORK_HANDOVER_DIR"] { return URL(fileURLWithPath: d, isDirectory: true) }
+        if let d = TestEnv.path("SHOWORK_HANDOVER_DIR") { return URL(fileURLWithPath: d, isDirectory: true) }
         return Paths.supportDir.appendingPathComponent("board/handover", isDirectory: true)
     }
     public static func load(_ sid: String) -> HandoverRecord? {
@@ -76,7 +76,7 @@ public enum Handover {
     /// 這個 hook／CLI 是哪個 claude 行程叫的：往上找第一個有 ~/.claude/sessions/<pid>.json 的祖先
     /// （/clear 換 sid 但不換行程；行程名不可靠——實測 p_comm 是版本號那個執行檔名，不是 claude）
     public static func claudePID(startingAt pid: Int32 = getppid()) -> Int32? {
-        let dir = FileManager.default.homeDirectoryForCurrentUser.path + "/.claude/sessions/"
+        let dir = TestEnv.home.path + "/.claude/sessions/"
         var p = pid
         for _ in 0..<12 {
             guard p > 1 else { return nil }

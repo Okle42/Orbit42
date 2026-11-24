@@ -91,22 +91,47 @@ public enum Unwrap {
     static func deletes(_ code: String) -> Bool {
         code.range(of: #"\bos\.(remove|unlink|rmdir|removedirs)\b|\bshutil\.rmtree\b|\.(unlink|rmdir)\s*\(|\b(rmSync|unlinkSync|rmdirSync)\b|\bfs(\.promises)?\.(rm|unlink|rmdir)\b|\bunlink\s*[\s(]|\brmtree\b|\bFileUtils\.rm|\bFile\.delete\b"#, options: .regularExpression) != nil
     }
-    /// 開頭是變數的指令：用同一條裡最後一次給的字面值代進去；給值裡有替換、或沒給值 ⇒ 看不出來
-    static func variable(_ seg: String, in cmd: String) -> String? {
-        guard let m = seg.range(of: #"^"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?([^\s"]*)"?(?=\s|$)"#, options: .regularExpression) else { return nil }
+    /// 開頭是變數的指令：同一條裡給過的值都代進去看（每個都比）；都看不出來就從嚴
+    static func variable(_ seg: String, in cmd: String) -> [String] {
+        if let m = seg.range(of: #"^\$\{\w+:[+=-]([^}]*)\}\s*"#, options: .regularExpression) {       // ${x:+前置賦值} 指令
+            let alt = String(seg[m].drop { $0 != ":" }.dropFirst(2)).split(separator: "}").first.map(String.init) ?? "", r = String(seg[m.upperBound...])
+            return [r, alt + " " + r].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        }
+        guard let m = seg.range(of: #"^"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?([^\s"]*)"?(?=\s|$)"#, options: .regularExpression) else { return [] }
         let head = String(seg[m]), name = head.drop { !($0.isLetter || $0 == "_") }.prefix { $0.isLetter || $0.isNumber || $0 == "_" }
         let tail = head.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: #"^\$\{?[A-Za-z0-9_]+\}?"#, with: "", options: .regularExpression)
         let rest = String(seg[m.upperBound...])
+        if seg.range(of: #"^\$\{?\w+\}?\s*[-+*/%<>=]\s*[$0-9]"#, options: .regularExpression) != nil { return [] }       // 算式 $b-$a
         // $變數/固定檔名：跑什麼看檔名就知道
-        func literal(_ v: String) -> String? { let b = base(v); return v.contains("/") && !v.hasSuffix("/") && !b.contains("$") && !b.contains("`") && !b.contains(")") ? b : nil }
-        if let b = literal(tail) { return (b == "showork" ? "showork" : b) + rest }
-        guard let re = try? NSRegularExpression(pattern: #"(?:^|[;&|\n(\s])"# + name + #"=("[^"]*"|'[^']*'|(?:\\.|[^\s;&|])*)"#) else { return opaque }
-        guard let a = re.matches(in: cmd, range: NSRange(cmd.startIndex..., in: cmd)).last, let r = Range(a.range(at: 1), in: cmd) else { return opaque }
-        let v = tokens(String(cmd[r])).joined(separator: " ") + tail
-        if !v.hasPrefix("$("), let b = literal(v) { return b + rest }
-        guard !v.isEmpty, !v.contains("$("), !v.contains("`") else { return opaque }
-        if v.hasSuffix("/showork") || v == "showork" { return "showork" + rest }
-        return v.hasPrefix("$") ? opaque : v + rest
+        func literal(_ v: String) -> String? { let b = base(v); return v.contains("/") && !v.hasSuffix("/") && !b.contains("$") && !b.contains("`") && !b.contains(")") && !b.contains(" ") ? b : nil }
+        if let b = literal(tail) { return [b + rest] }
+        let vs = values(String(name), in: cmd)
+        if vs.isEmpty { return rest.trimmingCharacters(in: .whitespaces).isEmpty && tail.isEmpty && !seg.hasPrefix("\"") ? [] : [opaque] }      // 沒給值又沒參數：帶不進刪什麼
+        let out = vs.compactMap { raw -> String? in
+            let v = tokens(raw).joined(separator: " ") + tail
+            if let w = v.range(of: #"^\$\((?:command -v|which)\s+[\w.-]+"#, options: .regularExpression) { return base(String(v[w].split(separator: " ").last ?? "")) + rest }
+            if v.contains("$(") || v.contains("`") { return v.hasSuffix(")") ? nil : literal(v).map { $0 + rest } }
+            if seg.hasPrefix("\"") { let b = base(v); if v.contains("/"), !b.isEmpty, !b.contains("$") { return b + rest } }       // "$X"：整個值是一個路徑
+            else if let f = v.split(separator: " ").first.map(String.init), let b = literal(f) { return b + v.dropFirst(f.count) + rest }      // $X：照空白拆開
+            return v.isEmpty || v.hasPrefix("$") ? nil : v + rest
+        }
+        return out.isEmpty ? [opaque] : out
+    }
+    /// 這條指令裡給某個變數的值（含 $( … ) 整段）
+    static func values(_ name: String, in cmd: String) -> [String] {
+        guard let re = try? NSRegularExpression(pattern: #"(?:^|[;&|\n(\s])"# + name + "=") else { return [] }
+        return re.matches(in: cmd, range: NSRange(cmd.startIndex..., in: cmd)).compactMap { m in
+            guard let r = Range(m.range, in: cmd) else { return nil }
+            var out = "", q: Character?, depth = 0, prev: Character = " "
+            for c in cmd[r.upperBound...] {
+                if let k = q { out.append(c); if c == k { q = nil }; prev = c; continue }
+                if c == "\"" || c == "'" { q = c; out.append(c); prev = c; continue }
+                if c == "(", prev == "$" || depth > 0 { depth += 1 } else if c == ")" { if depth == 0 { break }; depth -= 1 }
+                else if depth == 0, c.isWhitespace || ";&|".contains(c), prev != "\\" { break }
+                out.append(c); prev = c
+            }
+            return out.isEmpty ? nil : out
+        }
     }
     /// 餵給 python／node／perl／ruby 的 heredoc 內文
     static func heredocCode(_ cmd: String) -> String? {

@@ -30,7 +30,7 @@ public struct LocalConfig: Codable, Sendable, Equatable {
     }
 
     public static var file: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_LOCAL_CONFIG"] { return URL(fileURLWithPath: p) }
+        if let p = TestEnv.path("SHOWORK_LOCAL_CONFIG") { return URL(fileURLWithPath: p) }
         return Paths.supportDir.appendingPathComponent("local.json")
     }
 

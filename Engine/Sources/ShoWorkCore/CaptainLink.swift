@@ -89,7 +89,7 @@ public enum CaptainLink {
     static let rulesVersion = "格式 v6"
 
     public static var rulesFile: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_PREVIEW_RULES"] { return URL(fileURLWithPath: p) }
+        if let p = TestEnv.path("SHOWORK_PREVIEW_RULES") { return URL(fileURLWithPath: p) }
         return Captain.dir.appendingPathComponent("guard/preview.tsv")
     }
 
@@ -126,7 +126,7 @@ public enum CaptainLink {
     /// (原文, 比對用)：原文給預告摘要（秘書要看到「命中的那一段」，10-24 BR9R8 只看開頭判錯）
     public static func segmentPairs(_ cmd: String) -> [(raw: String, norm: String)] {
         var heredoc = false
-        let (segs, piped) = split(cmd)
+        let (segs, piped, assigns) = split(cmd)
         if guardA, let code = Unwrap.heredocCode(cmd), Unwrap.deletes(code) { heredoc = true }
         var out: [(raw: String, norm: String)] = []
         for (k, s) in segs.enumerated() {
@@ -135,12 +135,14 @@ public enum CaptainLink {
                 continue }        // showork 自己的指令（card／b1／release…）整段不看；內部子指令要擋
             let norm = s.hasPrefix("ssh ") ? s : blankQuotes(s)        // 引號內容換成 Q（ssh 那段保留：遠端指令在引號裡）
             out.append((s, norm))
-            if guardA, let v = Unwrap.variable(s, in: cmd) {        // 變數當指令名：同一條裡有給值就代進去看，看不出來從嚴
+            if guardA { for v in Unwrap.variable(s, in: cmd) {        // 變數當指令名
                 if isShowork(v) { if let sub = internalShowork(v) { out.append((s, sub)) } } else { for x in v == Unwrap.opaque ? [v] : [blankQuotes(v)] + Unwrap.inner(v) { out.append((s, x)) } }
-            }
+            } }
             if guardA { for x in Unwrap.inner(s) where x != norm { out.append((s, internalShowork(x) ?? (isShowork(x) ? "Q" : x))) } }
             if guardA, piped.contains(k), Unwrap.shells.contains(Unwrap.base(Unwrap.tokens(s).first ?? "")), Unwrap.tokens(s).dropFirst().allSatisfy({ $0 == "-" || $0 == "-s" }) { out.append((s, Unwrap.opaque)) }
         }
+        // 前面被拿掉的賦值（A="$( … )"）裡的替換也會跑
+        if guardA { for a in assigns { for x in Unwrap.substitutions(a).flatMap({ Unwrap.all($0, depth: 1) }) { out.append((a, internalShowork(x) ?? (isShowork(x) ? "Q" : x))) } } }
         if heredoc { out.append(("程式 heredoc 刪檔", "rm ‹程式刪檔›")) }
         return out
     }
@@ -160,9 +162,9 @@ public enum CaptainLink {
     /// 包裝裡面再切一次用（去前綴、不含 showork 判斷）
     static func rawSegments(_ cmd: String) -> [String] { split(cmd).segs }
     /// 防冒充方案 A 開著嗎（Keng 在 Orbit42 選單關、系統驗證過才關，30 分鐘自動恢復：GuardOff）
-    public static var guardA: Bool { !GuardOff.active(now: Date()) }
+    public static var guardA: Bool { GuardOff.current() == nil }
 
-    static func split(_ cmd: String) -> (segs: [String], piped: Set<Int>) {
+    static func split(_ cmd: String) -> (segs: [String], piped: Set<Int>, assigns: [String]) {
         var t = cmd
         // 同一條指令前面把變數設成暫存路徑（T=$(mktemp -d)、S=/private/tmp/…、D="$TMPDIR/x"）⇒ 後面的 $T、${T} 當成 /tmp/ 底下（秘書 10-24：BKZQP 誤擋）
         if let re = try? NSRegularExpression(pattern: #"(?:^|[;&|\n(]|\s)(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=["']?(?:\$\(\s*mktemp\b|/tmp/|/private/tmp/|/private/var/folders/|/var/folders/|\$\{?TMPDIR\b|\$\{?TMP\b|[^\s;&|"']*scratchpad)"#) {
@@ -196,16 +198,18 @@ public enum CaptainLink {
         }
         raw.append(cur)
         let prefix = try? NSRegularExpression(pattern: #"^(?:\s+|[{!]\s*|(?:sudo|env|time|nohup|exec|command|then|do|else|if|while|until)\s+(?:-\S+\s+)*|[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)\s*)+"#)
-        var segs: [String] = [], piped: Set<Int> = []
+        var segs: [String] = [], piped: Set<Int> = [], assigns: [String] = []
         for (k, seg) in raw.enumerated() {
             var s = seg
             if let prefix { s = prefix.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "") }
             s = s.trimmingCharacters(in: .whitespaces)
+            let cut = seg.hasSuffix(s) || s.isEmpty ? String(seg.dropLast(s.count)) : seg.trimmingCharacters(in: .whitespaces).hasSuffix(s) ? String(seg.trimmingCharacters(in: .whitespaces).dropLast(s.count)) : seg
+            if cut.contains("\"") { assigns.append(cut) }
             guard !s.isEmpty else { continue }
             if afterPipe.contains(k) { piped.insert(segs.count) }
             segs.append(s)
         }
-        return (segs, piped)
+        return (segs, piped, assigns)
     }
 
     /// 這段指令是不是 showork 本身（"…/ShoWork42/bin/showork" card …、showork b1 post …）
@@ -294,7 +298,7 @@ public enum CaptainLink {
         let owner = LocalConfig.current.ownerName
         return "⛔️ 這個指令需要放行才能跑（\(item.kinds.joined(separator: "、"))，單號 \(item.id)）。已通知秘書，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
             + "要放行請秘書轉述\(owner)的決定（秘書跑 showork release \(item.id)），或\(owner)在這個 session 打：放行！\(item.id)（要用打的、要有驚嘆號；說「部署」「push」不算，語音聽寫通常沒有驚嘆號）。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
-            + (item.kinds.contains(opaqueRule) ? "這次是看不出要跑什麼：請把變數、包裝換成實際的指令名直接寫出來再跑，就會照內容判斷（這不算繞過）。\n" : "")
+            + (item.kinds.contains(opaqueRule) ? "這次是看不出要跑什麼：請把當指令用的變數、eval、sh -c \"$變數\"、管線餵給 sh 這類寫法，換成實際的指令直接寫出來再跑，就會照內容判斷（這不算繞過）。\n" : "")
             + "等的時候用 showork card --status blocked 回報卡在哪；能改用暫存區（scratchpad、/tmp）的就改用。"
     }
 
@@ -436,11 +440,11 @@ public struct ReleaseRecord: Codable, Sendable, Equatable {
 
 public enum CaptainInbox {
     public static var dir: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_CAPTAIN_INBOX"] { return URL(fileURLWithPath: p, isDirectory: true) }
+        if let p = TestEnv.path("SHOWORK_CAPTAIN_INBOX") { return URL(fileURLWithPath: p, isDirectory: true) }
         return Captain.dir.appendingPathComponent("captain-inbox", isDirectory: true)
     }
     public static var releaseLog: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_RELEASE_LOG"] { return URL(fileURLWithPath: p) }
+        if let p = TestEnv.path("SHOWORK_RELEASE_LOG") { return URL(fileURLWithPath: p) }
         return Captain.dir.appendingPathComponent("permits/releases.jsonl")
     }
     /// 放行有效時間
@@ -542,7 +546,7 @@ public struct Preapproval: Codable, Sendable, Equatable {
 
 extension CaptainInbox {
     public static var preapprovalLog: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_PREAPPROVAL_LOG"] { return URL(fileURLWithPath: p) }
+        if let p = TestEnv.path("SHOWORK_PREAPPROVAL_LOG") { return URL(fileURLWithPath: p) }
         return Captain.dir.appendingPathComponent("permits/preapprovals.json")
     }
 

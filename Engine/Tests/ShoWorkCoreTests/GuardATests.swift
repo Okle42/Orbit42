@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 import Testing
@@ -16,6 +15,9 @@ import Testing
         ("X=rm; $X a", true), ("X=/bin/rm; \"$X\" -rf a", true), ("$Y a b", true), ("S=\"/a b/bin/showork\"; \"$S\" title", true), ("\"$CMD\" -x", true),
         ("python3 - <<'E'\nimport os\nos.remove('a')\nE", true), ("showork card --summary \"$(rm x)\"", true), ("\"/a b/bin/showork\" card --summary \"`rm x`\"", true), ("showork card --summary \"$(showork title)\"", true),
         ("S=\"/a b/bin/showork\"; \"$S\" card --summary 'rm x'", false), ("S='/a b/bin/showork'\n$S names", false), ("B=.build/release/x; $B --help", false), ("showork card --summary \"$(date)\"", false), ("python3 - <<'E'\nprint(1)\nE", false), ("cat <<'E' > a.py\nimport os\nos.remove('a')\nE", false), ("showork guard off", false),
+        ("A=\"$(rm -rf x)\"", true), ("A=\"`rm x`\"", true), ("OUT=\"$(firebase deploy)\"; echo $OUT", true), ("A=\"$(showork title)\"", true), ("FOO=\"$(rm x)\" showork card --doing a", true), ("export A=\"$(rm x)\"", true), ("A=\"$(date)\" B=\"$(rm x)\" ls", true),
+        ("X=ls; X=rm; $X a", true), ("X=$(echo rm); $X a", true),
+        ("A=\"$(git rev-parse HEAD)\"; echo $A", false), ("e=1; s=2; echo $(($e-$s))", false), ("for f in a b; do echo $(($f)); done", false), ("A=$(grep x y | cut -d= -f2)/platform-tools/adb; $A devices", false), ("T=$(which tailscale); \"$T\" status", false), ("ADB=/o/adb; $ADB devices -l", false), ("ADB=/o/adb; ADB=\"$ADB -s x\"; $ADB devices", false),
         // 日常的不可擋
         ("git status && git log --oneline | head", false), ("swift build -c release 2>&1 | tail", false), ("grep -rn 'rm -rf' .", false), ("echo 'rm x'", false), ("bash script.sh", false), ("zsh -n a.sh", false), (#"sh -c "ls -la | grep x""#, false),
         ("find . -name '*.swift' -exec grep -n x {} +", false), ("find /tmp/x -delete", false), ("ls | xargs grep x", false), (#"python3 -c "print(1)""#, false), ("/bin/rm -rf /tmp/x", false), (#"sh -c "rm -rf /tmp/x""#, false), ("command -v rm", false),
@@ -56,12 +58,15 @@ import Testing
         }
     }
     @Test func guardOff() throws {
-        let k = P256.Signing.PrivateKey(), other = P256.Signing.PrivateKey(), now = Date(), pub = k.publicKey.x963Representation
-        func make(_ t: TimeInterval, _ key: P256.Signing.PrivateKey) throws -> GuardOff { let u = now.addingTimeInterval(t); return GuardOff(until: u, sig: try key.signature(for: GuardOff.message(u)).derRepresentation) }
-        #expect(try GuardOff.valid(make(1700, k), key: pub, now: now))
-        #expect(try !GuardOff.valid(make(1700, other), key: pub, now: now) && !GuardOff.valid(make(-1, k), key: pub, now: now) && !GuardOff.valid(make(7200, k), key: pub, now: now))
-        var t = try make(600, k); t.until = now.addingTimeInterval(1700)        // 改時間簽章就不對
-        #expect(!GuardOff.valid(t, key: pub, now: now) && !GuardOff.valid(GuardOff(until: now + 60, sig: Data()), key: pub, now: now))
+        let now = Date()
+        #expect(GuardOff.valid(now + 1700, now: now) && !GuardOff.valid(now - 1, now: now) && !GuardOff.valid(now + 7200, now: now))
+        // 插座通了也要驗對方：不是 Orbit42 簽的（這個測試程序自己開的）就不算暫停
+        let p = "/tmp/gs-\(getpid()).sock"
+        defer { unlink(p) }
+        let u = Date(timeIntervalSince1970: (now.timeIntervalSince1970 + 600).rounded())
+        #expect(GuardOff.serve(p, until: { u }) != nil)
+        #expect(GuardOff.ask(p, trusted: { _ in true }) == u)
+        #expect(GuardOff.ask(p, trusted: GuardOff.isOrbit) == nil && GuardOff.ask("/tmp/none.sock", trusted: { _ in true }) == nil)
     }
     @Test func captainClaim() {
         #expect(CaptainClaim.decide(current: "a", me: "a", live: ["a"], on: true) == .take(notify: false))

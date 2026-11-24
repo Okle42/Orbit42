@@ -41,7 +41,7 @@ let isReviewer = ProcessInfo.processInfo.environment["SHOWORK_REVIEWER"] != nil
 // 防冒充方案 A 的狀態。關閉只能在 Orbit42 選單按（系統驗證），指令列做不到
 if args.first == "guard" {
     if args.count > 1, args[1] != "status" { FileHandle.standardError.write(Data("showork guard：只看得到狀態。要關請在 Orbit42 選單按「暫停防冒充檢查⋯」\n".utf8)); exit(1) }
-    print("防冒充檢查：" + (GuardOff.current(now: Date()).map { "暫停到 \($0.until.formatted(date: .omitted, time: .shortened))" } ?? "開")); exit(0)
+    print("防冒充檢查：" + (GuardOff.current().map { "暫停到 \($0.formatted(date: .omitted, time: .shortened))" } ?? "開")); exit(0)
 }
 if args.first == "caps" { print("typed-mark"); exit(0) }
 if args.first == "brief" {

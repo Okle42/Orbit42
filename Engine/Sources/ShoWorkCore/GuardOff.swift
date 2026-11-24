@@ -1,35 +1,68 @@
-import CryptoKit
+import Darwin
 import Foundation
+import Security
 
-/// 暫時關掉防冒充檢查：只能在 Orbit42 選單按、經系統驗證（Touch ID 或 Mac 密碼）才簽得出來，最多 30 分鐘、到時自動恢復。
-/// 簽章鑰匙在安全晶片裡、每次用都要系統驗證。同帳號的程式若連公鑰檔一起換掉，這裡擋不住（方案 B 再鎖）。
-public struct GuardOff: Codable, Sendable, Equatable {
-    public var until: Date, sig: Data
-    public init(until: Date, sig: Data) { self.until = until; self.sig = sig }
+/// 暫時關掉防冒充檢查：狀態只在 Orbit42 的記憶體裡（Touch ID／Mac 密碼過了才設，最多 30 分鐘；App 關掉就恢復）。
+/// showork 連 Orbit42 的插座問，並用核心給的對方身分驗它真的是 Keng 簽的 Orbit42；沒有任何檔案或環境變數能改。
+public enum GuardOff {
     public static let limit: TimeInterval = 30 * 60
-    public static var dir: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_GUARD_DIR"] { return URL(fileURLWithPath: p, isDirectory: true) }
-        return Captain.dir.appendingPathComponent("guard", isDirectory: true)
+    static let requirement = #"identifier "ai.okle42.orbit42" and anchor apple generic and certificate leaf[subject.OU] = J79PXNQ765"#
+    public static var socketPath: String { Paths.supportDir.appendingPathComponent("guard.sock").path }
+    /// App 自己用：現在暫停到幾點
+    nonisolated(unsafe) public static var local: (() -> Date?)?
+    /// 純判斷：沒過期、沒超過上限
+    static func valid(_ until: Date, now: Date) -> Bool { until > now && until.timeIntervalSince(now) <= limit }
+    public static func current(now: Date = Date()) -> Date? {
+        guard let u = local.map({ $0() }) ?? asked, valid(u, now: now) else { return nil }
+        return u
     }
-    public static var file: URL { dir.appendingPathComponent("a-off.json") }
-    public static var keyFile: URL { dir.appendingPathComponent("a-off.pub") }
+    private static let asked: Date? = ask(socketPath, trusted: isOrbit)
 
-    public static func message(_ until: Date) -> Data { Data("orbit42-guard-off|\(Int(until.timeIntervalSince1970))".utf8) }
-    /// 純判斷：簽章對、還沒到期、沒有超過上限
-    public static func valid(_ o: GuardOff, key: Data, now: Date) -> Bool {
-        guard o.until > now, o.until.timeIntervalSince(now) <= limit, let k = try? P256.Signing.PublicKey(x963Representation: key),
-              let s = try? P256.Signing.ECDSASignature(derRepresentation: o.sig) else { return false }
-        return k.isValidSignature(s, for: message(o.until))
+    static func address(_ path: String) -> sockaddr_un? {
+        var a = sockaddr_un(); a.sun_family = sa_family_t(AF_UNIX)
+        guard path.utf8.count < MemoryLayout.size(ofValue: a.sun_path) else { return nil }
+        withUnsafeMutableBytes(of: &a.sun_path) { b in path.utf8.enumerated().forEach { b[$0.offset] = $0.element } }
+        return a
     }
-    public static func active(now: Date) -> Bool { current(now: now) != nil }
-    public static func current(now: Date) -> GuardOff? {
-        guard let d = FileManager.default.contents(atPath: file.path), let o = try? JSONDecoder().decode(GuardOff.self, from: d),
-              let k = FileManager.default.contents(atPath: keyFile.path), valid(o, key: k, now: now) else { return nil }
-        return o
+    static func ask(_ path: String, trusted: (Int32) -> Bool) -> Date? {
+        guard var a = address(path), case let fd = socket(AF_UNIX, SOCK_STREAM, 0), fd >= 0 else { return nil }
+        defer { close(fd) }
+        var tv = timeval(tv_sec: 0, tv_usec: 400_000), on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        let ok = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+        guard ok == 0, trusted(fd) else { return nil }
+        var b = [UInt8](repeating: 0, count: 64)
+        let n = read(fd, &b, b.count)
+        return n > 0 ? Double(String(decoding: b.prefix(n), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)).map { Date(timeIntervalSince1970: $0) } : nil
     }
-    public static func save(_ o: GuardOff, key: Data) throws {
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try key.write(to: keyFile, options: .atomic)
-        try JSONEncoder().encode(o).write(to: file, options: .atomic)
+    /// 插座另一頭是不是 Keng 簽的 Orbit42（核心給的 audit token，不看名字）
+    static func isOrbit(_ fd: Int32) -> Bool {
+        var t = audit_token_t(), n = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &t, &n) == 0 else { return false }
+        let d = withUnsafeBytes(of: &t) { Data($0) }
+        var code: SecCode?, req: SecRequirement?
+        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: d] as CFDictionary, [], &code) == errSecSuccess, let code,
+              SecRequirementCreateWithString(requirement as CFString, [], &req) == errSecSuccess, let req else { return false }
+        return SecCodeCheckValidity(code, [], req) == errSecSuccess
+    }
+    /// App 端：有人連就回到期時間（沒暫停回 0）
+    public static func serve(_ path: String = socketPath, until: @escaping @Sendable () -> Date?) -> Int32? {
+        guard var a = address(path), case let fd = socket(AF_UNIX, SOCK_STREAM, 0), fd >= 0 else { return nil }
+        unlink(path)
+        let ok = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+        guard ok == 0, chmod(path, 0o600) == 0, listen(fd, 64) == 0 else { close(fd); return nil }
+        Thread.detachNewThread {
+            while true {
+                let c = accept(fd, nil, nil)
+                if c < 0 { if errno == EINTR { continue }; return }
+                var on: Int32 = 1
+                setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+                let s = String(Int(until()?.timeIntervalSince1970 ?? 0))
+                _ = s.withCString { write(c, $0, strlen($0)) }
+                close(c)
+            }
+        }
+        return fd
     }
 }

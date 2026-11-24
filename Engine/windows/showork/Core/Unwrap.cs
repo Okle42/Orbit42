@@ -90,19 +90,48 @@ static class Unwrap
     static bool Deletes(string code) => M(code, @"\bos\.(remove|unlink|rmdir|removedirs)\b|\bshutil\.rmtree\b|\.(unlink|rmdir)\s*\(|\b(rmSync|unlinkSync|rmdirSync)\b|\bfs(\.promises)?\.(rm|unlink|rmdir)\b|\bunlink\s*[\s(]|\brmtree\b|\bFileUtils\.rm|\bFile\.delete\b");
     public static List<string> InSubstitutions(string s) => Substitutions(s).SelectMany(x => All(x, 1)).ToList();
     /// 開頭是變數的指令（同 Mac Unwrap.variable）
-    public static string? Variable(string seg, string cmd)
+    public static List<string> Variable(string seg, string cmd)
     {
+        var alt = Regex.Match(seg, @"^\$\{\w+:[+=-]([^}]*)\}\s*", RegexOptions.CultureInvariant);
+        if (alt.Success) { var r = seg[alt.Length..]; return new[] { r, alt.Groups[1].Value + " " + r }.Where(x => x.Trim().Length > 0).ToList(); }
         var m = Regex.Match(seg, @"^""?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?([^\s""]*)""?(?=\s|\z)", RegexOptions.CultureInvariant);
-        if (!m.Success) return null;
+        if (!m.Success || M(seg, @"^\$\{?\w+\}?\s*[-+*/%<>=]\s*[$0-9]")) return new();
         string name = m.Groups[1].Value, tail = m.Groups[2].Value, rest = seg[m.Length..];
-        string? Literal(string v) { var b = Base(v); return v.Contains('/') && !v.EndsWith('/') && !b.Contains('$') && !b.Contains('`') && !b.Contains(')') ? b : null; }
-        if (Literal(tail) is { } t) return t + rest;
-        var a = Regex.Matches(cmd, @"(?:^|[;&|\n(\s])" + name + @"=(""[^""]*""|'[^']*'|(?:\\.|[^\s;&|])*)", RegexOptions.CultureInvariant).LastOrDefault();
-        if (a == null) return Opaque;
-        var v = string.Join(" ", Tokens(a.Groups[1].Value)) + tail;
-        if (!v.StartsWith("$(", StringComparison.Ordinal) && Literal(v) is { } l) return l + rest;
-        if (v.Length == 0 || v.Contains("$(", StringComparison.Ordinal) || v.Contains('`')) return Opaque;
-        return v.StartsWith('$') ? Opaque : v + rest;
+        string? Literal(string v) { var b = Base(v); return v.Contains('/') && !v.EndsWith('/') && !b.Contains('$') && !b.Contains('`') && !b.Contains(')') && !b.Contains(' ') ? b : null; }
+        if (Literal(tail) is { } t) return new() { t + rest };
+        var vs = Values(name, cmd);
+        if (vs.Count == 0) return rest.Trim().Length == 0 && tail.Length == 0 && !seg.StartsWith('"') ? new() : new() { Opaque };
+        string? One(string raw)
+        {
+            var v = string.Join(" ", Tokens(raw)) + tail;
+            var w = Regex.Match(v, @"^\$\((?:command -v|which)\s+([\w.-]+)", RegexOptions.CultureInvariant);
+            if (w.Success) return w.Groups[1].Value + rest;
+            if (v.Contains("$(", StringComparison.Ordinal) || v.Contains('`')) return v.EndsWith(')') ? null : Literal(v) is { } l ? l + rest : null;
+            if (seg.StartsWith('"')) { var b = Base(v); if (v.Contains('/') && b.Length > 0 && !b.Contains('$')) return b + rest; }
+            else if (v.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() is { } f && Literal(f) is { } l2) return l2 + v[f.Length..] + rest;
+            return v.Length == 0 || v.StartsWith('$') ? null : v + rest;
+        }
+        var o = vs.Select(One).OfType<string>().ToList();
+        return o.Count == 0 ? new() { Opaque } : o;
+    }
+    static List<string> Values(string name, string cmd)
+    {
+        var o = new List<string>();
+        foreach (Match m in Regex.Matches(cmd, @"(?:^|[;&|\n(\s])" + name + "=", RegexOptions.CultureInvariant))
+        {
+            var b = new StringBuilder(); char? q = null; int depth = 0; char prev = ' ';
+            foreach (var c in cmd[(m.Index + m.Length)..])
+            {
+                if (q is { } k) { b.Append(c); if (c == k) q = null; prev = c; continue; }
+                if (c is '"' or '\'') { q = c; b.Append(c); prev = c; continue; }
+                if (c == '(' && (prev == '$' || depth > 0)) depth++;
+                else if (c == ')') { if (depth == 0) break; depth--; }
+                else if (depth == 0 && (char.IsWhiteSpace(c) || c is ';' or '&' or '|') && prev != '\\') break;
+                b.Append(c); prev = c;
+            }
+            if (b.Length > 0) o.Add(b.ToString());
+        }
+        return o;
     }
     public static bool HeredocDeletes(string cmd) =>
         Regex.Matches(cmd, @"\b(?:python[0-9.]*|node|perl|ruby)\b[^\n|;]*<<-?\s*['""]?(\w+)['""]?[^\n]*\n(.*?)\n\s*\1\b", RegexOptions.Singleline | RegexOptions.CultureInvariant).Any(m => Deletes(m.Groups[2].Value));
