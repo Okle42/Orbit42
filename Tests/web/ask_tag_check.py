@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""戰情列：Mac Orbit42（?orbit=1&askfloat=1）只留「● 等你答」；沒帶 askfloat（手機、Windows、戰情中心）答案卡照舊。無頭 Chrome。"""
+"""戰情列：Mac Orbit42（浮層活著）只留「● 等你答」，浮層掛了答案卡照畫；沒有浮層（手機、Windows、戰情中心）答案卡照舊。無頭 Chrome。"""
 import functools, http.server, json, os, shutil, subprocess, sys, tempfile, threading
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Engine/windows/ShoWork.Win/Board/Web"))
 JS = """<script type=module>
 const msgs = []; window.webkit = { messageHandlers: { sphere: { postMessage: m => msgs.push(m) } } };
-setTimeout(() => { let o = {}; try {
+setTimeout(() => { let o = {}; try { if (new URLSearchParams(location.search).has("float")) window.karaAskFloat?.(true);
   window.karaUpdate({ five_hour: 1, seven_day: 2, sessions: 2, runs: [], team: [{ name: "甲", status: "需要你", sessionId: "s1", askId: "A", ask: "要嗎", options: ["好（建議）", "不要"] }, { name: "乙", status: "進行中", sessionId: "s2" }] });
   const t = document.querySelectorAll(".askTag"); o.tags = t.length; o.row = t[0]?.closest(".row").dataset.i; o.card = document.getElementById("askCard").classList.contains("on"); o.opts = document.querySelectorAll("#askCard .opt").length;
   msgs.length = 0; t[0]?.click(); o.sent = msgs.map(m => m.action + ":" + (m.sessionId || ""));
-  msgs.length = 0; for (const key of ["1", "Enter"]) document.body.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); o.undo = document.getElementById("askUndo").classList.contains("on");
+  msgs.length = 0; for (const key of ["1", "Enter"]) document.body.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); o.undo = document.getElementById("askUndo").classList.contains("on"); if (o.tags) { window.karaAskFloat(false); o.back = document.getElementById("askCard").classList.contains("on") && document.querySelectorAll("#askCard .opt").length; window.karaAskFloat(true); o.again = !document.getElementById("askCard").classList.contains("on") && document.querySelectorAll(".askTag").length; }
 } catch (e) { o.err = e.stack; } fetch("/result", { method: "POST", body: JSON.stringify(o) }); }, 2500);
 </script>"""
 tmp = tempfile.mkdtemp(prefix="asktag-"); shutil.copytree(WEB, tmp + "/w")
@@ -26,7 +26,7 @@ class H(http.server.SimpleHTTPRequestHandler):
 
 srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(H, directory=tmp + "/w")); threading.Thread(target=srv.serve_forever, daemon=True).start()
 bad = 0
-for q, want in (("orbit=1&askfloat=1", dict(tags=1, row="0", card=False, sent=["askShow:s1"], undo=False)), ("orbit=1", dict(tags=0, card=True, opts=2, undo=True)), ("", dict(tags=0, card=True, opts=2))):
+for q, want in (("orbit=1&float=1", dict(tags=1, row="0", card=False, sent=["askShow:s1"], undo=False, back=2, again=1)), ("orbit=1", dict(tags=0, card=True, opts=2, undo=True)), ("", dict(tags=0, card=True, opts=2))):
     got.clear(); done.clear()
     p = subprocess.Popen([CHROME, "--headless=new", "--no-first-run", "--remote-debugging-port=0", "--enable-unsafe-swiftshader", f"--user-data-dir={tmp}/r", "--window-size=1440,900", f"http://127.0.0.1:{srv.server_port}/sphere.html?{q}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     done.wait(40); p.terminate(); p.wait(20)

@@ -45,13 +45,23 @@ public enum SphereEmbed {
     public static var typeAnswer: ((_ sid: String, _ text: String, _ still: @escaping @MainActor () -> Bool, _ done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool)?
 
     // 11-25 答案卡浮層（AskFloat.swift，只有 Orbit42 Mac 開）：球體不畫答案卡，只在戰情列留「● 等你答」
-    public static var askFloat = false
+    public private(set) static var askFloat = false        // 浮層活著（說過 ready）才是 true；不行了球體自己畫，不可漏答
+    static func setAskFloat(_ on: Bool) { askFloat = on; for h in hosts where h.orbit { h.pushAskFloat() } }
     static var askPayload: ((Data) -> Void)?
     static var askResult: ((_ sid: String, _ askId: String, _ text: String) -> Void)?
     static var askShow: ((String) -> Void)?
     /// 浮層的作答／跳轉：跟球體網頁送來的同一條路（answer ⇒ BoardActions ⇒ AskQueue.claim），不另開
     static var testAction: (([String: Any]) -> Void)?
-    static func askAction(_ m: [String: Any]) { if let t = testAction { return t(m) }; hosts.last?.handle(m) }
+    static func askAction(_ m: [String: Any]) {
+        func has(_ k: String) -> Bool { (m[k] as? String)?.isEmpty == false }
+        switch m["action"] as? String {                  // 沒有題目／單號的一律不收
+        case "answer": guard has("sessionId"), has("askId") else { return }
+        case "permit": guard has("sessionId"), has("permitId"), has("decision") else { return }
+        case "focus", "stopSpeaking": break
+        default: return
+        }
+        if let t = testAction { return t(m) }; hosts.last?.handle(m)
+    }
     /// 補充框打字中：智能體不開口（聽寫會收到喇叭的聲音）
     static func askTyping(_ on: Bool) { hosts.last?.web.evaluateJavaScript("window.karaAskTyping && window.karaAskTyping(\(on))", completionHandler: nil) }
 

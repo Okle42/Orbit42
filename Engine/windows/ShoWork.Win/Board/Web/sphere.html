@@ -2404,17 +2404,29 @@ function placeAsk(st) {
 }
 { const inner = renderAsk; renderAsk = function () { inner(); placeAsk(); }; }
 /* 11-25 Keng：答案卡浮在 Orbit42 最上層（ask.html，原生端疊在所有衛星上面）⇒ 這裡不畫答案卡，戰情列只留「● 等你答」。
-   只有帶 ?askfloat=1（Mac 的 Orbit42）才走；手機、Windows、戰情中心的球體照舊 */
-const ASKFLOAT = new URLSearchParams(location.search).has("askfloat");
-window.askFloatTyping = false;
-if (ASKFLOAT) {
-  document.body.classList.add("askFloat"); renderAsk = function () {};
-  window.karaAskTyping = on => { window.askFloatTyping = !!on; if (on && talkingNow) post({ action: "stopSpeaking" }); if (!on) pump(); };
-  const rowSub = renderTeam;
-  renderTeam = function () {
-    rowSub();
-    (data.team || []).slice(0, 6).forEach((c, i) => { if (c.status !== "需要你") return; const s = $("teamRows").querySelector(`.row[data-i="${i}"] .sub`); if (s) s.insertAdjacentHTML("afterbegin", `<span class="askTag" data-ask="${esc(c.sessionId || "")}">● 等你答</span> · `); });
+   只有原生端說浮層活著（karaAskFloat(true)，Mac 的 Orbit42）才走；手機、Windows、戰情中心的球體照舊 */
+window.askFloatOn = false; window.askFloatTyping = false;
+if (ORBIT) {
+  const own = renderAsk, rows = renderTeam;
+  renderAsk = function () {
+    if (!window.askFloatOn) return own();
+    const c = $("askCard"); if (c.classList.contains("on")) { c.classList.remove("on"); c.dataset.sig = ""; } document.body.classList.remove("asking"); $("askDot").classList.remove("on"); placeAsk();
   };
+  renderTeam = function () {
+    rows(); if (!window.askFloatOn) return;
+    for (const row of $("teamRows").querySelectorAll(".row")) {                 // 畫出來的每一列都看（不限前 6 列）；有 data-sid 用它，沒有才用序號
+      const c = row.dataset.sid ? (data.team || []).find(x => x.sessionId === row.dataset.sid) : (data.team || [])[+row.dataset.i], s = row.querySelector(".sub");
+      if (c?.status === "需要你" && s && !s.querySelector(".askTag")) s.insertAdjacentHTML("afterbegin", `<span class="askTag" data-ask="${esc(c.sessionId || "")}">● 等你答</span> · `);
+    }
+  };
+  // 浮層活著（true）／載不起來、當掉（false：這裡照畫，不可漏答）。接手時還在 3 秒復原的那題收回，不替他送
+  window.karaAskFloat = on => {
+    if (window.askFloatOn === !!on) return; window.askFloatOn = !!on; window.askFloatTyping = false;
+    if (on && undoQ) { clearTimeout(undoQ.t); sentKey.delete(undoQ.c.sessionId); undoQ = null; $("askUndo").classList.remove("on"); }
+    if (!on) { sentKey.clear(); snoozed = null; }
+    renderTeam(); renderAsk();
+  };
+  window.karaAskTyping = on => { window.askFloatTyping = !!on; if (on && talkingNow) post({ action: "stopSpeaking" }); if (!on) pump(); };
   $("teamRows").addEventListener("click", e => { const t = e.target.closest(".askTag"); if (!t) return; e.stopPropagation(); e.preventDefault(); post({ action: "askShow", sessionId: t.dataset.ask }); }, true);
 }
 /* 11-23 Keng「答案卡補充框語音輸入常被打斷」：補充框有焦點＝正在打字或講話（聽寫）。這段時間：

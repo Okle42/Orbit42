@@ -58,6 +58,12 @@ final class AskFloatWeb: WKWebView {
     override func resignFirstResponder() -> Bool { onResign?(); return super.resignFirstResponder() }
     override func performKeyEquivalent(with e: NSEvent) -> Bool { window?.firstResponder === self ? super.performKeyEquivalent(with: e) : false }
     override func keyDown(with e: NSEvent) { if window?.firstResponder === self { super.keyDown(with: e) } }
+    // 不收拖放（拖進來的檔案、網址會變成導覽）
+    override func registerForDraggedTypes(_ t: [NSPasteboard.PasteboardType]) {}
+    override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation { [] }
+    override func draggingUpdated(_ s: NSDraggingInfo) -> NSDragOperation { [] }
+    override func prepareForDragOperation(_ s: NSDraggingInfo) -> Bool { false }
+    override func performDragOperation(_ s: NSDraggingInfo) -> Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { false }      // Orbit42 在背景時，第一下只是把它叫到前面
 }
 
@@ -71,7 +77,7 @@ public final class AskFloatRoot: NSView {
 }
 
 @MainActor
-public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     let webView: AskFloatWeb
     public var view: NSView { webView }
     /// 開著的衛星（主視窗座標）：縮成一條時不擋它們的輸入框
@@ -79,7 +85,8 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     /// 暫時藏起來（登入畫面開著）
     public var suppressed = false { didSet { layout() } }
     private(set) var mode = "hidden", size = NSSize.zero
-    private var ready = false, dragFrom: NSRect?, pendingData: Data?
+    private(set) var ready = false
+    private var dragFrom: NSRect?, pendingData: Data?
     private let store: UserDefaults
     private static let key = "orbit.askCorner"
     var corner: NSPoint? {
@@ -101,12 +108,15 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         webView.wantsLayer = true; webView.layer?.zPosition = 1_000_000          // 衛星的 zPosition 從 10 一直往上加
         webView.isHidden = true
         webView.onResign = { [weak self] in self?.js("window.askBlur && window.askBlur()") }
-        webView.load(URLRequest(url: URL(string: "\(OfficeWebSchemeHandler.scheme)://web/ask.html")!))
+        webView.uiDelegate = self
+        webView.unregisterDraggedTypes()
+        cfg.preferences.javaScriptCanOpenWindowsAutomatically = false
+        load()
         SphereEmbed.askPayload = { [weak self] d in self?.update(d) }
         SphereEmbed.askResult = { [weak self] sid, ask, text in self?.call("window.askResult", [sid, ask, text]) }
         SphereEmbed.askShow = { [weak self] sid in self?.call("window.askShow", [sid]) }
         // 衛星會被拖動、開關：縮成一條時每秒看一次有沒有擋到（沒動就不做事）
-        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { if self?.mode == "strip" { self?.layout() } } }
+        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { if self?.mode == "strip" { self?.layout() }; self?.heartbeat() } }
     }
 
     public func setTheme(_ name: String) { call("window.askTheme", [name]) }
@@ -116,18 +126,62 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         js("window.askUpdate(\(String(decoding: d, as: UTF8.self)))")
     }
     public func webView(_ w: WKWebView, didFinish n: WKNavigation!) { layout() }
-    /// 網頁程序當掉：重新載入（不會替使用者送任何東西；題目還在，可以再按）
-    public func webViewWebContentProcessDidTerminate(_ w: WKWebView) { ready = false; mode = "hidden"; layout(); w.reload() }
+
+    // MARK: 活著才接手：浮層說 ready 球體才不畫答案卡；載不起來、當掉、沒回應 ⇒ 球體照畫（不可漏答），這裡一直重試
+    public static let page = "\(OfficeWebSchemeHandler.scheme)://web/ask.html"
+    var loadAt = 0.0, fails = 0, pingAt = 0.0, pongAt = 0.0
+    func load() { loadAt = now; pingAt = 0; pongAt = 0; webView.load(URLRequest(url: URL(string: Self.page)!)) }
+    private var now: Double { ProcessInfo.processInfo.systemUptime }
+    private(set) var lost = false
+    /// 不行了：球體接手、藏起來，等一下重新載入（不會替使用者送任何東西；題目還在，可以再按）
+    func down() {
+        ready = false; lost = true; mode = "hidden"; told = .zero; dragFrom = nil
+        SphereEmbed.setAskFloat(false); layout()
+        fails += 1
+    }
+    /// 幾秒後重試：1、2、4⋯最多 30
+    static func backoff(_ fails: Int) -> Double { min(30, pow(2, Double(max(0, min(fails, 6) - 1)))) }
+    func heartbeat(now t: Double? = nil) {
+        let t = t ?? now
+        if !ready {
+            if lost { if t - loadAt >= Self.backoff(fails) { lost = false; loadAt = t; load() } }
+            else if t - loadAt > 8 { loadAt = t; down() }                                    // 8 秒沒說 ready
+            return
+        }
+        if pingAt > 0, pongAt < pingAt { if t - pingAt > 4 { loadAt = t; down() }; return }  // 4 秒沒回應
+        guard t - pingAt > 5 else { return }
+        pingAt = t
+        webView.evaluateJavaScript("typeof askUpdate") { [weak self] r, _ in MainActor.assumeIsolated { if let self, r as? String == "function" { self.pongAt = self.now; if self.pongAt < self.pingAt { self.pongAt = self.pingAt } } } }
+    }
+    public func webViewWebContentProcessDidTerminate(_ w: WKWebView) { loadAt = now; down() }
+    public func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { if !ready { loadAt = now; down() } }
+    public func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { if !ready { loadAt = now; down() } }
+    /// 只准開自己那一頁、主框架；不開新視窗
+    static func allowed(_ url: URL?, mainFrame: Bool) -> Bool { mainFrame && url?.absoluteString == page }
+    public func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(Self.allowed(a.request.url, mainFrame: a.targetFrame?.isMainFrame == true) ? .allow : .cancel)
+    }
+    public func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for a: WKNavigationAction, windowFeatures f: WKWindowFeatures) -> WKWebView? { nil }
     public var theme = "dark" { didSet { setTheme(theme) } }
 
-    public func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) { if let b = m.body as? [String: Any] { handle(b) } }
+    /// 訊息只收自己那一頁（主框架、自己的 scheme、自己的 web view、現在網址還是 ask.html）
+    public func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
+        let o = m.frameInfo.securityOrigin
+        guard m.webView === webView, m.frameInfo.isMainFrame, o.protocol == OfficeWebSchemeHandler.scheme, o.host == "web",
+              Self.allowed(webView.url, mainFrame: true), Self.allowed(m.frameInfo.request.url, mainFrame: true), let b = m.body as? [String: Any] else { return }
+        handle(b)
+    }
+    private var open = true          // 縮成一條的狀態：重新載入後還在
     func handle(_ b: [String: Any]) {
         let num = { (k: String) in CGFloat((b[k] as? NSNumber)?.doubleValue ?? 0) }
         switch b["action"] as? String {
         case "ready":
-            ready = true; setTheme(theme); layout()
+            ready = true; lost = false; fails = 0; pingAt = now; pongAt = now; told = .zero
+            setTheme(theme); layout(); call("window.askRestore", [open])
+            SphereEmbed.setAskFloat(true)
             if let d = pendingData ?? SphereEmbed.latestSphere { update(d) }
         case "askSize": mode = b["mode"] as? String ?? "hidden"; size = NSSize(width: num("w"), height: num("h")); layout()
+        case "askOpen": open = b["open"] as? Bool ?? true
         case "askDrag": drag(b["phase"] as? String ?? "", NSPoint(x: num("dx"), y: num("dy")))
         case "askFocusBack": focusBack()
         case "askTyping": SphereEmbed.askTyping(b["on"] as? Bool ?? false)
@@ -169,7 +223,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         guard show else { if webView.frame.width < most.width { webView.frame = NSRect(x: 0, y: 0, width: most.width, height: 200) }; return }
         guard dragFrom == nil else { return }
         let f = mode == "strip" ? AskFloatLayout.strip(size, root: root, corner: corner, terminals: terminals()) : AskFloatLayout.card(size, root: root, corner: corner)
-        if webView.frame != f { webView.frame = f }
+        if webView.frame != f { webView.frame = f; if ready { js("window.askMoved && window.askMoved()") } }
     }
     // 測試（只給離屏測試用）：假題目、跑一段網頁程式；真的資料不再進來
     public func testUpdate(_ f: URL) { SphereEmbed.askPayload = nil; if let d = try? Data(contentsOf: f) { update(d) } }

@@ -650,6 +650,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     let login = LoginPanel()
     private var sphereView: NSView?
     private(set) var askFloat: AskFloat?
+    private var askTimer: Timer?
     private var loginWatch: NSKeyValueObservation?
     private var webWatch: Timer?
     /// 11-23 Keng「Orbit42 改檔自動重新載入，免重開」：每秒看球體頁（Web/sphere.html，SHOWORK_WEB_DIR 優先）的修改時間，
@@ -668,6 +669,45 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 loaded = now
                 print("orbit: sphere.html changed, reloading"); fflush(stdout)
                 web.reload()
+            }
+        }
+    }
+    /// 11-23 Keng「4 選項答案卡跳出來應該在終端機上方，它要幫我們加速工作流程」：衛星小視窗是原生 view、蓋在球體網頁上，
+    /// 網頁的 z-index 管不到 ⇒ 每 0.3 秒問球體答案卡（＋送出後的「復原」提示）在哪，蓋到它的衛星整個淡出、點擊穿過去；答完恢復
+    private func watchAskCard() {
+        // 11-24 Keng「點答案卡，終端機短暫消失」：送出後 3 秒的復原條不再叫終端機讓位（改放進戰情卡）；
+        // 答案卡比戰情卡長時只算看得到的那一段（原本連捲在外面的也算，會誤判碰到終端機）
+        let js = """
+        (() => { const r = []; for (const id of ["askCard", "askDot"]) { const e = document.getElementById(id);
+          if (!e || !e.classList.contains("on")) continue; const b = e.getBoundingClientRect();
+          const t = e.closest("#cardTeam"), c = t ? t.getBoundingClientRect() : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+          const x = Math.max(b.left, c.left), y = Math.max(b.top, c.top), w = Math.min(b.right, c.right) - x, h = Math.min(b.bottom, c.bottom) - y;
+          if (w > 0 && h > 0) r.push([x, y, w, h]); } return JSON.stringify(r); })()
+        """
+        askTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let web = self.sphereView as? WKWebView, !web.isHidden else { return }
+                if SphereEmbed.askFloat {          // 浮層活著：球體不畫答案卡，不用讓位（剛剛讓位的放回來）
+                    for x in self.satWins.values where x.yieldingToAsk { x.yieldingToAsk = false; x.alphaValue = 1 }
+                    return
+                }
+                web.evaluateJavaScript(js) { [weak self] r, _ in
+                    MainActor.assumeIsolated {
+                        guard let self, let root = self.window.contentView, let s = r as? String, let d = s.data(using: .utf8),
+                              let arr = try? JSONSerialization.jsonObject(with: d) as? [[Double]] else { return }
+                        let H = root.bounds.height
+                        let rects = arr.filter { $0.count == 4 }.map { NSRect(x: $0[0], y: H - $0[1] - $0[3], width: $0[2], height: $0[3]).insetBy(dx: -10, dy: -10) }
+                        for case let w as TermWindowView in root.subviews where !w.isHidden && w.wantShown {
+                            let y = rects.contains { $0.intersects(w.frame) }
+                            guard y != w.yieldingToAsk else { continue }
+                            w.yieldingToAsk = y
+                            NSAnimationContext.runAnimationGroup { ctx in
+                                ctx.duration = 0.25; ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                                w.animator().alphaValue = y ? 0 : 1          // 11-23 Keng「答案卡太透明會看到底下的字」⇒ 整個淡出（原 12%）
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -691,7 +731,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         let root = AskFloatRoot(frame: NSRect(origin: .zero, size: size))
         root.wantsLayer = true
         window.contentView = root
-        SphereEmbed.askFloat = true            // 11-25 Keng：答案卡浮在最上層（AskFloat），球體自己不畫
         let sphere = SphereEmbed.makeView()
         sphere.frame = root.bounds; sphere.autoresizingMask = [.width, .height]
         root.addSubview(sphere); sphereView = sphere
@@ -702,7 +741,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         // 球體載入後把它整個蓋住（按「帳號⋯」只看到球淡出、登入頁出不來）
         root.addSubview(login.web, positioned: .above, relativeTo: sphere)      // 終端機小視窗在下面最後才加，自然在最上層
         login.web.wantsLayer = true; login.web.layer?.zPosition = 1               // 小視窗從 10 起跳，點到的再往上（raise）
-        if let f = AskFloat() {
+        if let f = AskFloat() {                // 11-25 Keng：答案卡浮在最上層；建得起來、說過 ready 球體才不畫
             f.terminals = { [weak self] in self?.satWins.values.filter { !$0.isHidden && $0.wantShown }.map(\.frame) ?? [] }
             root.addSubview(f.view); root.float = f.view; askFloat = f
             f.suppressed = !login.web.isHidden
@@ -741,7 +780,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 self?.arrangeSats(in: v.count == 4 ? CGRect(x: v[0], y: v[1], width: v[2], height: v[3]) : nil)
             }
         }
-        watchSphereFile()
+        watchAskCard(); watchSphereFile()
         // 測試：ORBIT_TEST_ASK="<題目 json>@<png>" ⇒ 開 3 顆印字的衛星＋假題目，整個主視窗截圖（展開、縮成一條），印位置後結束
         if let spec = env["ORBIT_TEST_ASK"], let at = spec.lastIndex(of: "@"), test {
             let out = String(spec[spec.index(after: at)...])
@@ -1613,7 +1652,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         guard e.window === window, let root = window.contentView else { return }
         let p = root.convert(e.locationInWindow, from: nil)
         if let f = askFloat?.view, !f.isHidden, f.frame.contains(p) { return }        // 點在答案卡上：不把底下的衛星提上來
-        guard let w = root.subviews.last(where: { $0 is TermWindowView && !$0.isHidden && $0.frame.contains(p) }) else { return }
+        guard let w = root.subviews.last(where: { ($0 as? TermWindowView)?.yieldingToAsk == false && !$0.isHidden && $0.frame.contains(p) }) else { return }
         raise(w)
     }
 
@@ -1625,7 +1664,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     }
     /// 小視窗打開時從下方放大淡入（像 macOS 開視窗），收起時縮小淡出
     private func animate(_ w: TermWindowView, on: Bool, then: (() -> Void)? = nil) {
-        w.wantShown = on
+        w.wantShown = on; w.yieldingToAsk = false
         guard let layer = w.layer, let root = window.contentView else { w.isHidden = !on; then?(); return }
         if on {
             w.frame = TermWindowView.fit(w.frame, in: root.bounds)

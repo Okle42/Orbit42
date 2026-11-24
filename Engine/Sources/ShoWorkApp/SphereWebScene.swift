@@ -23,6 +23,7 @@ import ShoWorkCore
 final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     let web: WKWebView
     let desk: Bool          // 11-22：球體桌面版（SphereMini 的浮動面板，?desk=1）
+    let orbit: Bool
     private var loaded = false
     private var sent: String?
     private var pending = false
@@ -35,7 +36,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
 
     init?(dir: URL? = WorkWindow.webDir, desk: Bool = false, orbit: Bool = false) {
         guard let dir, FileManager.default.fileExists(atPath: dir.appendingPathComponent("sphere.html").path) else { return nil }
-        self.desk = desk
+        self.desk = desk; self.orbit = orbit
         let cfg = WKWebViewConfiguration()
         cfg.setURLSchemeHandler(OfficeWebSchemeHandler(root: dir), forURLScheme: OfficeWebSchemeHandler.scheme)
         let wv = SphereWebView(frame: .zero, configuration: cfg)
@@ -60,7 +61,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             unsafeBitCast(method_getImplementation(m), to: SetBool.self)(web, occ, false)
         }
         web.navigationDelegate = self
-        let q = [desk ? "desk=1" : nil, orbit ? "orbit=1" : nil, orbit && SphereEmbed.askFloat ? "askfloat=1" : nil].compactMap { $0 }.joined(separator: "&")
+        let q = [desk ? "desk=1" : nil, orbit ? "orbit=1" : nil].compactMap { $0 }.joined(separator: "&")
         web.load(URLRequest(url: URL(string: "\(OfficeWebSchemeHandler.scheme)://web/sphere.html\(q.isEmpty ? "" : "?" + q)")!))
         model.start()
         model.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subs)
@@ -84,13 +85,15 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     // MARK: 網頁 → 原生端
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        if let m = message.body as? [String: Any] { handle(m) }
+        // 只收自己包裡的頁面、主框架（answer／permit 會變成使用者的輸入）
+        guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == OfficeWebSchemeHandler.scheme, let m = message.body as? [String: Any] else { return }
+        handle(m)
     }
     func handle(_ m: [String: Any]) {
         guard let a = m["action"] as? String else { return }
         let str = { (k: String) in m[k] as? String }
         switch a {
-        case "ready": loaded = true; sent = nil; push(); pushPrefs()
+        case "ready": loaded = true; sent = nil; push(); pushPrefs(); pushAskFloat()
         case "focus":
             guard let c = card(str("sessionId")) else { return say("找不到這個 session 了。") }
             jump(c)
@@ -115,8 +118,8 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             tell(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { tell($0) })
         case "permit":
             guard let c = card(str("sessionId")) else { return say("這個 session 已經不在了。") }
-            let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") ?? .deny
-            if let pid = str("permitId"), let cur = c.permit?.id, pid != cur { return say("這個對話框已經關了。") }
+            guard let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") else { return say("看不懂這個回答，沒有送出。") }
+            guard let pid = str("permitId"), pid == c.permit?.id else { return say("這個對話框已經關了。") }
             if blocked { return say("測試：不回答權限（\(d.rawValue)）。") }
             say(BoardActions.permit(c, PermitAnswer(d, message: str("message"), answers: m["answers"] as? [String: [String]])) + "。")
         case "listen": (m["on"] as? Bool ?? false) ? startListening() : listener?.finish()
@@ -324,7 +327,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     }
 
     func webView(_ w: WKWebView, didFinish n: WKNavigation!) {
-        loaded = true; sent = nil; push(); pushPrefs()
+        loaded = true; sent = nil; push(); pushPrefs(); pushAskFloat()
         // 測試：SHOWORK_TEST_SPHERE_SHOT=<png> 12 秒後（等卡片讀完）用 WebKit 自己截（BoardWindow.snapshot 的 cacheDisplay 拍不到 WebGL 的顏色）
         let env = ProcessInfo.processInfo.environment
         if BoardWindow.testMode, let out = env[desk ? "SHOWORK_TEST_SPHERE_MINI_SHOT" : "SHOWORK_TEST_SPHERE_SHOT"] {
@@ -358,6 +361,8 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
                                 "voices": SphereVoices.all().map { ["id": $0.id, "name": $0.name, "group": $0.group] }])
     }
 
+    /// 答案卡由浮層畫還是球體自己畫
+    func pushAskFloat() { if orbit { web.evaluateJavaScript("window.karaAskFloat && window.karaAskFloat(\(SphereEmbed.askFloat))", completionHandler: nil) } }
     private func push() {
         guard loaded else { return }
         let heat = CityParse.cool42(FileManager.default.contents(atPath: HeatGate.cool42Path), now: Date())

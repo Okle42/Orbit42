@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import XCTest
 @testable import ShoWorkCore
 @testable import ShoWorkApp
@@ -88,12 +89,60 @@ final class AskFloatTests: XCTestCase {
         f.corner = NSPoint(x: 314, y: 214); r.setFrameSize(NSSize(width: 500, height: 400)); f.layout(); XCTAssertTrue(inside(f.view.frame, NSSize(width: 500, height: 400)))
         r.setFrameSize(root); f.layout(); XCTAssertEqual(f.view.frame, f1)
     }
+    func waitReady(_ f: AskFloat, _ s: Double = 8) async throws {
+        for _ in 0..<Int(s * 20) { if f.ready { return }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTFail("浮層沒有 ready")
+    }
+    /// 別的來源、子框架、導覽、拖放都進不來（Gavin5 反例）
+    func testOnlyOwnPage() async throws {
+        let (_, _, f, _, _) = try make(); try await waitReady(f)
+        var got: [[String: Any]] = []; SphereEmbed.testAction = { got.append($0) }; defer { SphereEmbed.testAction = nil }
+        let evil = "webkit.messageHandlers.ask.postMessage({action:'answer',sessionId:'s',askId:'Q',free:'evil'});webkit.messageHandlers.ask.postMessage({action:'permit',sessionId:'s',permitId:'P',decision:'allow'})"
+        f.webView.loadHTMLString("<script>\(evil)</script>", baseURL: URL(string: "https://evil.example/")); try await Task.sleep(for: .milliseconds(900))
+        XCTAssertEqual(got.count, 0)
+        _ = try? await f.webView.evaluateJavaScript("(()=>{const i=document.createElement('iframe');i.srcdoc='<script>parent.webkit;\(evil.replacingOccurrences(of: "'", with: "\\'"))<\\/script>';document.body.append(i);location.href='https://evil.example/';window.open('https://evil.example/')})(),0")
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertEqual(got.count, 0); XCTAssertEqual(f.webView.url?.absoluteString, AskFloat.page)
+        for u in ["https://evil.example/", "showork://web/sphere.html", "showork://evil/ask.html", "showork://web/ask.html?x", "file:///etc/passwd", "about:blank"] { XCTAssertFalse(AskFloat.allowed(URL(string: u), mainFrame: true)) }
+        XCTAssertFalse(AskFloat.allowed(URL(string: AskFloat.page), mainFrame: false)); XCTAssertTrue(AskFloat.allowed(URL(string: AskFloat.page), mainFrame: true))
+        XCTAssertTrue(f.webView.registeredDraggedTypes.isEmpty)
+    }
+    /// 活著才接手；沒 ready、當掉、沒回應 ⇒ 球體照畫並重試；重新載入後尺寸、位置、縮成一條都在
+    func testFallbackAndRestore() async throws {
+        let (w, r, f, _, _) = try make()
+        XCTAssertFalse(SphereEmbed.askFloat)                                        // 還沒 ready：球體自己畫
+        try await waitReady(f); XCTAssertTrue(SphereEmbed.askFloat)
+        let q = #"{"team":[{"status":"需要你","sessionId":"s1","askId":"A","name":"甲","ask":"要嗎","options":["好","不要"]}]}"#
+        f.update(Data(q.utf8)); w.setContentSize(NSSize(width: 360, height: 420)); r.setFrameSize(NSSize(width: 360, height: 420)); f.layout(); f.corner = NSPoint(x: 5, y: 60)
+        func js(_ s: String) async -> String { (try? await f.webView.evaluateJavaScript(s)).map { "\($0)" } ?? "" }
+        for _ in 0..<40 where f.mode != "card" { try await Task.sleep(for: .milliseconds(50)) }
+        _ = await js("collapse(false),0"); for _ in 0..<40 where f.mode != "strip" { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(f.mode, "strip")
+        let before = (await js("document.documentElement.style.getPropertyValue('--w')"), await js("document.documentElement.style.getPropertyValue('--maxh')"), f.view.frame)
+        XCTAssertEqual(before.0, "332px")
+        f.webViewWebContentProcessDidTerminate(f.webView)
+        XCTAssertFalse(SphereEmbed.askFloat); XCTAssertTrue(f.view.isHidden); XCTAssertFalse(f.ready)       // 立刻交回球體
+        f.heartbeat(now: f.loadAt + 0.5); XCTAssertTrue(f.lost); f.heartbeat(now: f.loadAt + 1.1); XCTAssertFalse(f.lost)        // 1 秒後重試
+        try await waitReady(f); for _ in 0..<40 where f.mode != "strip" { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(SphereEmbed.askFloat); XCTAssertEqual(f.mode, "strip"); XCTAssertFalse(f.view.isHidden)
+        let after = (await js("document.documentElement.style.getPropertyValue('--w')"), await js("document.documentElement.style.getPropertyValue('--maxh')"), f.view.frame)
+        XCTAssertEqual(before.0, after.0); XCTAssertEqual(before.1, after.1); XCTAssertEqual(before.2, after.2)
+        // 沒回應
+        f.pingAt = 100; f.pongAt = 99; f.heartbeat(now: 103); XCTAssertTrue(SphereEmbed.askFloat); f.heartbeat(now: 104.5); XCTAssertFalse(SphereEmbed.askFloat); XCTAssertTrue(f.lost)
+        XCTAssertEqual([1, 2, 3, 4, 9].map(AskFloat.backoff), [1, 2, 4, 8, 30])
+        // 8 秒沒 ready
+        f.load(); f.heartbeat(now: f.loadAt + 1.5); f.heartbeat(now: f.loadAt + 9); XCTAssertFalse(SphereEmbed.askFloat)
+        XCTAssertNil(AskFloat(dir: URL(fileURLWithPath: "/nope")))                  // 建不起來：沒有人把 askFloat 打開
+    }
     /// 作答只走 SphereEmbed.askAction 那一條；送出中／沒確認到會告訴網頁
     func testOnlyOnePathAndState() throws {
         let (_, _, f, _, _) = try make()
         var got: [String] = []; SphereEmbed.testAction = { got.append($0["action"] as? String ?? "") }; defer { SphereEmbed.testAction = nil }
-        for a in ["answer", "permit", "focus", "stopSpeaking", "captain", "auditFix", "newSatellite"] { f.handle(["action": a]) }
+        for a in ["answer", "permit", "focus", "stopSpeaking", "captain", "auditFix", "newSatellite"] { f.handle(["action": a, "sessionId": "s", "askId": "Q", "permitId": "P", "decision": "deny"]) }
         XCTAssertEqual(got, ["answer", "permit", "focus", "stopSpeaking"])
+        got = []                                                     // 沒帶題目、單號、決定的一律不收
+        for m in [["action": "answer", "sessionId": "s", "free": "x"], ["action": "answer", "askId": "Q"], ["action": "permit", "sessionId": "s", "decision": "allow"], ["action": "permit", "sessionId": "s", "permitId": "", "decision": "allow"], ["action": "permit", "sessionId": "s", "permitId": "P"]] { f.handle(m) }
+        XCTAssertEqual(got, [])
         func state(_ edit: (inout PendingAsk) -> Void) -> String? {
             var c = BoardCard(id: "s", column: .review, reason: "", project: "P", title: "t", lastActivity: nil, pid: 1, sessionId: "s"), q = PendingAsk(id: "Q1", ask: "題", options: ["好"], at: Date())
             edit(&q); c.asks = [q]

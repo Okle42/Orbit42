@@ -17,6 +17,9 @@ final class TermWindowView: NSView {
     /// 11-25：自己拖過／改過大小：自動重排不動它，按「自動排版」才歸位
     var userMoved = false
     var zoomed: Bool { zoomedFrom != nil }
+    /// 浮層不在、球體自己畫答案卡時：被蓋到的衛星讓位（淡掉、點擊穿過去）
+    var yieldingToAsk = false
+    override func hitTest(_ p: NSPoint) -> NSView? { yieldingToAsk ? nil : super.hitTest(p) }
     var wantShown = false                 // 目前該不該顯示（收起動畫跑到一半又被打開時用）
     private let bar = NSView()
     private let clip = NSView()
