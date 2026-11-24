@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>答案卡</title>
+<!-- 11-25 Keng：答案卡浮在 Orbit42 最上層（只有 Mac 的 Orbit42 用；原生端 AskFloat.swift 放在所有衛星上面）。失敗點清單：docs/ask-float.md
+     原生 → 網頁：askUpdate(球體那份資料)、askTheme("dark"|"light")、askMax(最大寬, 最大高)、askResult(sessionId, 一句話)、askShow(sessionId)、askBlur()
+     網頁 → 原生：ready／askSize {mode,w,h}／askDrag {phase,dx,dy}／askFocusBack／askTyping {on}，以及跟球體同一套的 focus／answer／permit／stopSpeaking
+     原則：答案會變成使用者本人的輸入，有疑問一律不送。 -->
+<style>
+  :root { color-scheme: dark; --ink: #4fc36a; --ink-dim: rgba(242,242,242,.62); --panel: #111112; --line: rgba(255,255,255,.14); --soft: rgba(255,255,255,.05);
+    --acc: #ffffff; --acc-dim: rgba(255,255,255,.45); --rec: rgba(255,255,255,.14); }
+  :root[data-theme="light"] { color-scheme: light; --ink: #141414; --ink-dim: rgba(20,20,20,.66); --panel: #ffffff; --line: rgba(0,0,0,.13); --soft: rgba(0,0,0,.045);
+    --acc: #d7261b; --acc-dim: rgba(215,38,27,.5); --rec: rgba(215,38,27,.08); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--ink); font: 13px/1.45 -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default; }
+  #card, #strip, #bar { background: var(--panel); border: 1px solid var(--acc-dim); border-radius: 10px; }
+  #card { display: none; width: var(--w, 440px); max-height: var(--maxh, none); overflow-y: auto; padding: 10px 14px 12px; }
+  #strip { display: none; width: max-content; max-width: var(--w, 440px); align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; }
+  #bar { display: none; width: var(--w, 440px); align-items: center; gap: 10px; padding: 8px 12px; margin-top: 8px; font-size: 12px; }
+  #bar .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  body.open #card { display: block; } body.mini #strip { display: flex; } body.bar #bar { display: flex; } body.bar:not(.open):not(.mini) #bar { margin-top: 0; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); flex: none; }
+  #strip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #strip .n { color: var(--ink-dim); white-space: nowrap; }
+  .top { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: grab; flex-wrap: wrap; }
+  .top .tag { color: var(--acc); letter-spacing: .12em; }
+  .top .nm { overflow-wrap: anywhere; } .top .nm:hover, .q:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .top .ago { color: var(--ink-dim); } .top .nav { margin-left: auto; display: flex; gap: 4px; align-items: center; color: var(--ink-dim); }
+  .sum { margin-top: 6px; font-size: 12px; color: var(--ink-dim); overflow-wrap: anywhere; }
+  .q { margin-top: 6px; font-size: 14px; cursor: pointer; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .d { margin-top: 4px; font: 11px/1.45 ui-monospace, Menlo, monospace; color: var(--ink-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .st { display: none; margin-top: 8px; padding: 6px 10px; border: 1px solid var(--acc); border-radius: 8px; font-size: 12px; color: var(--acc); overflow-wrap: anywhere; }
+  .st.on { display: block; }
+  .opts { margin-top: 10px; display: grid; grid-template-columns: 1fr; gap: 6px; }
+  button { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 14px; padding: 3px 10px; cursor: pointer; }
+  button:hover { border-color: var(--acc-dim); }
+  .opt { border-radius: 8px; padding: 9px 12px; text-align: left; line-height: 1.4; overflow-wrap: anywhere; white-space: normal; }
+  .opt b { font-weight: 600; font-size: 11px; color: var(--ink-dim); margin-right: 6px; }
+  .opt i { display: block; font-style: normal; font-size: 10.5px; letter-spacing: .12em; color: var(--acc); }
+  .opt.rec { border-color: var(--acc); background: var(--rec); color: var(--acc); }
+  :root[data-theme="light"] .opt.rec { color: var(--ink); }
+  .free { margin-top: 8px; display: flex; gap: 6px; align-items: flex-end; }
+  .free textarea { flex: 1; min-width: 0; resize: none; min-height: 4.9em; max-height: 9em; background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; outline: none; -webkit-user-select: text; user-select: text; cursor: text; }
+  .free textarea:focus { border-color: var(--acc-dim); }
+  .foot { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 11px; color: var(--ink-dim); }
+  .foot .links { margin-left: auto; display: flex; gap: 12px; }
+  .lnk { border: 0; padding: 0; color: var(--ink-dim); } .lnk:hover { color: var(--acc); text-decoration: underline; }
+  .off .opts, .off .free { opacity: .4; pointer-events: none; }
+  body.bar #card { max-height: calc(var(--maxh, 100000px) - 76px); }
+  body.armed #card { border-color: var(--acc); }
+</style>
+</head>
+<body>
+<div id="card" role="dialog" aria-label="等你回答"></div>
+<div id="strip" role="button" aria-label="等你回答，點一下展開"></div>
+<div id="bar"></div>
+<script>
+const $ = id => document.getElementById(id), now = () => performance.now();
+const post = o => { try { if (window.webkit?.messageHandlers?.ask) window.webkit.messageHandlers.ask.postMessage(o); } catch {} (window.askPosted ||= []).push(o); };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const clip = (s, n) => s.length > n ? s.slice(0, n) + "⋯" : s;
+const LOCK = 500, UNDO = 3000, GHOST = 1500, RETRY = 8000;
+const isRec = o => /（建議）|\(建議\)|\(Recommended\)/i.test(o), clean = o => o.replace(/\s*[（(](建議|Recommended)[）)]\s*$/i, "");
+const agoText = m => m == null ? "" : m < 1 ? "剛剛" : m < 60 ? `等了 ${m} 分` : `等了 ${Math.floor(m / 60)} 小時`;
+
+/* 題目：key＝session＋題目 id（權限框用單號）。同一個 session 換了一題就是另一個 key，草稿、送出狀態都不會跑過去 */
+const keyOf = c => c.sessionId + "|" + (c.askId ? "a:" + c.askId : "p:" + c.permit.id);
+const sigOf = c => JSON.stringify([c.ask, c.options || [], c.permit || null]);       // 內容：送出前再比一次
+let live = new Map(), order = [], cur = null, open = true, armed = false, lockUntil = 0, ghost = null, sent = new Map(), drafts = new Map(), undo = null, note = new Map(), compEnd = -1e9, down = null;
+const visible = () => order.filter(k => live.has(k) && !sent.has(k));
+const lock = () => { lockUntil = now() + LOCK; down = null; };
+const disarm = () => { armed = false; document.body.classList.remove("armed"); };
+const typing = () => document.activeElement?.tagName === "TEXTAREA";
+
+function askUpdate(data) {
+  const next = new Map();
+  for (const c of data.team || []) if (c.status === "需要你" && c.sessionId && (c.askId || c.permit?.id)) next.set(keyOf(c), c);
+  live = next;
+  order = order.filter(k => live.has(k)); for (const k of live.keys()) if (!order.includes(k)) order.push(k);      // 新題排最後，不換掉正在看的
+  for (const [k, s] of sent) {
+    if (!live.has(k)) sent.delete(k);                                           // 題目真的拿掉了＝送到了
+    else if (s.posted && (live.get(k).askState === "unsure" || now() - s.posted > RETRY)) sent.delete(k);      // 還在：放回清單，照現在的狀態顯示
+  }
+  if (undo && !live.has(undo.key)) dropUndo("那題已經在別處答掉或收回，沒有送出");
+  for (const k of [...drafts.keys()]) if (!live.has(k) && k !== cur) drafts.delete(k);
+  render();
+}
+function render() {
+  const list = visible();
+  if (cur && !list.includes(cur) && !sent.has(cur) && !ghost && $("card").dataset.key === cur && document.body.classList.contains("open")) {      // 看到一半被答掉／收回
+    ghost = { key: cur, t: setTimeout(endGhost, GHOST) }; disarm(); lock();
+  }
+  if (ghost && live.has(ghost.key) && !sent.has(ghost.key)) { clearTimeout(ghost.t); ghost = null; lock(); }
+  if (!ghost && !list.includes(cur)) { cur = list[0] ?? null; disarm(); }
+  const show = !!cur && (ghost || list.length);
+  document.body.classList.toggle("open", !!show && open); document.body.classList.toggle("mini", !!show && !open); document.body.classList.toggle("bar", !!undo || !!barText);
+  if (show && open) drawCard(list); if (show && !open) drawStrip(list);
+  if (!show) { $("card").dataset.key = ""; disarm(); }
+  size();
+}
+function endGhost() { if (!ghost) return; if (typing()) { ghost.held = true; patch(visible()); return; } ghost = null; cur = null; lock(); render(); }
+function drawStrip(list) {
+  const c = live.get(cur); if (!c) return;
+  $("strip").innerHTML = `<span class="dot"></span><span class="nm">需要你 · ${esc(c.name || "")}</span>${list.length > 1 ? `<span class="n">共 ${list.length} 題</span>` : ""}`;
+}
+/* 整張重畫只在換題時；同一題只補有變的地方，輸入框永遠不換（聽寫、注音不會斷） */
+function drawCard(list) {
+  const el = $("card");
+  if (el.dataset.key !== cur) {
+    if (el.dataset.key) disarm();
+    el.dataset.key = cur; el.dataset.sig = ""; lock();
+    el.innerHTML = `<div class="top"><span class="tag">需要你</span><span class="nm" data-jump></span><span class="ago"></span><span class="nav"></span></div>
+      <div class="sum"></div><div class="q" data-jump></div><div class="d"></div><div class="st"></div><div class="opts"></div>
+      <div class="free"><textarea rows="2" placeholder="補充說明，選了選項會一起送（⌘Enter 送出）" aria-label="自己打補充說明"></textarea><button tabindex="-1" data-go>送出</button></div>
+      <div class="foot"><span class="hint"></span><span class="links"><button class="lnk" tabindex="-1" data-later>稍後再答</button><button class="lnk" tabindex="-1" data-jump>跳到它的終端機 →</button></span></div>`;
+    el.querySelector("textarea").value = drafts.get(cur) || ""; el.scrollTop = 0;
+  }
+  patch(list);
+}
+function items(c) {
+  const p = c.permit;
+  if (c.askId) { const os = c.options || [], rec = Math.max(0, os.findIndex(isRec)); return os.map((o, i) => ({ label: clean(o), rec: i === rec, act: { text: clean(o) } })); }
+  if (p.kind === "tool") return [["允許", "allow"], ["一律允許", "always"], ["拒絕", "deny"]].map(([label, d]) => ({ label, act: { permit: d } }));
+  if (p.kind === "plan") return [["核准計畫", "allow"], ["退回", "deny"]].map(([label, d]) => ({ label, act: { permit: d } }));
+  const qs = p.questions || [];
+  return qs.length === 1 && !qs[0].multi ? qs[0].options.map(o => ({ label: o, rec: isRec(o), act: { permit: "allow", answers: { [qs[0].question]: [o] } } })) : [];
+}
+function blockWhy(c) {
+  if (ghost) return ghost.held ? "這題已經在別處答掉或收回，你打的字沒有送出。離開輸入框就換下一題" : "這題已經在別處答掉或收回";
+  if (!c) return "這題不在了";
+  if (c.askState === "sending") return "上一個答案正在送⋯";
+  if (c.askState === "unsure") return "上次的答案沒確認有沒有送到，請到它的終端機看，要答請直接在那裡打";
+  return "";
+}
+function patch(list) {
+  const el = $("card"), c = live.get(cur), set = (q, t) => { const n = el.querySelector(q); if (n && n.textContent !== t) n.textContent = t; return n; };
+  if (!el.querySelector(".top")) return;
+  const why = blockWhy(c), st = set(".st", why || note.get(cur) || ""); st.classList.toggle("on", !!st.textContent); el.classList.toggle("off", !!why);
+  const i = list.indexOf(cur);
+  const nav = el.querySelector(".nav"), navSig = list.length > 1 && i >= 0 ? `${i + 1}/${list.length}` : "";
+  if (nav.dataset.sig !== navSig) { nav.dataset.sig = navSig; nav.innerHTML = navSig ? `<button tabindex="-1" data-nav="-1" aria-label="上一題">‹</button>${navSig}<button tabindex="-1" data-nav="1" aria-label="下一題">›</button>` : ""; }
+  if (!c) return;
+  set(".top .nm", c.name || ""); set(".ago", agoText(c.ago));
+  const sig = sigOf(c);
+  if (el.dataset.sig === sig) return;
+  if (el.dataset.sig) { lock(); disarm(); }                                        // 同一題但內容、選項變了：剛剛瞄準的那顆可能已經不是原本那個
+  el.dataset.sig = sig; el.dataset.seen = sig;
+  const sum = c.summary && c.reportKind !== "start" ? "剛做完：" + clip(c.summary, 160) : "";
+  set(".sum", sum).style.display = sum ? "" : "none";
+  set(".q", c.ask || "在等你。");
+  const xs = items(c), many = c.permit?.kind === "ask" && !c.askId && !xs.length;
+  const d = !c.askId && c.permit?.kind === "tool" ? c.permit.summary || "" : many ? "這是多題選擇題，到它的終端機回答比較清楚。" : "";
+  set(".d", d).style.display = d ? "" : "none";
+  el.querySelector(".opts").innerHTML = xs.map((o, k) => `<button class="opt${o.rec ? " rec" : ""}" tabindex="-1" data-k="${k}">${o.rec ? "<i>建議</i>" : ""}${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o.label)}</button>`).join("");
+  el.querySelector(".free").style.display = c.askId ? "" : "none";
+  set(".hint", (xs.length ? `點一下卡片後可按 1–${Math.min(9, xs.length)}${xs.some(o => o.rec) ? "、Enter 送建議" : ""} · ` : "") + "送出後 3 秒可復原");
+}
+
+/* ---- 作答：每一關都過才送 ---- */
+function canAct() { const c = live.get(cur); return open && document.body.classList.contains("open") && c && !sent.has(cur) && !blockWhy(c) && now() >= lockUntil && $("card").dataset.key === cur && $("card").dataset.sig === sigOf(c); }
+function choose(k, byMouse) {
+  if (!canAct()) return; const c = live.get(cur), o = items(c)[k]; if (!o) return;
+  if (o.act.permit) return sendLater(c, { action: "permit", sessionId: c.sessionId, permitId: c.permit.id, decision: o.act.permit, answers: o.act.answers }, o.label, byMouse);
+  const extra = (drafts.get(cur) || "").trim();
+  sendLater(c, { action: "answer", sessionId: c.sessionId, text: extra ? o.act.text + "\n補充：" + extra : o.act.text, askId: c.askId, option: o.act.text, free: extra }, o.act.text + (extra ? "（＋補充）" : ""), byMouse);
+}
+function sendFree(byMouse) {
+  if (!canAct()) return; const c = live.get(cur); if (!c.askId) return;
+  const v = $("card").querySelector("textarea").value.trim(); if (!v) return;
+  sendLater(c, { action: "answer", sessionId: c.sessionId, text: v, askId: c.askId, free: v }, v, byMouse);
+}
+let barText = "", barT = 0;
+function bar(t) { barText = t; clearTimeout(barT); barT = setTimeout(() => { barText = ""; render(); }, 4000); if (!undo) $("bar").innerHTML = `<span class="t">${esc(t)}</span>`; }
+function dropUndo(t) { clearTimeout(undo.t); sent.delete(undo.key); undo = null; bar(t); }
+function flush() {
+  if (!undo) return; const u = undo; clearTimeout(u.t);
+  const c = live.get(u.key);
+  if (!c || sigOf(c) !== u.sig) return dropUndo(c ? "那題的內容變了，沒有送出，請再看一次" : "那題已經在別處答掉或收回，沒有送出");
+  undo = null; sent.set(u.key, { posted: now() }); note.delete(u.key); barText = ""; post(u.msg);
+  setTimeout(() => { const s = sent.get(u.key); if (s && live.has(u.key)) { sent.delete(u.key); note.set(u.key, "剛才的答案好像沒有送出，可以再按一次"); render(); } }, RETRY);
+  render();
+}
+function sendLater(c, msg, label, byMouse) {
+  if (undo) flush();
+  const key = cur;
+  undo = { key, msg, sig: sigOf(c), draft: drafts.get(key), t: setTimeout(flush, UNDO) };
+  drafts.delete(key); sent.set(key, {}); document.activeElement?.blur?.();
+  $("bar").innerHTML = `<span class="t">3 秒後送給 ${esc(c.name || "")}：${esc(clip(label, 60))}</span><button tabindex="-1" data-undo>復原</button>`;
+  disarm(); cur = null; lock(); render();
+  if (byMouse) post({ action: "askFocusBack" });                                  // 用滑鼠答的：焦點還給原本的終端機；用鍵盤答的不還（多按的鍵不可以掉進終端機）
+}
+function collapse(byMouse) { open = false; disarm(); document.activeElement?.blur?.(); if (ghost) { clearTimeout(ghost.t); ghost = null; cur = null; } render(); if (byMouse) post({ action: "askFocusBack" }); }
+function expand() { open = true; lock(); $("card").dataset.key = ""; render(); }
+function jump() { const c = live.get(cur); if (!c) return; post({ action: "focus", sessionId: c.sessionId }); collapse(false); }
+
+/* ---- 滑鼠：按下和放開要在同一題、同一顆按鈕，按下那刻也要過了 0.5 秒 ---- */
+const hit = t => t.closest("[data-k],[data-go],[data-nav],[data-later],[data-jump],[data-undo]");
+document.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  const b = hit(e.target); down = { key: cur, b, ok: now() >= lockUntil };
+  if ($("card").contains(e.target) && document.body.classList.contains("open") && !ghost) { armed = true; document.body.classList.add("armed"); }
+  const handle = e.target.closest(".top, #strip");
+  if (handle && !e.target.closest("button")) drag = { x: e.screenX, y: e.screenY, moved: false, id: e.pointerId, el: handle };
+}, true);
+document.addEventListener("mousedown", e => { if (e.target.closest("button")) e.preventDefault(); });      // 按鈕不拿鍵盤焦點（Space／Enter 不會變成按它）
+let drag = null, dragged = false;
+document.addEventListener("pointermove", e => {
+  if (!drag) return; const dx = e.screenX - drag.x, dy = e.screenY - drag.y;
+  if (!drag.moved) { if (Math.hypot(dx, dy) < 4) return; drag.moved = true; try { drag.el.setPointerCapture(drag.id); } catch {} post({ action: "askDrag", phase: "start" }); }
+  post({ action: "askDrag", phase: "move", dx, dy });
+});
+for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, () => { if (drag?.moved) { dragged = true; setTimeout(() => dragged = false, 0); post({ action: "askDrag", phase: "end" }); } drag = null; });
+document.addEventListener("click", e => {
+  if (dragged || e.detail === 0) return;
+  if (e.target.closest("#strip")) return expand();
+  const b = hit(e.target), d = down; down = null; if (!b) return;
+  if (b.dataset.undo != null) { if (!undo) return; const u = undo; clearTimeout(u.t); undo = null; sent.delete(u.key); if (u.draft) drafts.set(u.key, u.draft); if (ghost) { clearTimeout(ghost.t); ghost = null; } cur = u.key; open = true; $("card").dataset.key = ""; return render(); }
+  if (b.dataset.later != null) return collapse(true);
+  if (b.dataset.jump != null) return jump();
+  if (!d || d.b !== b || d.key !== cur || !d.ok) return;
+  if (b.dataset.nav) { const l = visible(), i = l.indexOf(cur); cur = l[(i + +b.dataset.nav + l.length) % l.length] ?? null; render(); armed = true; document.body.classList.add("armed"); return; }
+  if (b.dataset.go != null) return sendFree(true);
+  if (b.dataset.k != null) return choose(+b.dataset.k, true);
+});
+/* ---- 鍵盤：只有點過卡片、焦點還在這裡才有效 ---- */
+document.addEventListener("compositionend", () => { compEnd = now(); });
+document.addEventListener("keydown", e => {
+  if (!armed || e.isComposing || e.keyCode === 229 || now() - compEnd < 150 || e.repeat || e.altKey || e.shiftKey) return;
+  if (e.key === "Escape") { e.preventDefault(); return collapse(false); }
+  if (e.target.tagName === "TEXTAREA") { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendFree(false); } return; }
+  if (e.metaKey || e.ctrlKey) return;
+  let k = -1;
+  if (/^[1-9]$/.test(e.key)) k = +e.key - 1; else if (e.key === "Enter") { const c = live.get(cur); k = c ? items(c).findIndex(o => o.rec) : -1; }
+  if (k >= 0) { e.preventDefault(); choose(k, false); }
+});
+window.addEventListener("blur", disarm);
+document.addEventListener("input", e => { if (e.target.tagName === "TEXTAREA" && cur) { drafts.set(cur, e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(150, e.target.scrollHeight + 2) + "px"; size(); } });
+document.addEventListener("focusin", e => { if (e.target.tagName === "TEXTAREA") { post({ action: "stopSpeaking" }); post({ action: "askTyping", on: true }); } });
+document.addEventListener("focusout", e => { if (e.target.tagName === "TEXTAREA") { post({ action: "askTyping", on: false }); if (ghost?.held) setTimeout(endGhost, 0); } });
+
+/* ---- 大小：量自己要多大，原生端擺位置 ---- */
+let sized = "";
+function size() {
+  const cl = document.body.classList, mode = cl.contains("open") ? "card" : cl.contains("mini") ? "strip" : cl.contains("bar") ? "bar" : "hidden";
+  const el = mode === "card" ? $("card") : mode === "strip" ? $("strip") : null;
+  const r = el?.getBoundingClientRect(), b = cl.contains("bar") ? $("bar").getBoundingClientRect() : null;
+  const o = { action: "askSize", mode, w: Math.ceil(Math.max(r?.width || 0, b?.width || 0)), h: Math.ceil((r?.height || 0) + (b ? b.height + (el ? 8 : 0) : 0)) }, s = JSON.stringify(o);
+  if (s !== sized) { sized = s; post(o); }
+}
+window.askUpdate = askUpdate;
+window.askTheme = n => { document.documentElement.dataset.theme = n; };
+window.askMax = (w, h) => { document.documentElement.style.setProperty("--w", Math.min(440, w) + "px"); document.documentElement.style.setProperty("--maxh", Math.max(120, h) + "px"); size(); };
+window.askBlur = disarm;
+window.askShow = sid => { const k = visible().find(k => live.get(k).sessionId === sid) ?? visible()[0]; if (!k) return; if (ghost) { clearTimeout(ghost.t); ghost = null; } cur = k; expand(); };
+window.askResult = (sid, askId, text) => {                                           // 原生端的結果：沒送出／沒確認到 ⇒ 題目放回來並明講
+  const k = sid + "|a:" + askId; if (!/沒有送出|先留著|打不開|不在了/.test(text)) return;
+  sent.delete(k); if (live.has(k)) note.set(k, text); bar(text); render();
+};
+window.askState = () => ({ cur, open, armed, ghost: !!ghost, visible: visible(), sent: [...sent.keys()], undo: undo?.key ?? null, locked: now() < lockUntil });
+new ResizeObserver(size).observe($("card"));
+post({ action: "ready" });
+</script>
+</body>
+</html>

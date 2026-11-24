@@ -60,7 +60,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             unsafeBitCast(method_getImplementation(m), to: SetBool.self)(web, occ, false)
         }
         web.navigationDelegate = self
-        let q = [desk ? "desk=1" : nil, orbit ? "orbit=1" : nil].compactMap { $0 }.joined(separator: "&")
+        let q = [desk ? "desk=1" : nil, orbit ? "orbit=1" : nil, orbit && SphereEmbed.askFloat ? "askfloat=1" : nil].compactMap { $0 }.joined(separator: "&")
         web.load(URLRequest(url: URL(string: "\(OfficeWebSchemeHandler.scheme)://web/sphere.html\(q.isEmpty ? "" : "?" + q)")!))
         model.start()
         model.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subs)
@@ -84,7 +84,10 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     // MARK: 網頁 → 原生端
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let m = message.body as? [String: Any], let a = m["action"] as? String else { return }
+        if let m = message.body as? [String: Any] { handle(m) }
+    }
+    func handle(_ m: [String: Any]) {
+        guard let a = m["action"] as? String else { return }
         let str = { (k: String) in m[k] as? String }
         switch a {
         case "ready": loaded = true; sent = nil; push(); pushPrefs()
@@ -107,7 +110,9 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             let text = (str("text") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
             if blocked { return say("測試：不送出「\(text)」。") }
-            say(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { [weak self] in self?.say($0 + "。") } + "。")
+            let sid = c.sessionId, aid = str("askId") ?? ""
+            let tell: @MainActor (String) -> Void = { [weak self] in self?.say($0 + "。"); SphereEmbed.askResult?(sid, aid, $0) }
+            tell(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { tell($0) })
         case "permit":
             guard let c = card(str("sessionId")) else { return say("這個 session 已經不在了。") }
             let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") ?? .deny
@@ -136,6 +141,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         case "deskChrome":
             (web as? SphereWebView)?.noDrag = (m["noDrag"] as? [[Double]] ?? []).filter { $0.count == 4 }.map { NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) }
         case "openBoard": openBoard()
+        case "askShow": SphereEmbed.askShow?(str("sessionId") ?? "")      // 戰情列的「● 等你答」：叫出浮層那一題
         case "theme":           // 11-22 Keng：終端機（Ghostty）配色跟球體連動
             GhosttyTheme.apply(mode: str("mode") ?? "auto", now: str("name") ?? "dark", blocked: blocked)
             SphereEmbed.command?("theme:" + (str("name") ?? "dark"))     // 11-23 Orbit42：衛星終端機、標題列跟著球體深淺換
@@ -368,6 +374,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         guard let d = try? JSONSerialization.data(withJSONObject: o, options: .sortedKeys) else { return }
         let s = String(decoding: d, as: UTF8.self)
         SphereEmbed.latestSphere = d                   // 11-23 iPhone App：GET /api/sphere 給同一份
+        if SphereEmbed.hosts.last === self, s != sent { SphereEmbed.askPayload?(d) }
         guard s != sent else { return }
         sent = s
         if ProcessInfo.processInfo.environment["SHOWORK_TEST_SPHERE_LOG"] != nil { print("sphere push", s.prefix(160)); fflush(stdout) }
@@ -411,6 +418,8 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             if let a = c.asks.first {
                 t["ask"] = a.shown; t["askId"] = a.id
                 if let opts = a.options, !opts.isEmpty { t["options"] = opts }
+                if a.unsureAt != nil { t["askState"] = "unsure" }                // 11-25 浮層：送出中／沒確認到要看得出來、不可再按
+                else if let x = a.sendingAt { t["askState"] = now.timeIntervalSince(x) < 60 ? "sending" : "unsure" }
             } else if let p = c.permit {
                 t["ask"] = p.isAsk ? (p.questions?.first?.question ?? "有選擇題要你回答")
                     : p.isPlan ? "計畫要你核准" : "要不要讓它執行 \(p.tool)：\(p.summary)"

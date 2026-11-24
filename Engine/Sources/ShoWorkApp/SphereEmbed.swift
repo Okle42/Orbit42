@@ -44,7 +44,18 @@ public enum SphereEmbed {
     /// 11-25 答案卡打進衛星終端機（TermAnswer）：回 false＝沒有開著這個 session 的衛星（什麼都沒做）。Orbit42 設定
     public static var typeAnswer: ((_ sid: String, _ text: String, _ still: @escaping @MainActor () -> Bool, _ done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool)?
 
-    private static var hosts: [SphereWebHost] = []
+    // 11-25 答案卡浮層（AskFloat.swift，只有 Orbit42 Mac 開）：球體不畫答案卡，只在戰情列留「● 等你答」
+    public static var askFloat = false
+    static var askPayload: ((Data) -> Void)?
+    static var askResult: ((_ sid: String, _ askId: String, _ text: String) -> Void)?
+    static var askShow: ((String) -> Void)?
+    /// 浮層的作答／跳轉：跟球體網頁送來的同一條路（answer ⇒ BoardActions ⇒ AskQueue.claim），不另開
+    static var testAction: (([String: Any]) -> Void)?
+    static func askAction(_ m: [String: Any]) { if let t = testAction { return t(m) }; hosts.last?.handle(m) }
+    /// 補充框打字中：智能體不開口（聽寫會收到喇叭的聲音）
+    static func askTyping(_ on: Bool) { hosts.last?.web.evaluateJavaScript("window.karaAskTyping && window.karaAskTyping(\(on))", completionHandler: nil) }
+
+    static var hosts: [SphereWebHost] = []
 
     /// 11-24 iPhone 語音：手機說完的話交給 Orbit42 的智能體（sphere.html window.karaRemoteSay，跟按住講話放開同一條路）。沒有球體回 false
     public static func say(_ text: String) -> Bool {

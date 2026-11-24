@@ -348,6 +348,7 @@
   .trow .nm small { color: var(--ink-dim); font-size: 11px; }
   .trow .sub { grid-column: 2 / -1; font-size: 10px; color: var(--ink-dim); letter-spacing: .04em; margin-top: -2px; }
   .trow .sub .hi { color: var(--warn); }
+  .trow .sub .askTag { color: var(--warn); cursor: pointer; } .trow .sub .askTag:hover { text-decoration: underline; }
   .trow .meter { grid-column: 2 / -1; margin-top: 0; }
   /* 11-23 Keng：戰情每一列一條「完成度」分段條，顏色照球體量表：白(0)→灰(40%)→黑(70%)→紅(85% 起)；
      漸層鋪滿整條、只露出完成的那段（clip），所以越往後越深，跟球外圈的環一樣 */
@@ -2402,10 +2403,24 @@ function placeAsk(st) {
   if (fresh) ac.scrollIntoView({ block: "nearest" });
 }
 { const inner = renderAsk; renderAsk = function () { inner(); placeAsk(); }; }
+/* 11-25 Keng：答案卡浮在 Orbit42 最上層（ask.html，原生端疊在所有衛星上面）⇒ 這裡不畫答案卡，戰情列只留「● 等你答」。
+   只有帶 ?askfloat=1（Mac 的 Orbit42）才走；手機、Windows、戰情中心的球體照舊 */
+const ASKFLOAT = new URLSearchParams(location.search).has("askfloat");
+window.askFloatTyping = false;
+if (ASKFLOAT) {
+  document.body.classList.add("askFloat"); renderAsk = function () {};
+  window.karaAskTyping = on => { window.askFloatTyping = !!on; if (on && talkingNow) post({ action: "stopSpeaking" }); if (!on) pump(); };
+  const rowSub = renderTeam;
+  renderTeam = function () {
+    rowSub();
+    (data.team || []).slice(0, 6).forEach((c, i) => { if (c.status !== "需要你") return; const s = $("teamRows").querySelector(`.row[data-i="${i}"] .sub`); if (s) s.insertAdjacentHTML("afterbegin", `<span class="askTag" data-ask="${esc(c.sessionId || "")}">● 等你答</span> · `); });
+  };
+  $("teamRows").addEventListener("click", e => { const t = e.target.closest(".askTag"); if (!t) return; e.stopPropagation(); e.preventDefault(); post({ action: "askShow", sessionId: t.dataset.ask }); }, true);
+}
 /* 11-23 Keng「答案卡補充框語音輸入常被打斷」：補充框有焦點＝正在打字或講話（聽寫）。這段時間：
    ①不重畫、不搬答案卡（上面 renderAsk／placeAsk）②智能體不開口（喇叭的聲音會被聽寫收進去，也可能打斷聽寫）：
    一點進去就停掉正在唸的那句，之後的播報排隊；離開輸入框才補畫答案卡、接著唸 */
-function askTyping() { const a = document.activeElement; return !!a && a.tagName === "TEXTAREA" && $("askCard").contains(a); }
+function askTyping() { if (window.askFloatTyping) return true; const a = document.activeElement; return !!a && a.tagName === "TEXTAREA" && $("askCard").contains(a); }
 $("askCard").addEventListener("focusin", e => { if (e.target.matches(".free textarea") && talkingNow) post({ action: "stopSpeaking" }); });
 let askPtr = false;          // 按著卡片裡的按鈕（送出／選項）：補畫要等這一下點擊處理完，不然按鈕被換掉、點擊不算數
 $("askCard").addEventListener("pointerdown", () => { askPtr = true; });
