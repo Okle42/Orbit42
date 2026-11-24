@@ -256,7 +256,7 @@ function makeTerm(id) {
   // 11-23 毛玻璃：之前 WebGL 在半透明底色（#…8c）留過殘影 ⇒ 小視窗改 DOM 繪圖。
   // 11-23 Keng「紅色線框右邊根本不是直線」：DOM 繪圖的「│」是普通字，行距 1.15 會斷、中文字寬誤差會左右歪 ⇒ 小視窗也改回 WebGL
   // （WebGL 自己畫框線字元，像素對齊、上下接得起來）。現在底色透明度 #…1f，實測轉圈覆寫＋捲動都沒有殘影；WebGL 掛掉就退回 DOM
-  try { const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => gl.dispose()); term.loadAddon(gl); } catch {}
+  let gl = null; try { gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => gl.dispose()); term.loadAddon(gl); } catch {}
   // 11-24 Keng「衛星終端機裡面也可以打開網頁」：點網址 ⇒ 開在這顆衛星的網頁面板（折行的網址會把上下行接起來）。只有 Mac 版有面板
   if (!MIRROR && window.webkit?.messageHandlers?.orbit) {
     const openLink = u => post({ action: "link", id, url: u });
@@ -308,7 +308,7 @@ function makeTerm(id) {
     term.onRender(back);
   }
   if (!MIRROR) altBar(term, el);
-  const t = { term, fit, el, started: false }; terms.set(id, t); attachDoll(t); attachYou(t); return t;
+  const t = { term, fit, el, started: false, gl }; terms.set(id, t); attachDoll(t); attachYou(t); return t;
 }
 // 11-24 Keng「衛星右側的拖拉條不見了，我要用它上下捲動，風格要符合深淺色」：Claude Code 設成全螢幕模式（tui: fullscreen）時
 // 是它自己管捲動（alternate buffer），終端機沒有內容可捲 ⇒ 原生捲軸不會出現。這裡在全螢幕程式開著滑鼠模式時，自己畫一條拖拉條：
@@ -623,6 +623,8 @@ function placeDoll(t) {
 }
 /* 11-25 Keng「You 對話框亮邊」：okle42 mod 畫的 You 框，向下捲＝上邊亮、向上捲＝下邊亮，沿兩側漸收成灰，對邊灰；沒捲動維持最後方向。
    直接改畫面緩衝區裡框線那幾格的字色（xterm 自己畫框線字元）：不疊圖層 ⇒ 不會雙線、錯位，也不擋選字、連結、滑鼠。
+   側邊要平滑、不要一格一格：漸層直接烘進 xterm 的「│」字形貼圖（youBake）——線的位置、粗細、半透明邊緣跟原本完全同一份，
+   試過疊畫布，淺色 2x 會變粗（xterm 的混色跟 2D 畫布不同）。沒有疊層 ⇒ 不會慢一拍，也沒有東西要清。
    只在有輸出、捲動、切深淺時掃一次看得到的行，沒有動畫迴圈（prefers-reduced-motion 也就沒有動畫要關）。
    認框：右上方有「You ●」標籤的圓角框；標籤被畫面上緣切掉時，用這個終端機記住的 You 框右邊界、且左邊不在畫面左側來認。 */
 const YOU_COLORS = { dark: ["#4fc36a", "#505050"], light: ["#d7261b", "#424242"] };       // 亮＝THEMES 的綠／紅，灰＝Claude Code subtle 進畫面後的灰
@@ -631,6 +633,39 @@ const youRGB = k => {                   // k：1＝全亮、0＝灰
   const [a, b] = YOU_COLORS[themeName].map(h => parseInt(h.slice(1), 16)), m = sh => Math.round(((a >> sh) & 255) * k + ((b >> sh) & 255) * (1 - k));
   return m(16) << 16 | m(8) << 8 | m(0);
 };
+// 側邊第 i 段（共 n 行漸層、方向 d）用一個專屬字色當記號；xterm 把這個字色的「│」畫進貼圖時，改成那一段的漸層。
+// 烘不成（DOM 繪圖、選取反白）就是這一段的平均色，退回一格一格
+const youSlices = new Map();            // 字色 → { a, b, top, bot }（top/bot＝這段上下緣的亮度 1～0）
+const youEase = u => 1 - u * u * (3 - 2 * u);
+function youSlice(n, i, d) {
+  const idx = (d > 0 ? 0 : 8) + n * (n - 1) / 2 + i, [a, b] = YOU_COLORS[themeName].map(h => parseInt(h.slice(1), 16));
+  const u0 = i / n, u1 = (i + 1) / n, rgb = (youRGB(youEase((u0 + u1) / 2)) & 0xfffff0) | idx;
+  if (!youSlices.has(rgb)) youSlices.set(rgb, { a, b, u0: d > 0 ? u0 : u1, u1: d > 0 ? u1 : u0 });
+  return rgb;
+}
+const youBaked = new WeakSet();
+function youBake(atlas, g, sl) {        // 只換顏色、不動透明度
+  youBaked.add(g);
+  const pg = atlas.pages[g.texturePage], w = g.size.x, h = g.size.y; if (!pg || !w || !h) return;
+  const { x, y } = g.texturePosition, im = pg.ctx.getImageData(x, y, w, h), d = im.data, ch = (v, sh) => (v >> sh) & 255;
+  for (let r = 0; r < h; r++) {
+    const k = youEase(sl.u0 + (sl.u1 - sl.u0) * (r + 0.5) / h), c = [16, 8, 0].map(sh => Math.round(ch(sl.a, sh) * k + ch(sl.b, sh) * (1 - k)));
+    for (let q = 0; q < w; q++) { const o = (r * w + q) * 4; if (d[o + 3]) { d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; } }
+  }
+  pg.ctx.putImageData(im, x, y); pg.version++;
+}
+const youHooked = new WeakSet();
+function youHook(gl) {                  // 貼圖類別是共用的，掛一次就好；換字級、切深淺、清貼圖後重畫也都會經過這裡
+  const atlas = gl?._renderer?._charAtlas, proto = atlas && Object.getPrototypeOf(atlas);
+  if (!proto || youHooked.has(proto) || typeof proto.getRasterizedGlyph !== "function") return;
+  youHooked.add(proto);
+  const orig = proto.getRasterizedGlyph;
+  proto.getRasterizedGlyph = function (code, bg, fg, ext, r) {
+    const g = orig.call(this, code, bg, fg, ext, r);
+    if (code === 0x2502 && youSlices.size && !youBaked.has(g)) { const sl = (fg & 0x3000000) === 0x3000000 && youSlices.get(fg & 0xffffff); if (sl) try { youBake(this, g, sl); } catch {} }
+    return g;
+  };
+}
 function findYou(term, mem) {
   const b = term._core.buffer, rows = term.rows, cols = term.cols, L = [];
   for (let y = 0; y < rows; y++) L.push(b.lines.get(b.ydisp + y));
@@ -690,20 +725,20 @@ function attachYou(t) {
       const d = line._data, i = x * 3 + 1, v = ((d[i] & 0xfc000000) | 0x3000000 | rgb) >>> 0;
       if (d[i] !== v) { d[i] = v; return true; } return false;
     };
-    const mark = (y, x, k) => {
-      const line = b.lines.get(b.ydisp + y), rgb = youRGB(k); if (!line) return;
+    if (frames.length) youHook(t.gl);
+    const mark = (y, x, rgb) => {
+      const line = b.lines.get(b.ydisp + y); if (!line) return;
       let s = keep.get(line); if (!s) keep.set(line, s = new Set()); s.add(x);
       next.push([line, x, rgb]);
       if (put(line, x, rgb)) { lo = Math.min(lo, y); hi = Math.max(hi, y); }
     };
     for (const f of frames) {
       const edge = dir > 0 ? f.top : f.bottom;
-      // 邊在畫面外：亮的那段也在畫面外，看得到的部分全灰
-      const k = y => { if (edge === null) return 0; const n = Math.abs(y - edge), H = f.top !== null && f.bottom !== null ? f.bottom - f.top : YOU_FADE + 1;
-        return Math.max(0, 1 - n / Math.min(YOU_FADE + 1, H)); };
+      const inner = f.top !== null && f.bottom !== null ? f.bottom - f.top - 1 : YOU_FADE, n = Math.min(YOU_FADE, inner);      // 漸層幾行
+      const side = y => { const i = edge === null ? n : Math.abs(y - edge) - 1; return i < n ? youSlice(n, i, dir) : youRGB(0); };       // 邊在畫面外：亮的那段也在外面，全灰
       for (let y = f.y0; y <= f.y1; y++) {
-        if (y === f.top || y === f.bottom) for (let x = f.l; x <= f.r; x++) mark(y, x, k(y));
-        else { mark(y, f.l, k(y)); mark(y, f.r, k(y)); }
+        if (y === f.top || y === f.bottom) { const c = youRGB(y === edge ? 1 : 0); for (let x = f.l; x <= f.r; x++) mark(y, x, c); }
+        else { const c = side(y); mark(y, f.l, c); mark(y, f.r, c); }
       }
     }
     // 上次上過色、這次不是 You 框的格子（程式沒重送，因為它以為還是灰的）⇒ 還原成灰

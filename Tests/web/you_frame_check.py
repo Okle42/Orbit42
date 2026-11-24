@@ -37,6 +37,7 @@ const cell = (y, x) => term.buffer.active.getLine(term.buffer.active.viewportY +
 const fg = (y, x) => { const c = cell(y, x); return c.isFgRGB() ? "#" + c.getFgColor().toString(16).padStart(6, "0") : c.isFgDefault() ? "default" : "p" + c.getFgColor(); };
 const isLight = () => document.documentElement.dataset.theme === "light";
 const HOT = () => isLight() ? "#d7261b" : "#4fc36a", COLD = () => isLight() ? "#424242" : "#505050";
+let where = "";
 const ok = (c, m) => { n++; if (!c) fails.push(m); };
 const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 const dist = h => { const v = rgb(h), u = rgb(HOT()); return v.reduce((s, x, i) => s + Math.abs(x - u[i]), 0); };
@@ -52,48 +53,76 @@ function frame(f, dir, name, o = {}) {
   for (let y = dir > 0 ? y0 : y1; seen(y); y += dir) {
     const A = fg(y, f.l), B = fg(y, f.r);
     ok(A === B && A[0] === "#", `${name}：第 ${y} 行左右 ${A} ${B}`); if (A[0] !== "#") continue;
-    const d = dist(A); ok(d >= last, `${name}：第 ${y} 行沒有漸收`); last = d;
+    const d = dist(A); ok(d >= last - 16, `${name}：第 ${y} 行沒有漸收`); last = d;
   }
   if (!seen(edge)) ok(fg(dir > 0 ? y0 : y1, f.r) === COLD(), `${name}：亮邊在畫面外應該全灰，實際 ${fg(dir > 0 ? y0 : y1, f.r)}`);
 }
+/* 像素檢查：在 xterm 畫完的同一刻抓 WebGL 畫面 */
+const grab = () => new Promise(r => { const d = term.onRender(() => { d.dispose(); const gl = [...t.el.querySelectorAll(".xterm-screen canvas")].sort((a, b) => b.width * b.height - a.width * a.height).find(c => c.getContext("webgl2"));
+  const cv = document.createElement("canvas"); cv.width = gl.width; cv.height = gl.height; const g = cv.getContext("2d"); g.fillStyle = LIGHT ? "#fbfbf9" : "#0d0d0f"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(gl, 0, 0); r(g); }); term.refresh(0, R - 1); });
+async function pixels(f, dir, name, o = {}) {
+  where = name;
+  const g = await grab(), D = term._core._renderService.dimensions.device.cell, cw = D.width, ch = D.height;
+  const y0 = Math.max(f.top, o.min ?? 0), y1 = Math.min(f.bot, (o.max ?? R) - 1), edge = dir > 0 ? f.top : f.bot;
+  const s0 = Math.max(y0, f.top + 1), s1 = Math.min(y1, f.bot - 1); if (s1 < s0) return;
+  const bgc = LIGHT ? [251, 251, 249] : [13, 13, 15], X = Math.min(cw - 1, Math.round(0.5 * cw + 0.5) - 1);
+  for (const x of [f.l, f.r]) {
+    const H = (s1 - s0 + 1) * ch, im = g.getImageData(x * cw, s0 * ch, cw, H).data, at = (r, q) => [0, 1, 2].map(k => im[(r * cw + q) * 4 + k]), v = [];
+    for (let r = 0; r < H; r++) {
+      const mask = []; for (let q = 0; q < cw; q++) if (Math.max(...at(r, q).map((c, k) => Math.abs(c - bgc[k]))) > 24) mask.push(q);
+      ok(mask.length > 0 && mask.length <= 3 * devicePixelRatio && mask[mask.length - 1] - mask[0] === mask.length - 1, `${name}：第 ${r} 像素斷線或雙線 ${mask}`); v.push(at(r, X));
+    }
+    if (dir < 0) v.reverse();
+    const far = (a, h) => Math.max(...rgb(h).map((c, i) => Math.abs(c - a[i]))), hasEdge = edge >= y0 && edge <= y1;
+    if (hasEdge) ok(far(v[0], HOT()) <= 14, `${name}：側邊開頭沒接上亮邊 ${v[0]}`); else ok(v.every(a => far(a, COLD()) <= 14), `${name}：亮邊在畫面外應該全灰`);
+    if (s1 - s0 >= 2 || (f.top >= y0 && f.bot <= y1)) ok(far(v[v.length - 1], COLD()) <= 14, `${name}：側邊結尾沒收成灰 ${v[v.length - 1]}`);
+    const step = Math.max(0, ...v.slice(1).map((a, i) => Math.max(...a.map((c, k) => Math.abs(c - v[i][k]))))); ok(step <= 300 / ch, `${name}：側邊有一階 ${step}`); maxStep = Math.max(maxStep, step);
+    ok(v.slice(1).every((a, i) => far(a, HOT()) >= far(v[i], HOT()) - 2), `${name}：側邊不是單調漸收`);
+  }
+}
+let maxStep = 0;
 const wheel = (dy, dx = 0) => t.el.querySelector(".xterm-screen").dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: dy, deltaX: dx, deltaMode: 1 }));
 const clear = () => write(`${E}0m${E}2J`);
-function both(f, name, o) { wheel(3); frame(f, 1, name + "・下捲", o); wheel(-3); frame(f, -1, name + "・上捲", o); wheel(3); }
+async function both(f, name, o) { for (const d of [1, -1]) { wheel(3 * d); const nm = name + (d > 0 ? "・下捲" : "・上捲"); frame(f, d, nm, o); await pixels(f, d, nm, o); } wheel(3); }
 async function checks() {
   let f;
   await write(`${E}?1049h${E}?1003h${E}?1006h`);
   await clear(); f = you(2, ["2"]); await write(f.s);
-  ok(fg(f.top, f.l) !== "default", "根因：粗體結束後的框線變成預設色"); frame(f, 1, "預設"); both(f, "短文");
+  ok(fg(f.top, f.l) !== "default", "根因：粗體結束後的框線變成預設色"); frame(f, 1, "預設"); await both(f, "短文");
   wheel(-1, 9); frame(f, 1, "橫向滑動不換邊");
-  await clear(); f = you(3, ["第一行中文", "second line", "[Pasted text +12 lines]", "最後"]); await write(f.s); both(f, "多行");
-  await clear(); f = you(1, Array.from({ length: R - 8 }, (_, i) => "長文第 " + i + " 行 " + "字".repeat(12))); await write(f.s); both(f, "長文");
-  await clear(); f = you(2, ["╭──────╮", "│ code │", "╰──────╯"]); await write(f.s); const in0 = fg(f.top + 1, f.l + 2); both(f, "框裡有框");
+  await clear(); f = you(3, ["第一行中文", "second line", "[Pasted text +12 lines]", "最後"]); await write(f.s); await both(f, "多行");
+  await clear(); f = you(1, Array.from({ length: R - 8 }, (_, i) => "長文第 " + i + " 行 " + "字".repeat(12))); await write(f.s); await both(f, "長文");
+  await clear(); f = you(2, ["╭──────╮", "│ code │", "╰──────╯"]); await write(f.s); const in0 = fg(f.top + 1, f.l + 2); await both(f, "框裡有框");
   for (let y = f.top + 1; y < f.bot; y++) ok(fg(y, f.l + 2) === in0 && in0 === (LIGHT ? "#1a1a1a" : "#4fc36a"), "框裡的小框被改色 " + fg(y, f.l + 2));
   await clear(); const fs = [you(0, ["一"]), you(6, ["two two"]), you(12, ["三", "三"])];
   await write(fs.map(x => x.s).join("") + claudeBox(18) + table(23) + input(27));
   const others = () => [[19, 1], [19, 9], [20, 1], [20, C - 3], [21, 5], [23, 2], [24, 2], [25, 7], [27, 0], [28, 0], [28, C - 1], [29, 9]].map(([y, x]) => fg(y, x)).join();
   const o0 = others(); ok(!o0.includes(HOT()), "別的框是亮色 " + o0);
-  for (const d of [3, -3]) { wheel(d); fs.forEach((x, i) => frame(x, Math.sign(d), "多框 " + i)); ok(others() === o0, "別的框被改色"); } wheel(3);
+  for (const d of [3, -3]) { wheel(d); for (const x of fs) { frame(x, Math.sign(d), "多框"); await pixels(x, Math.sign(d), "多框"); } ok(others() === o0, "別的框被改色"); } wheel(3);
   for (const [name, y, k, o] of [["標籤切掉", -1, 3, {}], ["上邊切掉", -2, 3, {}], ["只剩下邊", -4, 2, {}], ["標題列下標籤切掉", 0, 3, { min: 1 }], ["標題列下上邊切掉", -1, 3, { min: 1 }]]) {
-    await clear(); f = you(y, ["a", "b", "c"].slice(0, k), o); await write((o.min ? go(0, 0) + "> 標題" : "") + f.s); both(f, name, o);
+    await clear(); f = you(y, ["a", "b", "c"].slice(0, k), o); await write((o.min ? go(0, 0) + "> 標題" : "") + f.s); await both(f, name, o);
   }
-  await clear(); f = you(R - 8, ["a", "b", "c", "d", "e", "f"], { max: R - 4 }); await write(f.s + input(R - 3)); both(f, "下緣切掉", { max: R - 4 });
-  await clear(); f = you(-5, Array.from({ length: R + 10 }, () => "滿版")); await write(f.s); both(f, "上下都切掉");
-  await clear(); f = you(6, ["捲動", "區"]); await write(f.s); await write(`${E}1;${R - 4}r${E}2S${E}r`); f.top -= 2; f.bot -= 2; both(f, "捲動區往上 2 行");
+  await clear(); f = you(R - 8, ["a", "b", "c", "d", "e", "f"], { max: R - 4 }); await write(f.s + input(R - 3)); await both(f, "下緣切掉", { max: R - 4 });
+  await clear(); f = you(-5, Array.from({ length: R + 10 }, () => "滿版")); await write(f.s); await both(f, "上下都切掉");
+  await clear(); f = you(6, ["捲動", "區"]); await write(f.s); await write(`${E}1;${R - 4}r${E}2S${E}r`); f.top -= 2; f.bot -= 2; await both(f, "捲動區往上 2 行");
   await clear(); f = you(4, ["殘留"]); await write(f.s); await write(`${go(4, 0)}${E}2K`); ok(fg(f.top, f.l) === COLD(), "標籤不見了要還原成灰 " + fg(f.top, f.l));
   const th = document.documentElement.dataset.theme;
-  await clear(); f = you(4, ["切換"]); await write(f.s); window.orbitTheme(th === "dark" ? "light" : "dark"); frame(f, 1, "切深淺即時換"); window.orbitTheme(th); frame(f, 1, "切回來");
+  await clear(); f = you(4, ["切換"]); await write(f.s); window.orbitTheme(th === "dark" ? "light" : "dark"); frame(f, 1, "切深淺即時換"); window.orbitTheme(th); frame(f, 1, "切回來"); await pixels(f, 1, "切回來");
+  t.term.clearTextureAtlas(); await pixels(f, 1, "清字形貼圖後"); const fs0 = term.options.fontSize; term.options.fontSize = fs0 - 4; await wait(200); await pixels(f, 1, "縮放後"); term.options.fontSize = fs0; await wait(200); await pixels(f, 1, "縮放回來");
+  const txt0 = term.buffer.active.getLine(term.buffer.active.viewportY + f.top + 1).translateToString(); ok(txt0.includes("│ 切換 │"), "選字複製的內容不可變 " + txt0);
+  ok(!t.el.querySelector(".youSide"), "不可有疊層");
+  window.orbitReset("x"); await write(`${E}?1049h${E}?1003h`); t.paintYou(); ok(fg(f.top, f.l) === "default", "reset 後不可殘留");
   await clear(); await write(`${go(0, 0)}${E}2mhint${E}22mX${E}${GRAY}m${E}1mB${E}22mY${E}2mh${E}22mZ${E}0m`);      // 單獨的淡化提示字（原本 22 那條規則要保住的）
   if (th === "dark") { ok(fg(0, 0) === "#96969b", "提示字要灰 " + fg(0, 0)); ok(fg(0, 4) === "default", "提示字結束要還原 " + fg(0, 4)); }
   ok(fg(0, 6) === COLD(), "粗體結束不可清字色 " + fg(0, 6)); ok(fg(0, 8) === COLD(), "提示字結束要還原成原本的字色 " + fg(0, 8));
   ok(!cell(0, 6).isBold() && !cell(0, 8).isDim(), "22 要真的結束粗體與淡化");
-  await write(`${E}?1003l${E}?1049l`); await clear(); f = you(3, ["一般模式"]); await write(f.s); both(f, "一般模式");
+  await write(`${E}?1003l${E}?1049l`); await clear(); f = you(3, ["一般模式"]); await write(f.s); await both(f, "一般模式");
 }
 async function shot() {
   await write(`${E}?1049h${E}?1003h`); await clear();
   let s = "";
   if (CASE === "short") s = you(1, ["2"]).s + you(7, ["push"]).s;
-  if (CASE === "long") s = you(1, ["第一行：把框線固定成同一個樣子", "second line", "[Pasted text +12 lines]", "第四行", "第五行", "最後一行"]).s;
+  if (CASE === "long") s = you(1, ["再長一點", "湊到十行", "第一行：把框線固定成同一個樣子", "second line", "[Pasted text +12 lines]", "第四行", "第五行", "最後一行"]).s;
   if (CASE === "multi") s = you(0, ["2"]).s + claudeBox(5) + you(10, ["push", "好"]).s + you(16, ["再一個"]).s + table(21);
   if (CASE === "cut") { await write(you(10, ["2"]).s); s = you(10, ["2"]).s + you(-2, ["上緣切掉", "bbb", "ccc"]).s + you(R - 7, ["下緣切掉", "b", "c", "d"], { max: R - 3 }).s + input(R - 3); }
   await write(s); wheel(P.get("dir") === "up" ? -3 : 3); await wait(300);
@@ -111,10 +140,10 @@ addEventListener("load", async () => {
   try {
     await wait(300); window.orbitData("x", ""); t = window.__terms.get("x"); term = t.term; t.el.classList.add("on"); document.getElementById("panel").classList.add("on");
     await wait(600); term.resize(90, 34); C = term.cols; R = term.rows; await wait(200);
-    if (CASE === "check") await checks(); else if (CASE === "cpu") await cpu(); else await shot();
+    if (CASE === "check") await Promise.race([checks(), wait(70000).then(() => fails.push("跑太久，停在：" + where))]); else if (CASE === "cpu") await cpu(); else await shot();
   } catch (e) { fails.push("例外 " + e.stack); }
-  const d = document.createElement("pre"); d.id = "RESULT"; d.style.display = "none"; d.textContent = JSON.stringify({ n, fails, cpu: window.__cpu }); document.body.append(d);
-  if (CASE === "cpu") fetch("/result", { method: "POST", body: d.textContent });
+  const d = document.createElement("pre"); d.id = "RESULT"; d.style.display = "none"; d.textContent = JSON.stringify({ n, fails, maxStep, cpu: window.__cpu }); document.body.append(d);
+  fetch("/result", { method: "POST", body: d.textContent });
 });
 """
 
@@ -147,26 +176,25 @@ def chrome(q, dpr, *extra, budget="--virtual-time-budget=20000"):
         return ""
 
 
-def result(q, dpr, **kw):
-    m = re.search(r'<pre id="RESULT"[^>]*>(.*?)</pre>', chrome(q, dpr, "--dump-dom", **kw), re.S)
-    return json.loads(html.unescape(m.group(1))) if m else {"n": 0, "fails": ["沒有結果（頁面沒跑完）"]}
+def result(q, dpr):      # 真時間跑，頁面跑完自己把結果送回來（抓畫面、量時間都不能用虛擬時間）
+    got.clear(); done.clear()
+    p = subprocess.Popen([CHROME, "--headless=new", "--no-first-run", "--remote-debugging-port=0", f"--user-data-dir={tmp}/r", "--window-size=1000,760", f"--force-device-scale-factor={dpr}",
+                          f"http://127.0.0.1:{srv.server_port}/index.html?term&{q}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    done.wait(90); p.terminate(); p.wait(20)
+    return json.loads(got[0]) if got else {"n": 0, "fails": ["沒有結果（頁面沒跑完）"]}
 
 
 bad = 0
 for theme in ("dark", "light"):
     for dpr in (1, 2):
         r = result(f"theme={theme}&case=check", dpr); bad += len(r["fails"]) + (r["n"] == 0)
-        print(f"{theme} {dpr}x：{r['n']} 項，失敗 {len(r['fails'])}")
+        print(f"{theme} {dpr}x：{r['n']} 項，失敗 {len(r['fails'])}，側邊相鄰像素最大差 {r.get('maxStep')}")
         for x in r["fails"][:12]: print("   ✗", x)
-if a.cpu:      # 真時間跑（虛擬時間量不到）
-    p = subprocess.Popen([CHROME, "--headless=new", "--no-first-run", "--remote-debugging-port=0", f"--user-data-dir={tmp}/c", "--window-size=1000,760", "--force-device-scale-factor=2",
-                          f"http://127.0.0.1:{srv.server_port}/index.html?term&theme=dark&case=cpu"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    done.wait(80); p.terminate(); p.wait(20)
-    print("CPU（微秒；*_us＝每次寫入到處理完、*_scan_us＝掃一次）", json.loads(got[0])["cpu"] if got else "沒跑完")
+if a.cpu: print("CPU（微秒；*_us＝每次寫入到處理完、*_scan_us＝掃一次）", result("theme=dark&case=cpu", 2).get("cpu"))
 if a.shots:
     os.makedirs(a.shots, exist_ok=True)
     for th in ("dark", "light"):
         for c in ("short", "long", "multi", "cut"):
-            for d in ("down", "up"): chrome(f"theme={th}&case={c}&dir={d}", 2, "--default-background-color=" + ("0d0d0fff" if th == "dark" else "fbfbf9ff"), f"--screenshot={a.shots}/{th}-{c}-{d}.png")
+            for d in ("down", "up"): chrome(f"theme={th}&case={c}&dir={d}", 2, "--default-background-color=" + ("0d0d0fff" if th == "dark" else "fbfbf9ff"), "--default-background-color=" + ("0d0d0fff" if th == "dark" else "fbfbf9ff"), f"--screenshot={a.shots}/{th}-{c}-{d}.png")
 srv.shutdown(); shutil.rmtree(tmp, ignore_errors=True)
 sys.exit(1 if bad else 0)
