@@ -256,6 +256,27 @@ function makeTerm(id) {
   // 11-23 Keng「紅色線框右邊根本不是直線」：DOM 繪圖的「│」是普通字，行距 1.15 會斷、中文字寬誤差會左右歪 ⇒ 小視窗也改回 WebGL
   // （WebGL 自己畫框線字元，像素對齊、上下接得起來）。現在底色透明度 #…1f，實測轉圈覆寫＋捲動都沒有殘影；WebGL 掛掉就退回 DOM
   try { const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => gl.dispose()); term.loadAddon(gl); } catch {}
+  // 11-24 Keng「衛星終端機裡面也可以打開網頁」：點網址 ⇒ 開在這顆衛星的網頁面板（折行的網址會把上下行接起來）。只有 Mac 版有面板
+  if (!MIRROR && window.webkit?.messageHandlers?.orbit) {
+    const openLink = u => post({ action: "link", id, url: u });
+    term.options.linkHandler = { activate: (e, u) => { if (/^https?:/i.test(u)) openLink(u); } };
+    term.registerLinkProvider({ provideLinks(y, done) {
+      const buf = term.buffer.active; let top = y - 1, end = y - 1;
+      while (top > 0 && buf.getLine(top)?.isWrapped) top--;
+      while (buf.getLine(end + 1)?.isWrapped) end++;
+      const cells = [];                                   // 每個字元在哪一格（中文佔兩格）
+      let text = "";
+      for (let r = top; r <= end; r++) { const L = buf.getLine(r); if (!L) break;
+        for (let c = 0; c < term.cols; c++) { const ch = L.getCell(c); if (!ch || ch.getWidth() === 0) continue;
+          const t = ch.getChars() || " "; for (let k = 0; k < t.length; k++) cells.push([c + 1, r + 1]); text += t; } }
+      const out = [];
+      for (const m of text.matchAll(/https?:\/\/[\w\-.~:\/?#\[\]@!$&'()*+,;=%]+/g)) {
+        const u = m[0].replace(/[.,;:!?'")\]]+$/, ""), a = cells[m.index], b = cells[m.index + u.length - 1];
+        if (a && b && a[1] <= y && b[1] >= y) out.push({ text: u, range: { start: { x: a[0], y: a[1] }, end: { x: b[0], y: b[1] } }, activate: () => openLink(u) });
+      }
+      done(out.length ? out : undefined);
+    } });
+  }
   // 11-24 iPhone 鏡像也能打字、點擊：送 "key" 給 App（App 再轉給 Mac）。重播 Mac 的輸出時 xterm 會自動回答查詢
   // （游標位置、裝置屬性、焦點進出…），那些不是人打的，送回去會變成亂碼打進 Claude ⇒ 擋掉
   term.onData(data => { if (!MIRROR) return post({ action: "input", id, data }); if (!MIRROR_REPLY.test(data)) post({ action: "key", id, data }); });

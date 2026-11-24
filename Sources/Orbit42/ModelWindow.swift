@@ -9,7 +9,8 @@ enum ModelLoader {
     static let native: Set<String> = ["stl", "obj", "ply", "usd", "usda", "usdc", "usdz", "abc", "dae", "scn"]
     static let cad: Set<String> = ["step", "stp", "iges", "igs", "brep", "brp", "fcstd", "3mf", "off"]
     static let blender: Set<String> = ["glb", "gltf", "fbx", "blend"]
-    static var all: [String] { native.union(cad).union(blender).sorted() }
+    static let image: Set<String> = ["png", "jpg", "jpeg", "heic", "webp", "gif", "tif", "tiff", "bmp", "svg", "pdf"]
+    static var all: [String] { native.union(cad).union(blender).union(image).sorted() }
     /// 原廠封閉格式：講清楚要怎麼辦，不假裝打得開
     static let closed: [String: String] = ["f3d": "Fusion", "f3z": "Fusion", "sldprt": "SolidWorks", "sldasm": "SolidWorks",
                                            "ipt": "Inventor", "iam": "Inventor", "catpart": "CATIA", "prt": "NX／Creo",
@@ -174,7 +175,16 @@ final class ModelSceneView: SCNView {
 final class ModelView: NSView {
     let scn = ModelSceneView()
     private let info = NSTextField(labelWithString: ""), message = NSTextField(wrappingLabelWithString: "")
-    private let bar = NSStackView()
+    private let bar = NSStackView(), files = NSPopUpButton(), shut = NSButton(title: "✕", target: nil, action: nil)
+    private let flat = NSScrollView(), picture = NSImageView()
+    private var viewButtons: [NSButton] = []
+    private(set) var history: [URL] = []
+    /// 長在衛星裡：多一顆關面板的鈕
+    var onShut: (() -> Void)? { didSet { shut.isHidden = onShut == nil; fold.isHidden = onShut == nil } }
+    var onTuck: () -> Void = {}
+    private let fold = NSButton(title: "－", target: nil, action: nil)
+    var isImage: Bool { !flat.isHidden }
+    var hasPicture: Bool { picture.image != nil }
     private var root = SCNNode(), loaded: ModelLoader.Loaded?, wire = false
     private var picked: (SCNMaterial, Any?)?
     private var token = 0
@@ -194,8 +204,18 @@ final class ModelView: NSView {
         for (i, t) in ["等角", "前", "右", "上", "線框", "開啟⋯"].enumerated() {
             let b = NSButton(title: t, target: self, action: #selector(tap(_:)))
             b.tag = i; b.bezelStyle = .inline; b.font = .systemFont(ofSize: 11)
-            bar.addArrangedSubview(b)
+            bar.addArrangedSubview(b); if i < 5 { viewButtons.append(b) }
         }
+        files.font = .systemFont(ofSize: 11); files.controlSize = .small; files.target = self; files.action = #selector(again); files.isHidden = true
+        shut.bezelStyle = .inline; shut.font = .systemFont(ofSize: 11); shut.target = self; shut.action = #selector(close); shut.isHidden = true
+        shut.toolTip = "關掉（小衛星也不見，終端機照跑）"
+        fold.bezelStyle = .inline; fold.font = .systemFont(ofSize: 11); fold.target = self; fold.action = #selector(tuckAway); fold.isHidden = true
+        fold.toolTip = "收起（小衛星留著，點它叫回來）"
+        bar.addArrangedSubview(fold); bar.addArrangedSubview(shut); bar.addArrangedSubview(files)
+        flat.documentView = picture; flat.drawsBackground = false; flat.allowsMagnification = true
+        flat.minMagnification = 0.02; flat.maxMagnification = 20; flat.hasVerticalScroller = true; flat.hasHorizontalScroller = true; flat.isHidden = true
+        picture.imageScaling = .scaleNone; picture.unregisterDraggedTypes()
+        addSubview(flat)
         bar.spacing = 6; addSubview(bar)
         info.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         info.textColor = .secondaryLabelColor; info.lineBreakMode = .byTruncatingTail
@@ -213,6 +233,7 @@ final class ModelView: NSView {
         bar.frame = NSRect(x: 12, y: h - 30, width: min(bar.fittingSize.width, max(0, w - 24)), height: 24)
         info.frame = NSRect(x: 12, y: 6, width: max(0, w - 40), height: 16)
         scn.frame = NSRect(x: 0, y: 26, width: w, height: max(0, h - 60))
+        flat.frame = scn.frame; fitPicture()
         message.frame = NSRect(x: 30, y: h / 2 - 40, width: max(0, w - 60), height: 80)
     }
     @objc private func tap(_ b: NSButton) {
@@ -223,14 +244,41 @@ final class ModelView: NSView {
         }
     }
 
+    @objc private func close() { onShut?() }
+    @objc private func tuckAway() { onTuck() }
+    @objc private func again() { let i = files.indexOfSelectedItem; if history.indices.contains(i) { open(history[i]) } }
+    private func fitPicture() {
+        guard !flat.isHidden, let s = picture.image?.size, s.width > 0, s.height > 0, flat.bounds.width > 10, flat.bounds.height > 10 else { return }
+        flat.magnify(toFit: NSRect(origin: .zero, size: s))
+    }
+    private func openImage(_ u: URL) {
+        guard let d = try? Data(contentsOf: u), let img = NSImage(data: d), img.size.width > 0 else {
+            message.stringValue = "這張圖打不開（讀不到或檔案壞掉）"; onLoaded(false); return
+        }
+        var size = img.size                                        // 點陣圖用像素大小（DPI 標記不同也一樣大）
+        if let r = img.representations.first, r.pixelsWide > 0, r.pixelsHigh > 0 { size = NSSize(width: r.pixelsWide, height: r.pixelsHigh); img.size = size }
+        picture.image = img; picture.frame = NSRect(origin: .zero, size: size)
+        flat.isHidden = false; message.isHidden = true; fitPicture()
+        info.stringValue = "\(Int(size.width)) × \(Int(size.height))   \(u.pathExtension.uppercased())"
+        onLoaded(true)
+    }
+
     func open(_ u: URL) {
         cancel()
         url = u
+        if !history.contains(u) { history.append(u) }
+        files.removeAllItems()
+        for h in history { files.menu?.addItem(NSMenuItem(title: h.lastPathComponent, action: nil, keyEquivalent: "")) }
+        files.selectItem(at: history.firstIndex(of: u) ?? 0); files.isHidden = history.count < 2
+        let img = ModelLoader.image.contains(u.pathExtension.lowercased())
+        viewButtons.forEach { $0.isHidden = img }; flat.isHidden = true; picture.image = nil; scn.isHidden = img
+        needsLayout = true
         let t = token
         root.childNodes.forEach { $0.removeFromParentNode() }
         loaded = nil; picked = nil
         info.stringValue = ""; message.stringValue = "正在開啟 \(u.lastPathComponent)⋯"; message.isHidden = false
         onTitle(u.lastPathComponent)
+        if img { openImage(u); return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let r = Result { try ModelLoader.load(u) { p in
                 DispatchQueue.main.async { MainActor.assumeIsolated {
@@ -307,17 +355,21 @@ extension OrbitWindow {
         guard !test else { return }
         DistributedNotificationCenter.default().addObserver(forName: Self.openNote, object: nil, queue: .main) { n in
             guard let path = n.object as? String else { return }
-            MainActor.assumeIsolated { _ = OrbitWindow.shared.openModel(URL(fileURLWithPath: path)) }
+            let sat = n.userInfo?["sat"] as? String ?? "", job = n.userInfo?["job"] as? String ?? ""
+            MainActor.assumeIsolated {
+                if n.userInfo?["kind"] as? String == "web" { if let u = WebPane.parse(path) { OrbitWindow.shared.openWeb(u, sat: sat, job: job) } }
+                else { OrbitWindow.shared.openView(URL(fileURLWithPath: path), sat: sat, job: job) }
+            }
         }
     }
-    func pickModel(into v: ModelView? = nil) {
+    func pickModel(into v: ModelView? = nil, sat: String = "") {
         let p = NSOpenPanel()
         p.allowedContentTypes = (ModelLoader.all + Array(ModelLoader.closed.keys)).compactMap { UTType(filenameExtension: $0) }
         p.allowsMultipleSelection = v == nil; p.message = "選要檢視的 3D 檔案"
         p.beginSheetModal(for: window) { [weak self, weak v] r in
             guard r == .OK else { return }
             MainActor.assumeIsolated {
-                if let v, let u = p.url { v.open(u) } else { for u in p.urls { self?.openModel(u) } }
+                if let v, let u = p.url { v.open(u) } else { for u in p.urls { self?.openView(u, sat: sat) } }
             }
         }
     }

@@ -79,6 +79,40 @@ final class TermWindowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     private var grip: ResizeGrip!
 
+    /// 標題列右邊的小鈕（3D／網頁）
+    private var tools = NSStackView(), onTool: (Int) -> Void = { _ in }
+    func addTools(_ list: [(String, String)], _ f: @escaping (Int) -> Void) {
+        onTool = f
+        for (i, t) in list.enumerated() {
+            let b = NSButton(title: t.0, target: self, action: #selector(tool(_:)))
+            b.tag = i; b.toolTip = t.1; b.bezelStyle = .inline; b.font = .systemFont(ofSize: 10)
+            tools.addArrangedSubview(b)
+        }
+        tools.spacing = 4; bar.addSubview(tools); needsLayout = true
+    }
+    @objc private func tool(_ b: NSButton) { onTool(b.tag) }
+
+    // MARK: 檢視面板（11-24 Keng「用衛星終端機把 3D 視窗吃掉」）：3D／圖片直接開在這顆衛星裡
+    // 視窗夠寬＝左終端機、右檢視；窄＝上檢視、下終端機。中間那條線可以拖
+    private(set) var pane: NSView?
+    private let splitter = SplitBar()
+    var paneShare: CGFloat = 0.55                // 檢視面板佔多少
+    var sideBySide: Bool { bounds.width >= 900 }
+    func setPane(_ v: NSView?) {
+        pane?.removeFromSuperview(); splitter.removeFromSuperview()
+        pane = v
+        if let v, let clip = subviews.first {
+            clip.addSubview(v); clip.addSubview(splitter)
+            splitter.onDrag = { [weak self] p in
+                guard let self else { return }
+                let b = NSSize(width: self.bounds.width, height: self.bounds.height - Self.barHeight)
+                let s = self.sideBySide ? (b.width - p.x) / b.width : (b.height - p.y) / b.height
+                self.paneShare = min(max(s, 0.25), 0.75); self.needsLayout = true
+            }
+        }
+        needsLayout = true
+    }
+
     // 11-23 Keng「這個終端機的字還是好糊」：拖動／調大小用的是滑鼠的小數位移，小視窗常停在 x=186.5 這種半個像素上，
     // 1x 螢幕會把整個視窗內容（終端機的字）內插拉糊。位置和大小一律對齊到整數像素
     override func setFrameOrigin(_ p: NSPoint) { super.setFrameOrigin(NSPoint(x: p.x.rounded(), y: p.y.rounded())) }
@@ -168,8 +202,26 @@ final class TermWindowView: NSView {
         guard let clip = subviews.first else { return }
         clip.frame = bounds
         bar.frame = NSRect(x: 0, y: bounds.height - Self.barHeight, width: bounds.width, height: Self.barHeight)
-        titleLabel.frame = NSRect(x: 80, y: 9, width: max(0, bounds.width - 160), height: 16)
-        content.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - Self.barHeight)
+        let tw = tools.arrangedSubviews.isEmpty ? 0 : tools.fittingSize.width
+        tools.frame = NSRect(x: bounds.width - tw - 12, y: 7, width: tw, height: 20)
+        let side = max(80, tw + 20)
+        titleLabel.frame = NSRect(x: side, y: 9, width: max(0, bounds.width - side * 2), height: 16)
+        let area = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - Self.barHeight)
+        if let pane {
+            let line: CGFloat = 6
+            if sideBySide {
+                let w = (area.width * paneShare).rounded()
+                content.frame = NSRect(x: 0, y: 0, width: area.width - w - line, height: area.height)
+                splitter.frame = NSRect(x: area.width - w - line, y: 0, width: line, height: area.height)
+                pane.frame = NSRect(x: area.width - w, y: 0, width: w, height: area.height)
+            } else {
+                let h = (area.height * paneShare).rounded()
+                content.frame = NSRect(x: 0, y: 0, width: area.width, height: area.height - h - line)
+                splitter.frame = NSRect(x: 0, y: area.height - h - line, width: area.width, height: line)
+                pane.frame = NSRect(x: 0, y: area.height - h, width: area.width, height: h)
+            }
+            splitter.vertical = sideBySide
+        } else { content.frame = area }
         grip.frame = NSRect(x: bounds.width - 16, y: 0, width: 16, height: 16)
     }
 
@@ -300,6 +352,19 @@ final class TrafficLight: NSButton {
         case .zoom: g.move(to: NSPoint(x: b.minX, y: b.midY)); g.line(to: NSPoint(x: b.maxX, y: b.midY)); g.move(to: NSPoint(x: b.midX, y: b.minY)); g.line(to: NSPoint(x: b.midX, y: b.maxY))
         }
         (kind == .close ? (dark ? NSColor(white: 0.1, alpha: 0.75) : NSColor(srgbRed: 0.35, green: 0.02, blue: 0.0, alpha: 0.85)) : NSColor(white: 0.1, alpha: 0.75)).setStroke(); g.stroke()
+    }
+}
+
+/// 終端機和檢視面板中間的線
+final class SplitBar: NSView {
+    var onDrag: (NSPoint) -> Void = { _ in }
+    var vertical = true { didSet { if vertical != oldValue { window?.invalidateCursorRects(for: self); needsDisplay = true } } }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: vertical ? .resizeLeftRight : .resizeUpDown) }
+    override func mouseDown(with e: NSEvent) {}
+    override func mouseDragged(with e: NSEvent) { if let s = superview { onDrag(s.convert(e.locationInWindow, from: nil)) } }
+    override func draw(_ r: NSRect) {
+        NSColor(white: 0.5, alpha: 0.35).setFill()
+        (vertical ? NSRect(x: bounds.midX - 0.5, y: 0, width: 1, height: bounds.height) : NSRect(x: 0, y: bounds.midY - 0.5, width: bounds.width, height: 1)).fill()
     }
 }
 

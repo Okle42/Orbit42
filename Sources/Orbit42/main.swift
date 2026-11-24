@@ -116,6 +116,14 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var testStatus: String? {
         ProcessInfo.processInfo.environment["ORBIT_TEST_STATUS_FILE"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+    private var sidCache: [String: (String, Date)] = [:]
+    /// 這顆衛星的 Claude session id（球上的行星用它認）；讀檔要時間 ⇒ 記 20 秒
+    func sessionId(_ id: String) -> String? {
+        if let t = ProcessInfo.processInfo.environment["ORBIT_TEST_SID"] { return t }
+        if let c = sidCache[id], Date().timeIntervalSince(c.1) < 20 { return c.0 }
+        guard let s = sats[id], let r = sessionRecord(s) else { return nil }
+        sidCache[id] = (r.sessionId, Date()); return r.sessionId
+    }
     private func sessionRecord(_ s: Satellite) -> SessionRecord? {
         let fm = FileManager.default, dir = NSHomeDirectory() + "/.claude/sessions", pid = s.pty?.pid
         for f in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where f.hasSuffix(".json") {
@@ -150,6 +158,9 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": "測試背景", "cwd": NSHomeDirectory()]))
     }
     func name(_ id: String) -> String { sats[id]?.name ?? id }
+    /// 這個背景工作（job 編號）是哪一顆衛星
+    func sat(job: String) -> String? { job.count < 6 ? nil : sats.values.first { $0.attachedJob.map { $0.hasPrefix(job) || job.hasPrefix($0) } ?? false }?.id }
+    func has(_ id: String) -> Bool { sats[id] != nil }
     func isAttached(_ id: String) -> Bool { sats[id]?.attachedJob != nil }
     var satCount: Int { sats.count }
     func pid(_ id: String) -> Int32? { sats[id]?.pty?.pid }
@@ -268,6 +279,8 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let s = Satellite(id: "bg-" + job, name: m["name"] as? String ?? job, brain: .claude, cwd: m["cwd"] as? String ?? NSHomeDirectory(),
                               command: "claude attach \(job)", attachedJob: job)
             add(s); onOpen(s.id)
+        case "link":                       // 終端機裡點網址 ⇒ 開在這顆衛星的網頁面板
+            if let from, let u = WebPane.parse(m["url"] as? String ?? ""), !u.isFileURL { OrbitWindow.shared.openWeb(u, sat: from) }
         case "hide": if let from { onHide(from) }
         case "open":
             guard let s = sats[id] else { return }
@@ -361,7 +374,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         s.exited = nil
         // 淺色／深色先用環境變數告訴終端機程式（COLORFGBG：前景;背景，15＝白、0＝黑），有些程式只看這個
         let dark = theme != "light"
-        guard let p = Pty(command: s.command, cwd: s.cwd, cols: cols, rows: rows, env: ["COLORFGBG": dark ? "15;0" : "0;15"]) else {
+        guard let p = Pty(command: s.command, cwd: s.cwd, cols: cols, rows: rows, env: ["COLORFGBG": dark ? "15;0" : "0;15", "ORBIT_SAT": s.id]) else {
             if let v = views[s.id] { Self.call(v, "window.orbitData", [s.id, Data("\r\n[Orbit42] could not start a terminal\r\n".utf8).base64EncodedString()]) }
             return
         }
@@ -673,6 +686,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         }
         SphereEmbed.command = { [weak self] cmd in
             if cmd == "fullscreen" { self?.window.toggleFullScreen(nil) }
+            if cmd.hasPrefix("moon:") { self?.moonCommand(cmd) }
             if cmd == "hideSats" { self?.hideAllSats() }      // 11-24 點球體空白處：衛星終端機全部收下去、露出智能體
             if cmd.hasPrefix("theme:") { self?.applyTheme(String(cmd.dropFirst(6))) }
             if cmd.hasPrefix("arrangeSats") {          // "arrangeSats:x,y,w,h"＝球體量好的空位（網頁座標，左上原點）
@@ -681,7 +695,60 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             }
         }
         watchAskCard(); watchSphereFile()
-        startModels(test: test)
+        startModels(test: test); startMoons()
+        // 測試：ORBIT_TEST_PANE="<檔案1>|<檔案2>@<png>" ⇒ 開一顆印字的衛星，先把檔案 1 開成獨立視窗、再開進衛星（獨立視窗要不見），
+        // 截圖 <png>；再開檔案 2（同一塊面板）截 <png>.2.png；放大視窗截 .3.png；關面板後終端機要回滿版
+        if let spec = env["ORBIT_TEST_PANE"], let at = spec.lastIndex(of: "@") {
+            let fs = spec[..<at].split(separator: "|").map { URL(fileURLWithPath: String($0)) }, out = String(spec[spec.index(after: at)...])
+            @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+            @MainActor func shot(_ w: TermWindowView, _ v: ModelView, _ path: String) {
+                let img = NSImage(size: w.bounds.size)
+                if let rep = w.bitmapImageRepForCachingDisplay(in: w.bounds) { w.cacheDisplay(in: w.bounds, to: rep); img.addRepresentation(rep) }
+                let s = v.scn.snapshot(), final = NSImage(size: w.bounds.size)
+                final.lockFocus(); NSColor(white: 0.12, alpha: 1).setFill(); NSRect(origin: .zero, size: w.bounds.size).fill(); img.draw(in: w.bounds)
+                if !v.isImage { s.draw(in: w.convert(v.scn.bounds, from: v.scn)) }
+                final.unlockFocus()
+                if let t = final.tiffRepresentation, let r = NSBitmapImageRep(data: t) { try? r.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path)) }
+                print("pane win=\(w.frame.size) side=\(w.sideBySide) term=\(w.content.frame) pane=\(v.frame) | \(v.summaryText) \(v.messageText)"); fflush(stdout)
+            }
+            after(3) { [weak self] in
+                guard let self else { return }
+                let id = self.host.runCommand(name: "面板測試", brain: .claude, command: "echo sat=$ORBIT_SAT; sleep 60")
+                self.openModel(fs[0])
+                after(5) {
+                    print("standalone before: \(self.modelCount)")
+                    self.openView(fs[0], sat: id)
+                    after(5) {
+                        print("standalone after: \(self.modelCount)")
+                        guard let (w, v) = self.pane(id) else { print("pane missing"); exit(1) }
+                        shot(w, v, out); self.openView(fs[1], sat: id)
+                        after(3) {
+                            shot(w, v, out + ".2.png"); print("same pane: \(self.pane(id)?.1 === v) history=\(v.history.count)")
+                            print("moons \(self.moonJSON)"); w.toggleZoom()
+                            after(2) { self.openView(fs[0]); after(4) {
+                                shot(w, v, out + ".3.png"); v.onShut?(); w.layoutSubtreeIfNeeded()
+                                print("moons after shut \(self.moonJSON)")
+                                if let u = env["ORBIT_TEST_URL"].flatMap(WebPane.parse) {
+                                    self.openWeb(u, sat: id)
+                                    after(5) {
+                                        guard let p = w.pane as? WebPane else { print("web missing"); exit(1) }
+                                        print("web title=\(p.titleText) msg=\(p.messageText) moons \(self.moonJSON)")
+                                        self.tuckMoon(id); print("tuck: pane=\(w.pane == nil) moons \(self.moonJSON)")
+                                        self.moonCommand("moon:\(self.host.sessionId(id) ?? ""):web"); print("tap: back=\(w.pane === p)")
+                                        self.moonCommand("moon:\(self.host.sessionId(id) ?? ""):web"); print("tap2: pane=\(w.pane == nil)")
+                                        self.dropMoon(id, "web"); print("drop: \(self.moonJSON)"); fflush(stdout)
+                                        self.host.shutdown(); exit(0)
+                                    }
+                                    return
+                                }
+                                print("shut: pane=\(w.pane == nil) term=\(w.content.frame.size) win=\(w.frame.size)"); fflush(stdout)
+                                self.host.shutdown(); exit(0)
+                            } }
+                        }
+                    }
+                }
+            }
+        }
         // 測試：ORBIT_TEST_3D="<檔案>@<png>" ⇒ 3 秒後開 3D 小視窗，載完截圖（模型用 SCNView.snapshot 疊上去）、印資訊後結束
         if let spec = env["ORBIT_TEST_3D"], let at = spec.lastIndex(of: "@") {
             let path = String(spec[..<at]), out = String(spec[spec.index(after: at)...])
@@ -1028,6 +1095,100 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         guard let id = satWins.first(where: { $0.value === w })?.key else { return }
         (w.content as? ModelView)?.cancel(); closeSat(id)
     }
+    /// 3D／圖片開在衛星裡：指定的衛星（scripts/orbit3d 帶 sat 或 job）；沒指定＝最上面那顆開著的；一顆都沒有才另開獨立視窗
+    func openView(_ url: URL, sat: String = "", job: String = "") {
+        let id = pickSat(sat: sat, job: job)
+        guard let id else { openModel(url); return }
+        // 同一個檔原本開在獨立視窗 ⇒ 吃進來
+        for (k, x) in satWins where k.hasPrefix("3d-") && (x.content as? ModelView)?.url?.standardizedFileURL == url.standardizedFileURL { closeModel(x) }
+        let v: ModelView
+        if let have = moons[id]?["3d"] as? ModelView { v = have }
+        else {
+            v = ModelView(frame: .zero)
+            v.onShut = { [weak self] in self?.dropMoon(id, "3d") }
+            v.onTuck = { [weak self] in self?.tuckMoon(id) }
+            v.onOpenPanel = { [weak self, weak v] in self?.pickModel(into: v) }
+            v.onTitle = { [weak self] _ in self?.pushMoons() }
+            moons[id, default: [:]]["3d"] = v
+        }
+        showMoon(id, "3d"); v.open(url)
+    }
+    /// 網頁開在衛星裡（同一顆衛星一個網頁面板，再開就換網址）
+    func openWeb(_ url: URL?, sat: String = "", job: String = "") {
+        guard let id = pickSat(sat: sat, job: job) else { toast("沒有開著的衛星可以放網頁"); return }
+        let v: WebPane
+        if let have = moons[id]?["web"] as? WebPane { v = have }
+        else {
+            v = WebPane(frame: .zero)
+            v.onShut = { [weak self] in self?.dropMoon(id, "web") }
+            v.onTuck = { [weak self] in self?.tuckMoon(id) }
+            v.onTitle = { [weak self] in self?.pushMoons() }
+            moons[id, default: [:]]["web"] = v
+        }
+        showMoon(id, "web")
+        if let url { v.open(url) } else { v.focusAddress() }
+    }
+
+    // MARK: 小衛星（11-24 Keng「衛星終端機的行星旁邊會多一顆小衛星」）：衛星 id → 種類（3d／web）→ 面板。
+    // 面板收起來小衛星還在，點它叫回來；按面板的 ✕ 才真的關掉
+    private var moons: [String: [String: NSView]] = [:]
+    private var moonShown: [String: String] = [:]
+    func showMoon(_ id: String, _ kind: String) {
+        guard let v = moons[id]?[kind] else { return }
+        if satWins[id]?.isHidden != false || satWins[id]?.wantShown != true { showSat(id) }
+        guard let w = satWins[id] else { return }
+        if w.pane !== v { w.setPane(v); w.layoutSubtreeIfNeeded() }
+        moonShown[id] = kind; raise(w); pushMoons()
+    }
+    func tuckMoon(_ id: String) { satWins[id]?.setPane(nil); moonShown[id] = nil; pushMoons() }
+    func dropMoon(_ id: String, _ kind: String) {
+        if moonShown[id] == kind { tuckMoon(id) }
+        let v = moons[id]?.removeValue(forKey: kind)
+        (v as? ModelView)?.cancel(); (v as? WebPane)?.stop()
+        if moons[id]?.isEmpty == true { moons[id] = nil }
+        pushMoons()
+    }
+    private func dropMoons(_ id: String) { for k in ["3d", "web"] where moons[id]?[k] != nil { dropMoon(id, k) } }
+    /// 球上點小衛星：沒開著 ⇒ 打開衛星和那塊面板；已經開著 ⇒ 收起面板
+    func tapMoon(_ id: String, _ kind: String) {
+        if moonShown[id] == kind, let w = satWins[id], !w.isHidden, w.wantShown { tuckMoon(id) } else { showMoon(id, kind) }
+    }
+    /// 指定的衛星（sat 或 job）；都沒指定＝最上面那顆開著的
+    private func pickSat(sat: String, job: String) -> String? {
+        if !sat.isEmpty, host.has(sat) { return sat }
+        if let s = host.sat(job: job) { return s }
+        guard sat.isEmpty, job.isEmpty else { return nil }
+        return satWins.filter { !$0.key.hasPrefix("3d-") && !$0.value.isHidden && $0.value.wantShown }
+            .max { ($0.value.layer?.zPosition ?? 0) < ($1.value.layer?.zPosition ?? 0) }?.key
+    }
+    private func moonTitle(_ v: NSView) -> String { (v as? ModelView)?.url?.lastPathComponent ?? (v as? WebPane)?.titleText ?? "" }
+    private var moonSids: [String: String] = [:]
+    var moonJSON: String {
+        var o: [String: [[String: Any]]] = [:]
+        for (id, m) in moons {
+            guard let sid = host.sessionId(id) ?? moonSids[id] else { continue }
+            moonSids[id] = sid
+            o[sid] = m.keys.sorted().map { ["kind": $0, "title": moonTitle(m[$0]!), "on": moonShown[id] == $0] }
+        }
+        return (try? JSONSerialization.data(withJSONObject: o)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+    /// 球體重新載入會忘記 ⇒ 每 3 秒也推一次（沒有小衛星、上次也沒有就不推）
+    private var moonPushed = "{}"
+    func pushMoons(periodic: Bool = false) {
+        let j = moonJSON
+        if periodic, j == "{}", moonPushed == "{}" { return }
+        moonPushed = j
+        (sphereView as? WKWebView)?.evaluateJavaScript("window.karaMoons && window.karaMoons(\(j))", completionHandler: nil)
+    }
+    func startMoons() {
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pushMoons(periodic: true) } }
+    }
+    func moonCommand(_ cmd: String) {            // "moon:<sessionId>:<kind>"
+        let p = cmd.split(separator: ":").map(String.init)
+        guard p.count == 3, let id = moons.keys.first(where: { (host.sessionId($0) ?? moonSids[$0]) == p[1] }) else { return }
+        tapMoon(id, p[2])
+    }
+    func pane(_ id: String) -> (TermWindowView, ModelView)? { satWins[id].flatMap { w in (w.pane as? ModelView).map { (w, $0) } } }
     func recallModels() { for (id, w) in satWins where id.hasPrefix("3d-") && (w.isHidden || !w.wantShown) { showSat(id) } }
 
     func applyTheme(_ name: String) {
@@ -1137,6 +1298,11 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 for o in self.satWins.values where o !== w && !o.isHidden { o.matchSize(size) }
             }
             w.acceptFileDrops()
+            w.addTools([("3D", "在這顆衛星裡打開 3D 檔或圖片"), ("網頁", "在這顆衛星裡打開網頁")]) { [weak self] i in
+                guard let self else { return }
+                let kind = ["3d", "web"][i]
+                if self.moons[id]?[kind] != nil { self.tapMoon(id, kind) } else if i == 0 { self.pickModel(sat: id) } else { self.openWeb(nil, sat: id) }
+            }
             root.addSubview(w)
             satWins[id] = w
         }
@@ -1216,6 +1382,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private var confirmAlert: NSAlert?          // 測試 hook 用（按確認視窗的按鈕）
     private func closeSat(_ id: String) {
         guard let w = satWins.removeValue(forKey: id) else { return }
+        dropMoons(id); moonSids[id] = nil
         animate(w, on: false) { [weak self] in w.removeFromSuperview(); self?.autoArrange() }
     }
     /// 11-24 Keng「點擊全收是第一下，點第二下應該要全部跳回來」：點球體空白處＝切換。

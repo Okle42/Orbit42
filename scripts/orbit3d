@@ -1,6 +1,16 @@
 #!/bin/zsh
-# 在開著的 Orbit42 裡打開 3D 檔案：scripts/orbit3d <檔案> [更多檔案]
+# 在 Orbit42 裡打開 3D 檔案、圖片或網頁：scripts/orbit3d <檔案或網址> [更多]
+# 從衛星裡（或背景 session 裡）跑 ⇒ 開在那顆衛星的終端機視窗裡；其他地方跑 ⇒ 開在最上面那顆衛星
 for f in "$@"; do
-  [[ -r "$f" ]] || { echo "讀不到：$f" >&2; exit 1; }
-  O42_FILE="${f:A}" osascript -l JavaScript -e 'ObjC.import("Foundation"); const e = $.NSProcessInfo.processInfo.environment.objectForKey("O42_FILE"); $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately("ai.okle42.orbit42.open3d", e, $(), true)' >/dev/null
+  if [[ "$f" == http://* || "$f" == https://* ]]; then kind=web; target="$f"
+  else
+    [[ -r "$f" ]] || { echo "讀不到：$f" >&2; exit 1; }
+    kind=file; target="${f:A}"; [[ "${f:l}" == *.html || "${f:l}" == *.htm ]] && kind=web
+  fi
+  job="${CLAUDE_JOB_DIR:+${CLAUDE_JOB_DIR:t}}"
+  sat=""; [[ -z "$job" ]] && sat="${ORBIT_SAT:-}"      # 有 job 只看 job：背景 session 可能繼承到別顆衛星的 ORBIT_SAT
+  O42_KIND="$kind" O42_FILE="$target" O42_JOB="$job" O42_SAT="$sat" osascript -l JavaScript -e 'ObjC.import("Foundation");
+    const env = $.NSProcessInfo.processInfo.environment, get = k => env.objectForKey(k).js || "";
+    $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately(
+      "ai.okle42.orbit42.open3d", get("O42_FILE"), $({job: get("O42_JOB"), sat: get("O42_SAT"), kind: get("O42_KIND")}), true)' >/dev/null
 done
