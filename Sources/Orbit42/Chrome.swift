@@ -43,7 +43,7 @@ final class ChromeBrowser {
         posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
         let exe = app.appendingPathComponent("Contents/MacOS/Google Chrome").path
         let args = [exe, "--headless=new", "--remote-debugging-pipe", "--user-data-dir=" + Self.profile, "--no-first-run", "--no-default-browser-check",
-                    "--hide-scrollbars=false", "--window-size=1000,800", "about:blank"]
+                    "--hide-scrollbars=false", "--force-device-scale-factor=3", "--window-size=1000,800", "about:blank"]
         var argv: [UnsafeMutablePointer<CChar>?] = args.map { strdup($0) } + [nil]
         var envp: [UnsafeMutablePointer<CChar>?] = ProcessInfo.processInfo.environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
         defer { argv.forEach { free($0) }; envp.forEach { free($0) } }
@@ -153,7 +153,7 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         layer?.addSublayer(picture); layer?.masksToBounds = true
         ChromeBrowser.shared.onDead[ObjectIdentifier(self)] = { [weak self] in
             guard let self else { return }
-            self.target = nil; self.session = nil; self.opening = false
+            self.target = nil; self.session = nil; self.opening = false; self.casting = false; self.asking = nil; self.shot = nil
             if !self.closed { self.onError("Chrome 關掉了，按 ↻ 重開") }
         }
     }
@@ -194,7 +194,7 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
                 self.session = s
                 ChromeBrowser.shared.listen(s) { [weak self] m, p in self?.event(m, p) }
                 self.cmd("Page.enable"); self.cmd("Runtime.enable")
-                self.lastMetrics = .zero; self.metrics(); self.cast(); self.navigate()
+                self.lastMetrics = .zero; self.agent(phone: self.phoneSize != nil); self.metrics(); self.cast(); self.navigate()
             }
         }
     }
@@ -203,7 +203,7 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         if let s = session { ChromeBrowser.shared.unlisten(s) }
         if let t = target { ChromeBrowser.shared.own(t, nil); ChromeBrowser.shared.send("Target.closeTarget", ["targetId": t]) }
         ChromeBrowser.shared.onDead[ObjectIdentifier(self)] = nil
-        session = nil; target = nil
+        session = nil; target = nil; phoneUntil = nil; phoneSize = nil; asking = nil
     }
     func reload() { if session == nil, let u = url { load(u) } else { cmd("Page.reload") } }
     func go(_ step: Int) {
@@ -217,19 +217,20 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     // MARK: 畫面
     private var scale: CGFloat { window?.backingScaleFactor ?? 2 }
     private var casting = false
-    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); if window == nil { uncast() } else { metrics(); cast() } }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); if window == nil, phoneSize == nil { uncast() } else { metrics(); cast() } }
     override func layout() { super.layout(); picture.bounds = CGRect(origin: .zero, size: bounds.size); picture.position = .zero; metrics() }
     private func metrics() {
-        let s = NSSize(width: bounds.width.rounded(), height: bounds.height.rounded())
+        let s = phoneSize ?? NSSize(width: bounds.width.rounded(), height: bounds.height.rounded())
         guard session != nil, s.width > 50, s.height > 50, s != lastMetrics else { return }
         lastMetrics = s
-        cmd("Emulation.setDeviceMetricsOverride", ["width": Int(s.width), "height": Int(s.height), "deviceScaleFactor": Double(scale), "mobile": false])
-        if casting { casting = false; cast() }
+        cmd("Emulation.setDeviceMetricsOverride", ["width": Int(s.width), "height": Int(s.height), "deviceScaleFactor": Double(castScale), "mobile": phoneSize != nil])
+        if casting { casting = false; cmd("Page.stopScreencast"); cast() }
     }
     private func cast() {
-        guard session != nil, window != nil, !casting, bounds.width > 50 else { return }
+        let s = phoneSize ?? bounds.size
+        guard session != nil, window != nil || phoneSize != nil, !casting, s.width > 50 else { return }
         casting = true
-        cmd("Page.startScreencast", ["format": "jpeg", "quality": 85, "maxWidth": Int(bounds.width * scale), "maxHeight": Int(bounds.height * scale), "everyNthFrame": 1])
+        cmd("Page.startScreencast", ["format": "jpeg", "quality": phoneSize == nil ? 85 : 78, "maxWidth": Int(s.width * castScale), "maxHeight": Int(s.height * castScale), "everyNthFrame": 1])
     }
     private func uncast() { guard casting else { return }; casting = false; cmd("Page.stopScreencast") }
 
@@ -240,10 +241,11 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
             guard let s = p["data"] as? String, let d = Data(base64Encoded: s), let src = CGImageSourceCreateWithData(d as CFData, nil),
                   let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return }
             picture.contents = img; frames += 1
+            keepForPhone(d, img, p["metadata"] as? [String: Any] ?? [:])
         case "Page.frameNavigated":
             guard let f = p["frame"] as? [String: Any], f["parentId"] == nil, let u = f["url"] as? String else { return }
             mainFrame = f["id"] as? String ?? ""
-            if u != "about:blank" { url = URL(string: u); title = ""; onError(""); onChange() }
+            if u != "about:blank" { url = URL(string: u); title = ""; setEdit(""); onError(""); onChange() }
         case "Page.navigatedWithinDocument":
             if p["frameId"] as? String == mainFrame, let u = (p["url"] as? String).flatMap(URL.init) { url = u; readTitle() }
         case "Page.loadEventFired": readTitle(); if url != nil { onLoaded() }
@@ -262,6 +264,11 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     /// 網頁的 alert／confirm／prompt：不回答整頁會卡住
     private func dialog(_ p: [String: Any]) {
         let type = p["type"] as? String ?? "alert"
+        // 手機在看：問手機（手機離開還沒答，再回 Mac 問）
+        if phoneSize != nil {
+            asking = p
+            return
+        }
         guard let w = window else { cmd("Page.handleJavaScriptDialog", ["accept": type == "beforeunload"]); return }
         let a = NSAlert(); a.messageText = url?.host ?? "網頁"; a.informativeText = String((p["message"] as? String ?? "").prefix(600))
         a.addButton(withTitle: "好")
@@ -273,13 +280,142 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         }
     }
 
+    // MARK: 手機在看（11-24 Keng「把手機上的 Chrome 網頁做好」）
+    // 手機每次來拿畫面附上自己的大小 ⇒ 這頁改成手機寬度；5 秒沒來就還原成 Mac 的大小。滑動中給小張的（快），停下來給原圖（字清楚）
+    private var phoneSize: NSSize?, phoneUntil: Date?
+    private var castScale: CGFloat { phoneSize == nil ? scale : 3 }
+    private var seq = Int.random(in: 1...1_000_000)
+    private var shot: (full: Data, img: CGImage, w: Int, h: Int, at: Date)?
+    private var asking: [String: Any]?
+    private var editJSON: [String: Any] = [:], editN = 0
+    var phoneOn: Bool { phoneSize != nil }
+
+    private func keepForPhone(_ d: Data, _ img: CGImage, _ meta: [String: Any]) {
+        guard let s = phoneSize else { return }
+        let w = (meta["deviceWidth"] as? Double) ?? 0, h = (meta["deviceHeight"] as? Double) ?? 0
+        guard abs(w - s.width) < 2, abs(h - s.height) < 2 else { return }      // 換大小前的舊畫面不給手機
+        seq += 1; shot = (d, img, Int(w), Int(h), Date())
+    }
+    private func setPhone(_ s: NSSize?) {
+        guard s != phoneSize else { return }
+        if s == nil || phoneSize == nil { shot = nil }
+        if (s == nil) != (phoneSize == nil) { agent(phone: s != nil) }
+        phoneSize = s; lastMetrics = .zero
+        picture.contentsGravity = s == nil ? .resize : .resizeAspect
+        if s == nil, window == nil {
+            uncast(); cmd("Emulation.clearDeviceMetricsOverride")
+        } else { metrics(); cast() }
+        // 手機鍵盤升起、畫面變矮：打字的那格捲進來
+        if s != nil, editJSON["kind"] != nil { cmd("Runtime.evaluate", ["expression": "setTimeout(()=>{\(Self.activeJS);a&&a.scrollIntoView({block:'nearest'})},120)"]) }
+        if s == nil, let a = asking { asking = nil; dialog(a) }
+    }
+    /// 很多網站看瀏覽器自報的身分決定給電腦版還是手機版 ⇒ 手機在看時報 Android 的 Chrome（下一次載入才生效，不自己重新載入：Mac 上可能打字打到一半）
+    private var agentSet = false
+    private func agent(phone: Bool) {
+        guard session != nil, phone || agentSet else { return }
+        agentSet = phone
+        if !phone { cmd("Emulation.setUserAgentOverride", ["userAgent": ""]); return }
+        let v = Bundle(url: ChromeBrowser.appURL ?? URL(fileURLWithPath: "/"))?.infoDictionary?["CFBundleShortVersionString"] as? String ?? "140"
+        let major = String(v.split(separator: ".").first ?? "140")
+        let brands = [["brand": "Chromium", "version": major], ["brand": "Google Chrome", "version": major]]
+        cmd("Emulation.setUserAgentOverride", ["userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/\(major).0.0.0 Mobile Safari/537.36",
+            "userAgentMetadata": ["brands": brands, "platform": "Android", "platformVersion": "10", "architecture": "", "model": "K", "mobile": true]])
+    }
+    private var wide = false, wideAt = Date.distantPast
+    /// 這頁比手機寬很多（電腦版）⇒ 手機給「換手機版」
+    private func readWide() {
+        guard let s = phoneSize, Date().timeIntervalSince(wideAt) > 1.5 else { return }
+        wideAt = Date()
+        cmd("Runtime.evaluate", ["expression": "document.readyState==='loading'?0:Math.max(innerWidth,document.documentElement.scrollWidth)"]) { [weak self] r in
+            let v = ((r["result"] as? [String: Any])?["result"] as? [String: Any])?["value"] as? Double ?? 0
+            self?.wide = v > s.width * 1.3
+        }
+    }
+    private func phoneCheck() {
+        guard let u = phoneUntil else { return }
+        if u <= Date() { phoneUntil = nil; setPhone(nil) }
+        else { DispatchQueue.main.asyncAfter(deadline: .now() + u.timeIntervalSinceNow + 0.1) { [weak self] in MainActor.assumeIsolated { self?.phoneCheck() } } }
+    }
+    /// 手機來拿畫面：have＝手機手上那張的編號，一樣就不帶圖
+    func phoneFrame(have: Int, width: Int, height: Int) -> [String: Any] {
+        let s = NSSize(width: min(max(width, 240), 1100), height: min(max(height, 200), 1400))
+        let idle = phoneUntil == nil
+        phoneUntil = Date().addingTimeInterval(5); if idle { phoneCheck() }
+        setPhone(s)
+        if asking == nil { readWide() }
+        var o: [String: Any] = ["edit": editJSON, "editN": editN, "wide": wide]
+        if let a = asking { o["ask"] = ["type": a["type"] as? String ?? "alert", "text": String((a["message"] as? String ?? "").prefix(600)), "value": a["defaultPrompt"] as? String ?? ""] }
+        guard let f = shot else { return o }
+        let still = Date().timeIntervalSince(f.at) > 0.3, tag = seq * 2 + (still ? 1 : 0)
+        guard have != tag, have != seq * 2 + 1 else { return o }
+        let d = still && f.full.count < 1_500_000 ? f.full : Self.small(f.img, width: f.w * (still ? 2 : 3) / (still ? 1 : 2), quality: still ? 0.6 : 0.5) ?? f.full
+        o["seq"] = tag; o["w"] = f.w; o["h"] = f.h; o["data"] = d.base64EncodedString()
+        return o
+    }
+    private static func small(_ img: CGImage, width: Int, quality: Double) -> Data? {
+        let h = img.height * width / max(img.width, 1)
+        guard width > 0, h > 0, let c = CGContext(data: nil, width: width, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        c.interpolationQuality = .medium
+        c.draw(img, in: CGRect(x: 0, y: 0, width: width, height: h))
+        let out = NSMutableData()
+        guard let im = c.makeImage(), let dst = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dst, im, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        return CGImageDestinationFinalize(dst) ? out as Data : nil
+    }
+    /// 手機送來的動作；不認得的略過。網址只收 http／https
+    func phoneInput(_ ops: [[String: Any]]) {
+        func num(_ o: [String: Any], _ k: String) -> Double { let v = (o[k] as? NSNumber)?.doubleValue ?? 0; return v.isFinite ? min(max(v, -5000), 5000) : 0 }
+        for o in ops.prefix(50) {
+            let x = num(o, "x"), y = num(o, "y")
+            switch o["k"] as? String ?? "" {
+            case "tap":
+                cmd("Input.dispatchMouseEvent", ["type": "mouseMoved", "x": x, "y": y])
+                for t in ["mousePressed", "mouseReleased"] { cmd("Input.dispatchMouseEvent", ["type": t, "x": x, "y": y, "button": "left", "buttons": t == "mousePressed" ? 1 : 0, "clickCount": 1]) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in MainActor.assumeIsolated { self?.readEdit() } }
+            case "scroll": cmd("Input.dispatchMouseEvent", ["type": "mouseWheel", "x": x, "y": y, "deltaX": num(o, "dx"), "deltaY": num(o, "dy")])
+            case "text": if let t = o["t"] as? String, !t.isEmpty { cmd("Input.insertText", ["text": t]) }
+            case "key": if let n = o["n"] as? String, let k = Self.keys.values.first(where: { $0.0 == n && $0.1 == n }) { key(k, modifiers: 0, again: false) }
+            case "back": go(-1)
+            case "forward": go(1)
+            case "reload": reload()
+            case "nav": if let u = (o["u"] as? String).flatMap(WebPane.parse), !u.isFileURL { load(u) }
+            case "pick":
+                guard let i = (o["i"] as? NSNumber)?.intValue else { break }
+                cmd("Runtime.evaluate", ["expression": "(()=>{\(Self.activeJS);if(a&&a.tagName==='SELECT'&&\(i)>=0&&\(i)<a.options.length){a.selectedIndex=\(i);a.dispatchEvent(new Event('input',{bubbles:true}));a.dispatchEvent(new Event('change',{bubbles:true}));a.blur()}})()"])
+                setEdit("")
+            case "answer":
+                guard asking != nil else { break }
+                asking = nil
+                cmd("Page.handleJavaScriptDialog", ["accept": o["ok"] as? Bool ?? false, "promptText": o["t"] as? String ?? ""])
+            default: break
+            }
+        }
+    }
+    private func setEdit(_ json: String) {
+        editJSON = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] ?? [:]; editN += 1
+    }
+    /// 點完看游標是不是在可以打字的地方：手機就自動打開輸入框；下拉選單 headless 畫不出來 ⇒ 選項給手機自己列
+    private static let activeJS = "let a=document.activeElement;for(;;){try{const n=a&&((a.shadowRoot&&a.shadowRoot.activeElement)||(a.contentDocument&&a.contentDocument.activeElement));if(!n||n===a)break;a=n}catch(e){break}}"
+    private func readEdit() {
+        let js = "(()=>{\(Self.activeJS);if(!a)return '';const t=a.tagName;if(t==='SELECT'&&!a.multiple)return JSON.stringify({kind:'select',i:a.selectedIndex,o:[...a.options].slice(0,200).map(x=>x.text.trim().slice(0,80))});if(t==='TEXTAREA'||a.isContentEditable)return JSON.stringify({kind:'text'});if(t==='INPUT'&&!/^(button|submit|reset|checkbox|radio|range|color|file|image)$/.test(a.type))return JSON.stringify({kind:a.type==='password'?'password':'text'});return ''})()"
+        cmd("Runtime.evaluate", ["expression": js]) { [weak self] r in
+            self?.setEdit(((r["result"] as? [String: Any])?["result"] as? [String: Any])?["value"] as? String ?? "")
+        }
+    }
+    /// Mac 這邊的點 → 頁面座標（手機在看時畫面是縮放置中的）
+    private func onPage(_ p: NSPoint) -> NSPoint {
+        guard let s = phoneSize, bounds.width > 0, bounds.height > 0 else { return p }
+        let k = min(bounds.width / s.width, bounds.height / s.height)
+        return NSPoint(x: (p.x - (bounds.width - s.width * k) / 2) / k, y: (p.y - (bounds.height - s.height * k) / 2) / k)
+    }
+
     // MARK: 滑鼠
     private func mods(_ e: NSEvent) -> Int {
         let f = e.modifierFlags
         return (f.contains(.option) ? 1 : 0) | (f.contains(.control) ? 2 : 0) | (f.contains(.command) ? 4 : 0) | (f.contains(.shift) ? 8 : 0)
     }
     private func mouse(_ type: String, _ e: NSEvent, button: String = "none", buttons: Int = 0, clicks: Int = 0, _ more: [String: Any] = [:]) {
-        let p = convert(e.locationInWindow, from: nil)
+        let p = onPage(convert(e.locationInWindow, from: nil))
         var o: [String: Any] = ["type": type, "x": Double(p.x), "y": Double(p.y), "button": button, "buttons": buttons, "clickCount": clicks, "modifiers": mods(e)]
         o.merge(more) { $1 }
         cmd("Input.dispatchMouseEvent", o)
@@ -304,8 +440,9 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     private static let keys: [UInt16: (String, String, Int)] = [36: ("Enter", "Enter", 13), 76: ("Enter", "NumpadEnter", 13), 48: ("Tab", "Tab", 9), 51: ("Backspace", "Backspace", 8),
         117: ("Delete", "Delete", 46), 53: ("Escape", "Escape", 27), 123: ("ArrowLeft", "ArrowLeft", 37), 124: ("ArrowRight", "ArrowRight", 39),
         125: ("ArrowDown", "ArrowDown", 40), 126: ("ArrowUp", "ArrowUp", 38), 115: ("Home", "Home", 36), 119: ("End", "End", 35), 116: ("PageUp", "PageUp", 33), 121: ("PageDown", "PageDown", 34)]
-    private func press(_ e: NSEvent, _ k: (String, String, Int)) {
-        var o: [String: Any] = ["type": "rawKeyDown", "key": k.0, "code": k.1, "windowsVirtualKeyCode": k.2, "modifiers": mods(e), "autoRepeat": e.isARepeat]
+    private func press(_ e: NSEvent, _ k: (String, String, Int)) { key(k, modifiers: mods(e), again: e.isARepeat) }
+    private func key(_ k: (String, String, Int), modifiers: Int, again: Bool) {
+        var o: [String: Any] = ["type": "rawKeyDown", "key": k.0, "code": k.1, "windowsVirtualKeyCode": k.2, "modifiers": modifiers, "autoRepeat": again]
         if k.0 == "Enter" { o["type"] = "keyDown"; o["text"] = "\r" }
         cmd("Input.dispatchKeyEvent", o)
         o["type"] = "keyUp"; o["text"] = nil

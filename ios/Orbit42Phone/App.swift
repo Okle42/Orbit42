@@ -210,14 +210,14 @@ struct MainView: View {
         catch { if NetStats.shared.down { satError = error.localizedDescription } }     // 偶爾失敗一次不換掉清單、不跳紅字
     }
     func satLoop() async {
-        while !Task.isCancelled { await loadSats(); try? await Task.sleep(for: .seconds(3)) }
+        while !Task.isCancelled { await loadSats(); try? await Task.sleep(for: .seconds(MacChrome.live ? 10 : 3)) }
     }
 }
 
 struct TermScreen: View {
     @StateObject var model: TermModel
     @StateObject var panes: PaneModel
-    @StateObject private var phoneWeb = PhoneWeb()
+    @StateObject private var chrome: MacChrome
     @State var tab = "term"
     @State private var composing = false
     @Binding var want: String?
@@ -225,6 +225,7 @@ struct TermScreen: View {
     init(link: MacLink, sat: Sat, want: Binding<String?>) {
         _model = StateObject(wrappedValue: TermModel(link: link, sat: sat))
         _panes = StateObject(wrappedValue: PaneModel(link: link, sat: sat))
+        _chrome = StateObject(wrappedValue: MacChrome(link: link, sat: sat))
         _want = want
     }
     private func take() { if let w = want { tab = w; want = nil } }
@@ -238,7 +239,7 @@ struct TermScreen: View {
             .pickerStyle(.segmented).padding(.horizontal, 10).padding(.vertical, 6)
             switch tab {
             case "3d": ModelPane(model: panes)
-            case "web": WebPaneView(panes: panes, model: phoneWeb)
+            case "web": WebPaneView(model: chrome)
             default:
                 ZStack(alignment: .bottom) {
                     WebBox(web: model.web)
@@ -258,11 +259,12 @@ struct TermScreen: View {
         .onChange(of: want) { _, _ in take() }
         .onChange(of: tab) { _, _ in sync() }
         .onChange(of: look.light) { _, l in model.setLight(l) }      // 11-24 智能體換配色 ⇒ 終端機跟著換
-        .onDisappear { model.stop(); panes.stop() }
+        .onDisappear { model.stop(); panes.stop(); chrome.stop() }
     }
     /// 看 3D／網頁時終端機先停（Mac 那邊 5 秒後恢復自己的大小），回來再接上
     private func sync() {
-        if tab == "term" { panes.stop(); model.start() } else { model.stop(); panes.start() }
+        if tab == "term" { model.start() } else { model.stop() }
+        if tab == "3d" { panes.start() } else { panes.stop() }
     }
 }
 
@@ -270,6 +272,7 @@ struct TermScreen: View {
 /// ⇒ 改用原生輸入框，字改好才整段送進終端機。「送出」＝打進去＋Enter；「只貼上」不按 Enter（選單、補字用）
 struct Composer: View {
     var light = false
+    var enterTitle = "送出", pasteTitle = "只貼上"
     let send: (String, Bool) -> Void
     let close: () -> Void
     @State private var text = ""
@@ -281,8 +284,8 @@ struct Composer: View {
                 .autocorrectionDisabled().textInputAutocapitalization(.never)
                 .padding(10).background(light ? Color.black.opacity(0.06) : Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
             VStack(spacing: 6) {
-                Button("送出") { go(true) }.buttonStyle(.borderedProminent)
-                Button("只貼上") { go(false) }.font(.caption)
+                Button(enterTitle) { go(true) }.buttonStyle(.borderedProminent)
+                Button(pasteTitle) { go(false) }.font(.caption)
             }.disabled(text.isEmpty)
         }
         .padding(.horizontal, 8).padding(.top, 6)

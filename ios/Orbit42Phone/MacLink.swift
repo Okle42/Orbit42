@@ -148,6 +148,16 @@ struct OrbitAPI: Sendable {
         let o = try JSONSerialization.jsonObject(with: d) as? [String: Any] ?? [:]
         return (o["ver"] as? Int ?? -1, Data(base64Encoded: o["data"] as? String ?? "") ?? Data())
     }
+    /// 11-24 這顆衛星在 Mac 上那頁 Chrome 的畫面（have＝手上那張的編號）；cols／rows 借來帶手機的大小（點）
+    func webFrame(_ id: String, have: Int, size: CGSize) async throws -> [String: Any] {
+        let d = try await request("api/sat", query: [URLQueryItem(name: "id", value: "pane|\(id)|web"), URLQueryItem(name: "from", value: String(have)),
+                                                     URLQueryItem(name: "cols", value: String(Int(size.width))), URLQueryItem(name: "rows", value: String(Int(size.height)))])
+        return try JSONSerialization.jsonObject(with: d) as? [String: Any] ?? [:]
+    }
+    func webInput(_ id: String, _ ops: [[String: Any]]) async throws {
+        let d = try JSONSerialization.data(withJSONObject: ops)
+        _ = try await request("api/input", body: ["id": "pw-\(id)", "data": d.base64EncodedString()])
+    }
     /// 11-24 衛星終端機輸入（鍵盤、滑鼠點擊／滾輪的跳脫序列）→ Mac 寫進那顆衛星的終端機
     func input(_ id: String, _ data: Data) async throws {
         _ = try await request("api/input", body: ["id": id, "data": data.base64EncodedString()])

@@ -1,8 +1,7 @@
 import SwiftUI
 import SceneKit
-import WebKit
 
-/// Mac 上這顆衛星開著的 3D／圖片／網頁（11-24 Keng「手機直接轉 3D、開網頁」）。內容從 Mac 的 /api/sat 拿（id＝pane|衛星|…）
+/// Mac 上這顆衛星開著的 3D／圖片（網頁在 MacChrome.swift；11-24 Keng「手機直接轉 3D、開網頁」）。內容從 Mac 的 /api/sat 拿（id＝pane|衛星|…）
 @MainActor
 final class PaneModel: ObservableObject {
     let link: MacLink, sat: Sat
@@ -13,8 +12,6 @@ final class PaneModel: ObservableObject {
     @Published var info = ""
     @Published var note = ""
     @Published var loading: Double?          // 0…1 下載中
-    @Published var macURL = ""
-    @Published var hasWeb = false
     private var ver = -1, poll: Task<Void, Never>?
 
     init(link: MacLink, sat: Sat) { self.link = link; self.sat = sat }
@@ -34,10 +31,6 @@ final class PaneModel: ObservableObject {
     private func tick() async {
         let api = OrbitAPI(link: link)
         guard let list = try? await api.panes(sat.id) else { if scene == nil, image == nil { note = "Mac 那邊還不支援，或連不上" }; return }
-        let web = list.first { $0["kind"] as? String == "web" }
-        hasWeb = web != nil
-        let u = web?["url"] as? String ?? ""
-        if u != macURL { macURL = u }
         guard let p = list.first(where: { $0["kind"] as? String == "3d" }) else {
             scene = nil; image = nil; title = ""; info = ""; ver = -1; note = "Mac 上這顆衛星還沒開 3D 或圖片"; return
         }
@@ -161,66 +154,5 @@ struct ModelPane: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(10)
         }
-    }
-}
-
-/// 手機自己開的網頁；Mac 那顆衛星開了什麼，第一次就跟著開什麼
-@MainActor
-final class PhoneWeb: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
-    let web = WKWebView(frame: .zero)
-    @Published var text = ""
-    @Published var error = ""
-    private var followed = ""
-    override init() { super.init(); web.navigationDelegate = self; web.uiDelegate = self; web.allowsBackForwardNavigationGestures = true }
-    static func parse(_ s: String) -> URL? {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, !t.contains(" ") else { return nil }
-        guard let u = URL(string: t.contains("://") ? t : "https://" + t), let sc = u.scheme?.lowercased(), ["http", "https"].contains(sc), let h = u.host, !h.isEmpty else { return nil }
-        return u
-    }
-    func follow(_ s: String) { guard !s.isEmpty, s != followed else { return }; followed = s; text = s; go() }
-    /// 用 Chrome App 開（沒裝就寫明）
-    func chrome() {
-        guard let u = web.url ?? Self.parse(text), var c = URLComponents(url: u, resolvingAgainstBaseURL: false) else { error = "先輸入網址"; return }
-        c.scheme = u.scheme == "http" ? "googlechrome" : "googlechromes"
-        guard let g = c.url else { return }
-        UIApplication.shared.open(g) { [weak self] ok in if !ok { Task { @MainActor in self?.error = "這支手機沒有裝 Chrome" } } }
-    }
-    func go() {
-        if text.hasPrefix("file:") { error = "這是 Mac 上的檔案，手機開不到"; return }
-        guard let u = Self.parse(text) else { error = "網址不對"; return }
-        if ["localhost", "127.0.0.1", "0.0.0.0", "::1"].contains(u.host ?? "") { error = "這是 Mac 自己的網頁（localhost），手機目前開不到，請在 Mac 上看"; return }
-        error = ""; text = u.absoluteString; web.load(URLRequest(url: u))
-    }
-    func webView(_ w: WKWebView, didCommit n: WKNavigation!) { error = ""; text = w.url?.absoluteString ?? text }
-    func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: any Error) { fail(e) }
-    func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: any Error) { fail(e) }
-    private func fail(_ e: any Error) { if (e as NSError).code != NSURLErrorCancelled { error = "打不開：\(e.localizedDescription)" } }
-    func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for a: WKNavigationAction, windowFeatures f: WKWindowFeatures) -> WKWebView? {
-        if let u = a.request.url, Self.parse(u.absoluteString) != nil { w.load(a.request) }
-        return nil
-    }
-}
-
-struct WebPaneView: View {
-    @ObservedObject var panes: PaneModel
-    @ObservedObject var model: PhoneWeb
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Button { model.web.goBack() } label: { Image(systemName: "chevron.left") }
-                Button { model.web.goForward() } label: { Image(systemName: "chevron.right") }
-                TextField("輸入網址", text: $model.text).textFieldStyle(.roundedBorder).font(.footnote)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).submitLabel(.go).onSubmit { model.go() }
-                Button { model.web.reload() } label: { Image(systemName: "arrow.clockwise") }
-                Button("Chrome") { model.chrome() }.font(.footnote)
-            }.padding(8)
-            ZStack {
-                WebBox(web: model.web)
-                if !model.error.isEmpty { Text(model.error).font(.callout).multilineTextAlignment(.center).padding(20).background(.background, in: RoundedRectangle(cornerRadius: 10)).padding() }
-            }
-        }
-        .onAppear { model.follow(panes.macURL) }
-        .onChange(of: panes.macURL) { _, u in model.follow(u) }
     }
 }

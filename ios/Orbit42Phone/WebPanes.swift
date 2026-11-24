@@ -102,7 +102,7 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
                     self.error = nil
                     if d != self.last { self.last = d; self.web.evaluateJavaScript("window.karaUpdate && window.karaUpdate(\(String(decoding: d, as: UTF8.self)))", completionHandler: nil) }
                 } catch { if NetStats.shared.down { self?.error = error.localizedDescription } }    // 偶爾失敗一次不跳紅條（下一輪就重試）
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: .seconds(MacChrome.live ? 10 : 2))
             }
         }
     }

@@ -209,7 +209,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         SphereEmbed.remoteScreen = { [weak self] id, from, size in
             let o: [String: Any]? = MainActor.assumeIsolated {
-                if id.hasPrefix("pane|") { return OrbitWindow.shared.phonePane(id, from: from) }        // 手機看這顆衛星的 3D／網頁面板
+                if id.hasPrefix("pane|") { return OrbitWindow.shared.phonePane(id, from: from, size: size) }        // 手機看這顆衛星的 3D／網頁面板
                 if let size, let h = self, let s = h.sats[id], let to = s.phoneView(cols: size.cols, rows: size.rows) { h.applyPhone(id, s, to, phone: true) }   // 手機附上自己的大小 ⇒ 手機在看時用手機大小
                 return self?.sats[id]?.remote(from: from)
             }
@@ -218,6 +218,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // 11-24 Keng：iPhone 衛星終端機可以點、捲、打字 ⇒ 手機送來的位元組直接寫進那顆衛星的 pty（跟本機網頁的 "input" 同一條）
         SphereEmbed.remoteInput = { [weak self] id, data in
             MainActor.assumeIsolated {
+                if id.hasPrefix("pw-") { return OrbitWindow.shared.phoneWeb(String(id.dropFirst(3)), data) }      // 手機操作這顆衛星的網頁
                 guard let p = self?.sats[id]?.pty else { return false }
                 p.write(data); return true
             }
@@ -702,6 +703,59 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         }
         watchAskCard(); watchSphereFile()
         startModels(test: test); startMoons()
+        // 測試：ORBIT_TEST_PHONEWEB=<網址> ⇒ 走手機的兩條路（remoteScreen／remoteInput）看、點、打字、捲、選單、對話框、離開還原
+        if let u = env["ORBIT_TEST_PHONEWEB"] {
+            let out = env["ORBIT_TEST_CHROME_SHOT"] ?? "/dev/null"
+            Task { @MainActor [weak self] in
+                func nap(_ s: Double) async { try? await Task.sleep(for: .seconds(s)) }
+                await nap(3)
+                guard let self else { return }
+                let id = self.host.runCommand(name: "手機網頁測試", brain: .claude, command: "sleep 60")
+                var have = 0
+                @MainActor func look() -> [String: Any] {
+                    let d = SphereEmbed.remoteScreen?("pane|\(id)|web", have, (cols: 390, rows: 640))
+                    let o = d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                    if let s = o["seq"] as? Int { have = s }
+                    return o
+                }
+                @MainActor func act(_ ops: [[String: Any]]) -> Bool { SphereEmbed.remoteInput?("pw-" + id, (try? JSONSerialization.data(withJSONObject: ops)) ?? Data()) ?? false }
+                @MainActor func size(_ o: [String: Any]) -> Int { (o["data"] as? String)?.count ?? 0 }
+                print("pw closed=\(look()) tap=\(act([["k": "tap"]])) file=\(act([["k": "nav", "u": "/etc/x.html"]])) nosat=\(SphereEmbed.remoteInput?("pw-nope", Data("[]".utf8)) ?? true)")
+                print("pw nav=\(act([["k": "nav", "u": u]]))")
+                for _ in 0..<12 { _ = look(); await nap(0.3) }
+                guard let p = self.moonViews(id)["web"] as? WebPane else { print("pw no pane"); exit(1) }
+                @MainActor func js(_ s: String) async -> String { await withCheckedContinuation { c in p.web.eval(s) { c.resume(returning: $0) } } }
+                have = 0; let a = look()
+                print("pw still seq=\(a["seq"] ?? "-") \(a["w"] ?? 0)x\(a["h"] ?? 0) b64=\(size(a)) title=\(a["title"] ?? "") again=\(size(look())) shown=\(self.satWins[id]?.pane === p)")
+                if let s = a["data"] as? String { try? Data(base64Encoded: s)?.write(to: URL(fileURLWithPath: out + ".phone.jpg")) }
+                print("pw view=\(await js("innerWidth+'x'+innerHeight+'@'+devicePixelRatio"))")
+                @MainActor func tapOn(_ sel: String) async { let v = await js("(()=>{const r=document.querySelector('\(sel)').getBoundingClientRect();return (r.x+r.width/2)+','+(r.y+r.height/2)})()").split(separator: ",").compactMap { Double($0) }; if v.count == 2 { _ = act([["k": "tap", "x": v[0], "y": v[1]]]) }; await nap(0.6) }
+                await tapOn("#i"); print("pw edit=\(look()["edit"] ?? "-")")
+                _ = act([["k": "text", "t": "你好 voice 123"], ["k": "key", "n": "Backspace"], ["k": "key", "n": "Enter"]]); await nap(0.4)
+                print("pw input=\(await js("document.getElementById('i').value+'|'+document.getElementById('o').textContent"))")
+                await tapOn("#p"); print("pw pass=\(look()["edit"] ?? "-")")
+                await tapOn("#s"); print("pw select=\(look()["edit"] ?? "-")")
+                _ = act([["k": "pick", "i": 2]]); await nap(0.4); print("pw picked=\(await js("document.getElementById('s').value+'|'+document.getElementById('o').textContent"))")
+                await tapOn("#c"); print("pw ask=\(look()["ask"] ?? "-")")
+                _ = act([["k": "answer", "ok": true]]); await nap(0.5); print("pw answered=\(await js("document.getElementById('o').textContent")) ask=\(look()["ask"] ?? "-")")
+                _ = act([["k": "scroll", "x": 100, "y": 300, "dx": 0, "dy": 400]]); await nap(0.15)
+                let m = look(); await nap(0.8); let n = look()
+                print("pw scroll=\(await js("''+scrollY")) moving=\(size(m)) seq=\(m["seq"] ?? "-") then=\(size(n)) seq=\(n["seq"] ?? "-")")
+                if let d = p.web.snapshot { try? NSBitmapImageRep(cgImage: d).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out + ".phone2.png")) }
+                print("pw wide=\(n["wide"] ?? "-") ua=\(await js("navigator.userAgent.slice(0,40)+navigator.userAgentData?.mobile"))")
+                _ = act([["k": "nav", "u": u + "two.html"]]); for _ in 0..<5 { await nap(0.3); _ = look() }
+                print("pw nav2=\(look()["url"] ?? "")"); _ = act([["k": "back"]]); for _ in 0..<5 { await nap(0.3); _ = look() }
+                print("pw back=\(look()["url"] ?? "")")
+                _ = act([["k": "scroll", "x": 10, "y": 10, "dy": 1e300], ["k": "??"], ["k": "nav", "u": "file:///etc/hosts"]]); await nap(0.5); print("pw bad url=\(look()["url"] ?? "")")
+                self.showMoon(id, "web"); for _ in 0..<4 { _ = look(); await nap(0.3) }
+                print("pw shown view=\(await js("innerWidth+'x'+innerHeight")) on=\(p.web.phoneOn)")
+                await nap(6.5)
+                print("pw left view=\(await js("innerWidth+'x'+innerHeight+'@'+devicePixelRatio")) mac=\(p.web.bounds.size) ua=\(await js("navigator.userAgent.slice(0,40)")) on=\(p.web.phoneOn) frames=\(p.web.snapshot.map { "\($0.width)x\($0.height)" } ?? "nil")")
+                self.tuckMoon(id); await nap(1); let f0 = p.web.frames; for _ in 0..<5 { _ = look(); await nap(0.3) }
+                print("pw tucked frames +\(p.web.frames - f0)"); await nap(6); print("pw after on=\(p.web.phoneOn)")
+                ChromeBrowser.shared.quit(); await nap(2); fflush(stdout); self.host.shutdown(); exit(0)
+            }
+        }
         // 測試：ORBIT_TEST_CHROME=<網址> ⇒ 衛星裡開 Chrome，點輸入框、組字、打字、按 Enter、開新視窗連結，印結果
         if let u = env["ORBIT_TEST_CHROME"].flatMap(WebPane.parse) {
             @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
@@ -1167,18 +1221,22 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     /// 網頁開在衛星裡（同一顆衛星一個網頁面板，再開就換網址）
     func openWeb(_ url: URL?, sat: String = "", job: String = "") {
         guard let id = pickSat(sat: sat, job: job) else { toast("沒有開著的衛星可以放網頁"); return }
-        let v: WebPane
-        if let have = moons[id]?["web"] as? WebPane { v = have }
-        else {
-            v = WebPane(frame: .zero)
-            v.onShut = { [weak self] in self?.dropMoon(id, "web") }
-            v.onTuck = { [weak self] in self?.tuckMoon(id) }
-            v.onTitle = { [weak self] in self?.pushMoons() }
-            moons[id, default: [:]]["web"] = v
-        }
+        let v = webPane(id)
         showMoon(id, "web")
         if let url { v.open(url) } else { v.focusAddress() }
     }
+
+    private func webPane(_ id: String) -> WebPane {
+        if let have = moons[id]?["web"] as? WebPane { return have }
+        let v = WebPane(frame: .zero)
+        v.onShut = { [weak self] in self?.dropMoon(id, "web") }
+        v.onTuck = { [weak self] in self?.tuckMoon(id) }
+        v.onTitle = { [weak self] in self?.pushMoons() }
+        moons[id, default: [:]]["web"] = v
+        return v
+    }
+    /// 手機要開的網頁：只掛小衛星，不打開 Mac 的視窗
+    func openWebQuiet(_ u: URL, sat id: String) { webPane(id).web.load(u); pushMoons() }
 
     // MARK: 小衛星（11-24 Keng「衛星終端機的行星旁邊會多一顆小衛星」）：衛星 id → 種類（3d／web）→ 面板。
     // 面板收起來小衛星還在，點它叫回來；按面板的 ✕ 才真的關掉
