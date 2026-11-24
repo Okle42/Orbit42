@@ -125,6 +125,35 @@ public enum CaptainLink {
 
     /// (原文, 比對用)：原文給預告摘要（秘書要看到「命中的那一段」，10-24 BR9R8 只看開頭判錯）
     public static func segmentPairs(_ cmd: String) -> [(raw: String, norm: String)] {
+        let (segs, piped) = split(cmd)
+        var out: [(raw: String, norm: String)] = []
+        for (k, s) in segs.enumerated() {
+            if isShowork(s) { if let sub = internalShowork(s) { out.append((s, sub)) }; continue }        // showork 自己的指令（card／b1／release…）整段不看；內部子指令要擋
+            let norm = s.hasPrefix("ssh ") ? s : blankQuotes(s)        // 引號內容換成 Q（ssh 那段保留：遠端指令在引號裡）
+            out.append((s, norm))
+            if guardA { for x in Unwrap.inner(s) where x != norm { out.append((s, internalShowork(x) ?? (isShowork(x) ? "Q" : x))) } }
+            if guardA, piped.contains(k), Unwrap.shells.contains(Unwrap.base(Unwrap.tokens(s).first ?? "")), Unwrap.tokens(s).dropFirst().allSatisfy({ $0 == "-" || $0 == "-s" }) { out.append((s, Unwrap.opaque)) }
+        }
+        return out
+    }
+    /// 內建規則（不看 preview.tsv）：解不開的包裝、hook 用的內部子指令
+    static let builtin = [Rule(name: "包裝指令（看不出要跑什麼）", block: true, pattern: "^" + Unwrap.opaque),
+                          Rule(name: internalRule, block: true, pattern: "^‹showork 內部指令›")]
+    public static let internalRule = "showork 內部指令"
+    /// AI 可以用的子指令；其他都是給 hook 或人用的
+    static let aiCommands: Set<String> = ["card", "task", "tasks", "roster", "captain", "asks", "b1", "names", "role", "release", "preview-check", "caps", "web", "guard"]
+    static func internalShowork(_ s: String) -> String? {
+        guard guardA, isShowork(s) else { return nil }
+        let t = Unwrap.tokens(s)
+        guard t.count > 1, !t[1].hasPrefix("-"), !t[1].hasPrefix(">"), !t[1].hasPrefix("2>"), !aiCommands.contains(t[1]) else { return nil }
+        return "‹showork 內部指令›" + t[1]
+    }
+    /// 包裝裡面再切一次用（去前綴、不含 showork 判斷）
+    static func rawSegments(_ cmd: String) -> [String] { split(cmd).segs }
+    /// 防冒充方案 A 開著嗎（Keng 在終端機跑 showork guard off 會關）
+    public static var guardA: Bool { !FileManager.default.fileExists(atPath: Caller.offFile.path) }
+
+    static func split(_ cmd: String) -> (segs: [String], piped: Set<Int>) {
         var t = cmd
         // 同一條指令前面把變數設成暫存路徑（T=$(mktemp -d)、S=/private/tmp/…、D="$TMPDIR/x"）⇒ 後面的 $T、${T} 當成 /tmp/ 底下（秘書 10-24：BKZQP 誤擋）
         if let re = try? NSRegularExpression(pattern: #"(?:^|[;&|\n(]|\s)(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=["']?(?:\$\(\s*mktemp\b|/tmp/|/private/tmp/|/private/var/folders/|/var/folders/|\$\{?TMPDIR\b|\$\{?TMP\b|[^\s;&|"']*scratchpad)"#) {
@@ -139,7 +168,7 @@ public enum CaptainLink {
             t = re.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: "$2")
         }
         // 引號外的分隔符切段（保留原文，第 4 步才換引號內容）
-        var raw: [String] = [], cur = "", q: Character? = nil, esc = false
+        var raw: [String] = [], afterPipe: Set<Int> = [], cur = "", q: Character? = nil, esc = false
         let cs = Array(t)
         var i = 0
         while i < cs.count {
@@ -150,7 +179,7 @@ public enum CaptainLink {
             if c == "'" || c == "\"" { q = c; cur.append(c); i += 1; continue }
             if c == ";" || c == "|" || c == "&" || c == "\n" || c == "(" || c == ")" || c == "`" {
                 raw.append(cur); cur = ""
-                if i + 1 < cs.count, (c == "|" || c == "&"), cs[i + 1] == c { i += 1 }
+                if i + 1 < cs.count, (c == "|" || c == "&"), cs[i + 1] == c { i += 1 } else if c == "|" { afterPipe.insert(raw.count) }
                 i += 1; continue
             }
             if c == "$", i + 1 < cs.count, cs[i + 1] == "(" { raw.append(cur); cur = ""; i += 2; continue }   // $( … ) 裡也是指令
@@ -158,17 +187,16 @@ public enum CaptainLink {
         }
         raw.append(cur)
         let prefix = try? NSRegularExpression(pattern: #"^(?:\s+|[{!]\s*|(?:sudo|env|time|nohup|exec|command|then|do|else|if|while|until)\s+(?:-\S+\s+)*|[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S*)\s*)+"#)
-        let quoted = try? NSRegularExpression(pattern: #"'[^']*'|"(?:[^"\\]|\\.)*""#)
-        return raw.compactMap { seg -> (raw: String, norm: String)? in
+        var segs: [String] = [], piped: Set<Int> = []
+        for (k, seg) in raw.enumerated() {
             var s = seg
             if let prefix { s = prefix.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "") }
             s = s.trimmingCharacters(in: .whitespaces)
-            guard !s.isEmpty, !isShowork(s) else { return nil }        // showork 自己的指令（card／b1／release…）整段不看
-            let r = s
-            if !s.hasPrefix("ssh ") { s = Self.blankQuotes(s) }        // 引號內容換成 Q（ssh 那段保留：遠端指令在引號裡）
-            _ = quoted
-            return (r, s)
+            guard !s.isEmpty else { continue }
+            if afterPipe.contains(k) { piped.insert(segs.count) }
+            segs.append(s)
         }
+        return (segs, piped)
     }
 
     /// 這段指令是不是 showork 本身（"…/ShoWork42/bin/showork" card …、showork b1 post …）
@@ -201,7 +229,7 @@ public enum CaptainLink {
     /// 命中的規則＋命中的那一段原文（第一段符合的）
     public static func hits(_ cmd: String, rules: [Rule]) -> [(rule: Rule, segment: String)] {
         let segs = segmentPairs(cmd)
-        return rules.compactMap { r in
+        return (rules + builtin).compactMap { r in
             guard let re = try? NSRegularExpression(pattern: r.pattern, options: [.caseInsensitive]),
                   let seg = segs.first(where: { re.firstMatch(in: $0.norm, range: NSRange($0.norm.startIndex..., in: $0.norm)) != nil }) else { return nil }
             return (r, seg.raw)

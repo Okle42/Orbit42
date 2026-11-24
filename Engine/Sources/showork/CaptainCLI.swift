@@ -28,7 +28,15 @@ enum CaptainCLI {
                 let n = a.dropFirst().reduce(0) { $0 + CaptainInbox.ack($1, now: Date()) }
                 out(n == 0 ? "沒有符合的未處理單" : "已標 \(n) 筆為已處理"); return 0
             }
-            CaptainStore.setCaptain(CaptainRecord(sessionId: sid, name: sessionName(sid), proc: ProcStamp.of(Handover.claudePID())))
+            if let why = Caller.check(sid) { err("showork captain：\(why)，沒有登記（已記錄）"); return 1 }
+            switch CaptainClaim.decide(current: CaptainStore.captain()?.sessionId, me: sid, live: Set(NicknameStore.liveSessions().map(\.sessionId)), on: CaptainLink.guardA) {
+            case .ask:
+                CaptainClaim.request(sid: sid, name: sessionName(sid) ?? String(sid.prefix(8)), now: Date())
+                err("已有在線的秘書。已發卡請使用者決定，他在 Mac 介面按「\(CaptainClaim.yes)」才會換；先不要當秘書做事。"); return 1
+            case .take(let notify):
+                CaptainStore.setCaptain(CaptainRecord(sessionId: sid, name: sessionName(sid), proc: ProcStamp.of(Handover.claudePID())))
+                if notify { CaptainClaim.announce(sid: sid, name: sessionName(sid) ?? String(sid.prefix(8)), now: Date()) }
+            }
             out(Captain.manual(showork: showork))
             // 收件匣裡還沒送到秘書的、還在等放行的（T1024033803 ④）：先印，印完標成已送
             let pend = CaptainInbox.pending(now: Date())
@@ -46,6 +54,7 @@ enum CaptainCLI {
             guard let sid = mySession, CaptainStore.captain()?.sessionId == sid else {
                 err("只有現任秘書能放行。使用者要放行，請在被擋的那個 session 打「放行！單號」。"); return 1
             }
+            if let why = Caller.check(sid) { err("showork release：\(why)，沒有放行（已記錄）"); return 1 }
             guard let i = CaptainInbox.release(id: id, target: nil, by: sid, byName: Nicknames.captainTitle, source: "release 指令", now: Date()) else {
                 err("找不到等放行的單號 \(id)（打錯、已放行過、或超過 24 小時）"); return 1
             }
@@ -146,7 +155,12 @@ enum CaptainCLI {
         if roster != nil && target == nil { err("名冊裡沒有「\(to)」；先跑 showork roster 看名字"); return 1 }
         if let n = thenTo, roster != nil && entry(n) == nil { err("名冊裡沒有下一棒「\(n)」"); return 1 }
         if target?.sessionId == from { err("不能派給自己"); return 1 }
+        if let why = Caller.check(from) { err("showork task：\(why)（已記錄）"); return 1 }
         if CaptainStore.captain()?.sessionId != from {
+            switch CaptainClaim.decide(current: CaptainStore.captain()?.sessionId, me: from, live: Set(NicknameStore.liveSessions().map(\.sessionId)), on: CaptainLink.guardA) {
+            case .ask: err("只有現任秘書能派工（已有在線的秘書）。要換人請先跑 showork captain，由使用者同意"); return 1
+            case .take(let notify): if notify { CaptainClaim.announce(sid: from, name: sessionName(from) ?? String(from.prefix(8)), now: Date()) }
+            }
             CaptainStore.setCaptain(CaptainRecord(sessionId: from, name: sessionName(from), proc: ProcStamp.of(Handover.claudePID())))
         }
         let id = Captain.newId(now: Date(), existing: Set(CaptainStore.tasks().map(\.id)))

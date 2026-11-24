@@ -154,13 +154,41 @@ static partial class CaptainLink
     /// (原文, 比對用)：原文給預告摘要
     public static List<(string Raw, string Norm)> SegmentPairs(string cmd)
     {
+        var (segs, piped) = Split(cmd);
+        var o = new List<(string, string)>();
+        for (int k = 0; k < segs.Count; k++)
+        {
+            var s = segs[k];
+            if (IsShowork(s)) { if (InternalShowork(s) is { } sub) o.Add((s, sub)); continue; }        // showork 自己的指令整段不看；內部子指令要擋
+            var norm = s.StartsWith("ssh ", StringComparison.Ordinal) ? s : BlankQuotes(s);
+            o.Add((s, norm));
+            foreach (var x in Unwrap.Inner(s)) if (x != norm) o.Add((s, InternalShowork(x) ?? (IsShowork(x) ? "Q" : x)));
+            var tok = Unwrap.Tokens(s);
+            if (piped.Contains(k) && tok.Count > 0 && Unwrap.Shells.Contains(Unwrap.Base(tok[0])) && tok.Skip(1).All(x => x is "-" or "-s")) o.Add((s, Unwrap.Opaque));
+        }
+        return o;
+    }
+    public const string InternalRule = "showork 內部指令";
+    /// 內建規則（不看 preview.tsv；同 Mac）
+    static List<Rule> Builtin => new() { new Rule("包裝指令（看不出要跑什麼）", true, "^" + Unwrap.Opaque), new Rule(InternalRule, true, "^‹showork 內部指令›") };
+    static readonly HashSet<string> AiCommands = new() { "card", "task", "tasks", "roster", "captain", "asks", "b1", "names", "role", "release", "preview-check", "caps", "web", "guard" };
+    static string? InternalShowork(string s)
+    {
+        if (!IsShowork(s)) return null;
+        var t = Unwrap.Tokens(s);
+        return t.Count > 1 && !t[1].StartsWith('-') && !t[1].StartsWith('>') && !t[1].StartsWith("2>", StringComparison.Ordinal) && !AiCommands.Contains(t[1]) ? "‹showork 內部指令›" + t[1] : null;
+    }
+    public static List<string> RawSegments(string cmd) => Split(cmd).Segs;
+
+    static (List<string> Segs, HashSet<int> Piped) Split(string cmd)
+    {
         var t = cmd;
         // 同一條指令前面把變數設成暫存路徑（T=$(mktemp -d)、S=/private/tmp/…）⇒ 後面的 $T、${T} 當成 /tmp/ 底下
         foreach (var n in TempVar.Matches(t).Select(m => m.Groups[1].Value).Distinct().ToList())
             t = Regex.Replace(t, @"\$\{?" + n + @"\b\}?", "/tmp/" + n, RegexOptions.CultureInvariant);
         t = Heredoc.Replace(t, "$2");
         // 引號外的分隔符切段（保留原文，第 4 步才換引號內容）
-        var raw = new List<string>();
+        var raw = new List<string>(); var afterPipe = new HashSet<int>();
         var cur = new StringBuilder();
         char? q = null; bool esc = false;
         for (int i = 0; i < t.Length; i++)
@@ -174,22 +202,22 @@ static partial class CaptainLink
             {
                 raw.Add(cur.ToString()); cur.Clear();
                 if (i + 1 < t.Length && (c is '|' or '&') && t[i + 1] == c) i++;
+                else if (c == '|') afterPipe.Add(raw.Count);
                 continue;
             }
             if (c == '$' && i + 1 < t.Length && t[i + 1] == '(') { raw.Add(cur.ToString()); cur.Clear(); i++; continue; }   // $( … ) 裡也是指令
             cur.Append(c);
         }
         raw.Add(cur.ToString());
-        var out_ = new List<(string, string)>();
-        foreach (var seg in raw)
+        var segs = new List<string>(); var piped = new HashSet<int>();
+        for (int k = 0; k < raw.Count; k++)
         {
-            var s = SwiftText.TrimSpaces(Prefix.Replace(seg, ""));
-            if (s.Length == 0 || IsShowork(s)) continue;        // showork 自己的指令（card／release…）整段不看
-            var r = s;
-            if (!s.StartsWith("ssh ", StringComparison.Ordinal)) s = BlankQuotes(s);
-            out_.Add((r, s));
+            var s = SwiftText.TrimSpaces(Prefix.Replace(raw[k], ""));
+            if (s.Length == 0) continue;
+            if (afterPipe.Contains(k)) piped.Add(segs.Count);
+            segs.Add(s);
         }
-        return out_;
+        return (segs, piped);
     }
 
     /// 這段指令是不是 showork 本身（"…/ShoWork42/bin/showork" card …）。Windows 另外認 showork.exe 與反斜線路徑
@@ -219,7 +247,7 @@ static partial class CaptainLink
     {
         var segs = SegmentPairs(cmd);
         var out_ = new List<(Rule, string)>();
-        foreach (var r in rules)
+        foreach (var r in rules.Concat(Builtin))
         {
             if (Rx(r.Pattern) is not { } re) continue;
             foreach (var sg in segs)

@@ -252,6 +252,10 @@ enum BoardActions {
         let ask: PendingAsk, raw: String, queued: Int
         switch AskQueue.claim(sid: sid, pick: pick) {
         case .ok(let q, let t, let n): ask = q; raw = t; queued = n
+            if CaptainClaim.approves(q, option: pick?.option, free: pick?.free, fromMac: source == .user) {
+                let rec = NicknameStore.liveSessions().first { $0.sessionId == sid }
+                CaptainStore.setCaptain(CaptainRecord(sessionId: sid, name: rec?.name, proc: ProcStamp.of(rec?.pid)))
+            }
         case .gone: return (false, gone)
         case .busy: return (false, "「\(c.title)」這題上一個答案還在送，或沒確認有沒有送到，這次沒有送出；請到它的終端機看")
         }
