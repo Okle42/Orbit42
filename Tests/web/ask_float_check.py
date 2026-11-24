@@ -62,8 +62,32 @@ async function checks() {
   await fresh("版面", Q("s1", "A", { ask: "很長的問題".repeat(40), options: ["很長的選項".repeat(20), "b".repeat(120), "c", "d"], summary: "摘要".repeat(60) }));
   for (const w of [440, 240]) { askMax(w, 900); await wait(60); const c = el("#card"); ok(c.scrollWidth <= c.clientWidth, w + " 寬不可橫向裁字"); for (const x of c.querySelectorAll(".q,.opt,.sum,.nm")) ok(x.scrollWidth <= x.clientWidth + 1 || getComputedStyle(x).display === "inline", w + " 裁字 " + x.className); ok(JSON.parse(sized).h >= Math.min(c.scrollHeight, 900) - 2, "回報高度夠"); }
   askMax(440, 260); await wait(60); ok(el("#card").getBoundingClientRect().height <= 261 && el("#card").scrollHeight > 261 && getComputedStyle(el("#card")).overflowY === "auto", "矮視窗可以捲到全部");
-  const bg = getComputedStyle(el("#card")).backgroundColor; ok(!/rgba/.test(bg), "不透明底 " + bg); up(); await wait(1700); ok(JSON.parse(sized).mode === "hidden" || S().undo, "沒題就收");
-  await reviews();
+  const bg = getComputedStyle(el("#wrap")).backgroundColor; ok(!/rgba/.test(bg), "不透明底 " + bg); up(); await wait(1700); ok(JSON.parse(sized).mode === "hidden" || S().undo, "沒題就收");
+  await reviews(); await stacks();
+}
+/* 蓋住檢查：提示那格跟每一顆會作答的按鈕都不重疊；每顆按鈕的四角與中心點到的就是它自己（看得到的部分） */
+function uncovered(nm) {
+  const o = el("#over").getBoundingClientRect(), card = el("#card").getBoundingClientRect();
+  for (const b of document.querySelectorAll(".opt,[data-go],textarea")) {
+    const r = b.getBoundingClientRect(); if (!r.width) continue;
+    const top = Math.max(r.top, card.top), bot = Math.min(r.bottom, card.bottom); if (bot - top < 6) continue;          // 捲在外面的
+    ok(bot <= o.top + 0.5, nm + " 提示疊到 " + (b.textContent || b.tagName).slice(0, 12));
+    for (const [x, y] of [[r.left + 10, top + 3], [r.right - 10, top + 3], [r.left + 10, bot - 3], [r.right - 10, bot - 3], [(r.left + r.right) / 2, (top + bot) / 2]]) { const h = document.elementFromPoint(x, y); ok(h && (h === b || b.contains(h)), nm + " 點到別的 " + h?.className); }
+  }
+  ok(Math.round(o.height) === Math.round(parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--slot"))), nm + " 那格高度要固定 " + o.height);
+}
+const PM = id => ({ status: "需要你", sessionId: "p" + id, name: "權限", ask: "要不要讓它執行 Bash：" + "很長的指令 ".repeat(4), permit: { id, kind: "tool", tool: "Bash", summary: "rm -rf x" }, ago: 0 });
+async function stacks() {
+  await fresh("舊計時器", Q("s1", "A")); tap(opt(0)); await wait(3100); askResult("s1", "A", "沒有送出"); await wait(560); ok(S().visible.length === 1, "放回來"); await wait(5000); tap(opt(1)); ok(S().undo === "s1|a:A", "再答一次"); await wait(2500); ok(!S().visible.length, "第一次的 8 秒計時器不可把這題放回來");
+  for (const [w, h] of [[440, 900], [240, 900], [240, 320], [440, 300]]) for (const last of [PM("P9"), Q("s9", "Z")]) {
+    const nm = `${w}x${h} ${last.permit ? "權限框" : "題目"}`; await fresh(nm, Q("s1", "A"), Q("s2", "B"), Q("s3", "C"), last); askMax(w, h); await wait(560); uncovered(nm + " 0 條"); const hs = [];
+    for (let i = 1; i <= 3; i++) { tap(opt(1)); await wait(560); ok(S().visible.length === 4 - i, nm + " 第 " + i + " 題有答到 " + S().visible.length); uncovered(nm + ` ${i} 條`); hs.push(Math.round(el("#over").getBoundingClientRect().height)); }
+    ok(new Set(hs).size === 1, nm + " 1～3 條高度一樣 " + hs); const p = pos(), k = S().cur, ur = el("[data-undo]").getBoundingClientRect(), xy = [(ur.left + ur.right) / 2, (ur.top + ur.bottom) / 2];
+    for (let t = 0; t < 40 && el("[data-undo]"); t++) { await wait(100); ok(pos() === p && S().cur === k, nm + " 收條時選項不可動 " + p + " → " + pos() + " " + S().cur); const at = document.elementFromPoint(...xy); ok(!at?.closest(".opt,[data-go]"), nm + " 復原鈕底下不可變成作答鈕 " + at?.className); if (at?.closest("button")) { } }
+    const n0 = sends().length; tap(document.elementFromPoint(...xy)); ok(S().visible.length === 1 && S().undo !== k, nm + " 剛收掉點同一個地方不可作答 " + S().visible + " undo=" + S().undo); ok(n0 === 3, nm + " 三題都送了 " + n0); if (!S().open) tap(el("#strip"));
+  }
+  await fresh("條數一變就鎖", Q("s1", "A"), Q("s2", "B"), PM("P9")); askMax(440, 900); await wait(560); tap(opt(0)); await wait(700); tap(opt(0)); await wait(560); ok(!S().locked, "先沒鎖"); let locked = false;
+  for (let t = 0; t < 60 && !locked; t++) { await wait(50); locked = S().locked; } ok(locked, "少一條要鎖"); tap(opt(2)); ok(S().visible.length === 1, "鎖住時點權限鈕不算"); await wait(4000);
 }
 /* Gavin5 複核（T1125041307）的反例 */
 const pos = () => [...document.querySelectorAll(".opt")].map(o => { const r = o.getBoundingClientRect(), v = JSON.parse(sized); return [r.left, r.top - v.h, r.width, r.height].map(Math.round).join(); }).join(" ");      // 卡片貼右下：對視窗下緣的位置
@@ -76,12 +100,12 @@ async function reviews() {
   await fresh("版面一動就鎖", Q("s1", "A")); ok(!S().locked, "先沒鎖"); askMoved(); ok(S().locked, "原生端移了位置"); tap(opt(0)); ok(!S().undo, "位移後 0.5 秒內不算"); press(opt(0)); await wait(560); release(opt(0)); ok(!S().undo, "按下那刻還在鎖，放開也不算"); askMax(300, 900); tap(opt(0)); ok(!S().undo, "寬度變了也鎖"); await wait(560); press(opt(0)); askMoved(); release(opt(0)); ok(!S().undo, "按著的時候位移，放開不算"); await wait(560); tap(opt(0)); ok(S().undo === "s1|a:A", "過了就能按"); askMax(440, 900);
   await fresh("復原後要再點卡片", Q("s1", "A"), Q("s2", "B")); tap(opt(0)); await wait(600); tap(el("#card .sum").parentNode); ok(S().armed, "點過 B"); tap(el("[data-undo]")); ok(S().cur === "s1|a:A" && !S().armed, "復原就解除"); await wait(600); key("2"); key("Enter"); ok(!S().undo, "沒點過 A 的卡不作答"); tap(el("#card .sum").parentNode); key("2"); ok(S().undo === "s1|a:A", "點過才算");
   await fresh("凍結", Q("s1", "A")); tap(opt(0)); const until = Date.now() + 6000; while (Date.now() < until); await wait(80); ok(!sends().length && S().visible.length === 1 && (el("#over")?.textContent || "").includes("停住太久"), "凍結 6 秒醒來不送、放回 " + el("#over").textContent); key("1"); ok(!S().undo, "醒來不收鍵盤");
-  await fresh("各自倒數", Q("s1", "A"), Q("s2", "B"), Q("s3", "C")); tap(opt(0)); await wait(700); tap(opt(1)); ok(document.querySelectorAll("#over [data-undo]").length === 2, "兩題各有復原"); ok(!sends().length, "第一題沒提早"); tap(document.querySelector('[data-undo="s1|a:A"]')); await wait(3200); ok(sends().map(x => x.askId + x.option).join() === "B先不要", "只復原那題，另一題照送 " + sends().map(x => x.askId));
+  await fresh("各自倒數", Q("s1", "A"), Q("s2", "B"), Q("s3", "C")); tap(opt(0)); await wait(700); tap(opt(1)); ok(el("#over").textContent.includes("2 題待送") && document.querySelectorAll("#over [data-undo]").length === 1, "合成一條 " + el("#over").textContent); ok(!sends().length, "第一題沒提早"); tap(el('[data-undo="s2|a:B"]')); ok(el('[data-undo="s1|a:A"]'), "復原最新那題後換上一題"); await wait(3200); ok(sends().map(x => x.askId + x.option).join() === "A好，照做", "只復原那題，另一題照送 " + sends().map(x => x.askId));
   await fresh("草稿回來", Q("s1", "A")); const t = el("textarea"); t.value = "草稿"; ev(t, "input"); up(); await wait(1700); up(); up(Q("s1", "A")); await wait(50); ok(el("textarea").value === "草稿", "同一題回來草稿要在");
   await fresh("可以再按的說法", Q("s1", "A")); tap(opt(0)); await wait(3100); up(Q("s1", "A")); await wait(8200); ok(el("#over").textContent.includes("可以再按"), "claim 會收才說可以再按 " + el("#over").textContent); up(Q("s1", "A", { askState: "sending" })); ok(!el("#over").textContent.includes("可以再按") && el("#over").textContent.includes("正在送"), "送出中不可說可以再按"); up(Q("s1", "A", { askState: "unsure" })); ok(!el("#over").textContent.includes("可以再按"), "沒確認到也不可說");
-  await fresh("重新載入恢復", Q("s1", "A")); askRestore(false); ok(document.body.classList.contains("mini"), "縮成一條要留著"); askRestore(true); ok(S().open, "展開也要留著"); tap(el("[data-later]")); ok(posted("askOpen").at(-1)?.open === false, "有告訴原生端"); askRestore(true);
+  await fresh("重新載入恢復", Q("s1", "A")); askRestore(false); ok(document.body.classList.contains("mini"), "縮成一條要留著"); askRestore(true); ok(S().open, "展開也要留著"); await wait(560); tap(el("[data-later]")); ok(posted("askOpen").at(-1)?.open === false, "有告訴原生端"); askRestore(true);
   await fresh("標題兩行", Q("s1", "A", { name: "開發 · Orbit42", doing: "答案卡補修" }), Q("s2", "B", { name: "開發 · Orbit42", doing: "終端機浮起".repeat(12) })); ok(el(".top .nm").textContent === "開發 · Orbit42 · 答案卡補修", "要帶工作標題 " + el(".top .nm").textContent);
-  tap(el('[data-nav="1"]')); const nm = el(".top .nm"); ok(nm.textContent.endsWith("終端機浮起") && nm.scrollWidth <= nm.clientWidth + 1 && el("#card").scrollWidth <= el("#card").clientWidth, "同職責同專案分得出來、展開整段看得到"); tap(el("[data-later]")); const sn = el("#strip .nm"); ok(sn.scrollWidth > sn.clientWidth && getComputedStyle(sn).textOverflow === "ellipsis" && el("#strip").getBoundingClientRect().width <= 440, "縮成一條才截"); tap(el("#strip")); ok(S().open, "點開看全"); await wait(560);
+  tap(el('[data-nav="1"]')); const nm = el(".top .nm"); ok(nm.textContent.endsWith("終端機浮起") && nm.scrollWidth <= nm.clientWidth + 1 && el("#card").scrollWidth <= el("#card").clientWidth, "同職責同專案分得出來、展開整段看得到"); await wait(560); tap(el("[data-later]")); const sn = el("#strip .nm"); ok(sn.scrollWidth > sn.clientWidth && getComputedStyle(sn).textOverflow === "ellipsis" && el("#strip").getBoundingClientRect().width <= 440, "縮成一條才截"); tap(el("#strip")); ok(S().open, "點開看全"); await wait(560);
   up(Q("s1", "A", { name: "甲", doing: "甲" })); await wait(1700); ok(el(".top .nm").textContent === "甲", "一樣的不重複");
   await fresh("不可注入", Q("s1", "<img src=x onerror=window.xss=1>", { options: ["<img src=x onerror=window.xss=1>", "b"], name: "<b onmouseover=1>", ask: "<script>window.xss=1<\/script>" })); await wait(300); ok(window.xss === undefined && !el("#card img"), "字就是字");
 }
@@ -92,7 +116,7 @@ async function shot() {
   up(...qs); if (CASE.endsWith("strip")) tap(el("[data-later]")); if (CASE.endsWith("undo")) { await wait(560); tap(opt(0)); }
 }
 addEventListener("load", async () => {
-  try { if (CASE === "check") await Promise.race([checks(), wait(200000).then(() => fails.push("跑太久，停在 " + name))]); else await shot(); } catch (e) { fails.push(name + " 例外 " + e.stack); }
+  try { if (CASE === "check") await Promise.race([checks(), wait(340000).then(() => fails.push("跑太久，停在 " + name))]); else await shot(); } catch (e) { fails.push(name + " 例外 " + e.stack); }
   if (CASE === "check") fetch("/result", { method: "POST", body: JSON.stringify({ n, fails }) });
 });
 """
@@ -115,7 +139,7 @@ srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(H, dir
 URL = f"http://127.0.0.1:{srv.server_port}/ask.html?"
 BASE = [CHROME, "--headless=new", "--no-first-run", "--hide-scrollbars"]
 p = subprocess.Popen(BASE + ["--remote-debugging-port=0", f"--user-data-dir={tmp}/r", "--window-size=700,1000", URL + "case=check"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-done.wait(220); p.terminate(); p.wait(20)
+done.wait(360); p.terminate(); p.wait(20)
 r = json.loads(got[0]) if got else {"n": 0, "fails": ["沒有結果（頁面沒跑完）"]}
 print(f"答案卡浮層：{r['n']} 項，失敗 {len(r['fails'])}")
 for x in r["fails"]: print("   ✗", x)

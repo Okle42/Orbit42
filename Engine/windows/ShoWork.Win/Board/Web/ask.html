@@ -17,15 +17,19 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; background: transparent; color: var(--ink); font: 13px/1.45 -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default; }
   #wrap { position: relative; width: max-content; max-width: 100%; }
-  #card, #strip, #over > div { background: var(--panel); border: 1px solid var(--acc-dim); border-radius: 10px; }
-  #card { display: none; width: var(--w, 440px); max-height: var(--maxh, none); overflow-y: auto; padding: 10px 14px 12px; }
+  body.open #wrap, #strip, body:not(.open) #over > div { background: var(--panel); border: 1px solid var(--acc-dim); border-radius: 10px; }
+  #card { display: none; width: var(--w, 440px); max-height: calc(var(--maxh, 100000px) - var(--slot) - 2px); overflow-y: auto; padding: 10px 14px 6px; }
   #strip { display: none; width: max-content; max-width: var(--w, 440px); align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; }
-  /* 復原條、「沒有送出」這類提示：疊在卡片最下面那塊（提示字、連結的位置）往上長，不佔版 ⇒ 出現、收掉都不會讓選項移動 */
-  #over { display: flex; flex-direction: column; gap: 4px; width: var(--w, 440px); }
-  body.open #over { position: absolute; left: 6px; right: 6px; bottom: 6px; width: auto; z-index: 2; }
-  #over > div { display: flex; align-items: center; gap: 10px; padding: 7px 12px; font-size: 12px; }
-  #over .t { flex: 1; min-width: 0; overflow-wrap: anywhere; } #over .st { border-color: var(--acc); color: var(--acc); }
-  body.open #over > div:last-child { min-height: 52px; }
+  /* 卡片最下面一格，高度固定、不在捲動區裡：平常放說明字和連結，有提示（狀態、復原）就換成提示，一次一條。
+     不佔版、不疊在任何東西上面 ⇒ 出現、收掉、多題、窄框、捲動都不會蓋到或推動選項、權限鈕、送出（Gavin5 T1125050619） */
+  :root { --slot: 58px; }
+  @media (max-width: 340px) { :root { --slot: 118px; } }
+  #over { width: var(--w, 440px); }
+  body.open #over { height: var(--slot); overflow: hidden; border-top: 1px solid var(--line); }
+  #over > div { display: flex; flex-wrap: wrap; align-items: center; align-content: center; gap: 4px 10px; padding: 6px 14px; font-size: 12px; height: 100%; }
+  #over .t { flex: 1; min-width: 150px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  @media (max-width: 340px) { #over .t { flex-basis: 100%; -webkit-line-clamp: 4; } }
+  #over .st { color: var(--acc); }
   body.mini #over:not(:empty) { margin-top: 8px; }
   body.open #card { display: block; } body.mini #strip { display: flex; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); flex: none; }
@@ -49,11 +53,11 @@
   .free { margin-top: 8px; display: flex; gap: 6px; align-items: flex-end; }
   .free textarea { flex: 1; min-width: 0; resize: none; min-height: 4.9em; max-height: 9em; background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; outline: none; -webkit-user-select: text; user-select: text; cursor: text; }
   .free textarea:focus { border-color: var(--acc-dim); }
-  .foot { min-height: 44px; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 11px; color: var(--ink-dim); }
-  .foot .links { margin-left: auto; display: flex; gap: 12px; }
+  #over > .foot { font-size: 11px; color: var(--ink-dim); }
+  .foot .hint { flex: 1; min-width: 150px; } .foot .links { margin-left: auto; display: flex; gap: 12px; }
   .lnk { border: 0; padding: 0; color: var(--ink-dim); } .lnk:hover { color: var(--acc); text-decoration: underline; }
   .off .opts, .off .free { opacity: .4; pointer-events: none; }
-  body.armed #card { border-color: var(--acc); }
+  body.armed.open #wrap { border-color: var(--acc); }
 </style>
 </head>
 <body>
@@ -121,8 +125,7 @@ function drawCard(list) {
     el.dataset.key = cur; el.dataset.sig = ""; lock();
     el.innerHTML = `<div class="top"><span class="tag">需要你</span><span class="nm" data-jump></span><span class="ago"></span><span class="nav"></span></div>
       <div class="sum"></div><div class="q" data-jump></div><div class="d"></div><div class="opts"></div>
-      <div class="free"><textarea rows="2" placeholder="補充說明，選了選項會一起送（⌘Enter 送出）" aria-label="自己打補充說明"></textarea><button tabindex="-1" data-go>送出</button></div>
-      <div class="foot"><span class="hint"></span><span class="links"><button class="lnk" tabindex="-1" data-later>稍後再答</button><button class="lnk" tabindex="-1" data-jump>跳到它的終端機 →</button></span></div>`;
+      <div class="free"><textarea rows="2" placeholder="補充說明，選了選項會一起送（⌘Enter 送出）" aria-label="自己打補充說明"></textarea><button tabindex="-1" data-go>送出</button></div>`;
     el.querySelector("textarea").value = drafts.get(cur) || ""; el.scrollTop = 0;
   }
   patch(list);
@@ -163,7 +166,6 @@ function patch(list) {
   set(".d", d).style.display = d ? "" : "none";
   el.querySelector(".opts").innerHTML = xs.map((o, k) => `<button class="opt${o.rec ? " rec" : ""}" tabindex="-1" data-k="${k}">${o.rec ? "<i>建議</i>" : ""}${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o.label)}</button>`).join("");
   el.querySelector(".free").style.display = c.askId ? "" : "none";
-  set(".hint", (xs.length ? `點一下卡片後可按 1–${Math.min(9, xs.length)}${xs.some(o => o.rec) ? "、Enter 送建議" : ""} · ` : "") + "送出後 3 秒可復原");
 }
 
 /* ---- 作答：每一關都過才送 ---- */
@@ -184,10 +186,12 @@ function bar(t) { barText = t; clearTimeout(barT); barT = setTimeout(() => { bar
 /* 疊在卡片最下面的提示：狀態（送出中、沒確認到、沒送出）、每題各自的復原、一句話 */
 function drawOver() {
   const c = live.get(cur), open_ = document.body.classList.contains("open"), st = open_ ? blockWhy(c) || noteText(cur) : "";
-  const html = (st ? `<div class="st"><span class="t">${esc(st)}</span><button tabindex="-1" data-later>稍後</button><button tabindex="-1" data-jump>去看 →</button></div>` : "")
-    + [...undos.values()].map(u => `<div><span class="t">3 秒後送給 ${esc(clip(u.name, 30))}：${esc(clip(u.label, 60))}</span><button tabindex="-1" data-undo="${esc(u.key)}">復原</button></div>`).join("")
-    + (barText && !undos.size && barText !== st ? `<div><span class="t">${esc(barText)}</span></div>` : "");
-  if ($("over").dataset.h !== html) { $("over").dataset.h = html; $("over").innerHTML = html; }
+  const u = [...undos.values()].at(-1), xs = open_ && c ? items(c) : [];          // 一次一條：復原最急（最新那題，按了換上一題）→ 狀態 → 一句話 → 說明字
+  const msg = u ? `<div class="u" title="${esc(u.name + "：" + u.label)}"><span class="t">${undos.size > 1 ? `（${undos.size} 題待送）` : ""}3 秒後送給 ${esc(clip(u.name, 30))}：${esc(clip(u.label, 40))}</span><button tabindex="-1" data-undo="${esc(u.key)}">復原</button></div>`
+    : st ? `<div class="st" title="${esc(st)}"><span class="t">${esc(st)}</span><button tabindex="-1" data-later>稍後</button><button tabindex="-1" data-jump>去看 →</button></div>`
+    : barText ? `<div title="${esc(barText)}"><span class="t">${esc(barText)}</span></div>` : "";
+  const html = msg || (open_ ? `<div class="foot"><span class="hint">${(xs.length ? `點一下卡片後可按 1–${Math.min(9, xs.length)}${xs.some(o => o.rec) ? "、Enter 送建議" : ""} · ` : "") + "送出後 3 秒可復原"}</span><span class="links"><button class="lnk" tabindex="-1" data-later>稍後再答</button><button class="lnk" tabindex="-1" data-jump>跳到它的終端機 →</button></span></div>` : "");
+  if ($("over").dataset.h !== html) { if ($("over").dataset.h) shifted(); $("over").dataset.h = html; $("over").innerHTML = html; }      // 條數、內容一變：0.5 秒內的點擊不算作答
 }
 // 「可以再按」只在原生端真的會收的時候講（送出中、沒確認到由 blockWhy 講）
 function noteText(k) { const t = note.get(k); return t === true ? (live.get(k)?.askState ? "" : "剛才的答案沒有收到，題目還在，可以再按一次") : t || ""; }
@@ -197,8 +201,8 @@ function flush(u) {
   clearTimeout(u.t);
   const c = live.get(u.key), late = Date.now() - u.at > UNDO + LATE;             // 頁面凍結、睡眠、背景太久才醒：他早就不記得了，不送
   if (late || !c || sigOf(c) !== u.sig) { dropUndo(u, late ? "剛才停住太久，沒有送出，請再看一次" : c ? "那題的內容變了，沒有送出，請再看一次" : "那題已經在別處答掉或收回，沒有送出"); if (late) { note.set(u.key, "剛才停住太久，沒有送出，請再看一次"); lock(); disarm(); } return render(); }
-  undos.delete(u.key); sent.set(u.key, { posted: now() }); note.delete(u.key); post(u.msg);
-  setTimeout(() => { const s = sent.get(u.key); if (s && live.has(u.key)) { sent.delete(u.key); note.set(u.key, true); render(); } }, RETRY);
+  const mark = { posted: now() }; undos.delete(u.key); sent.set(u.key, mark); note.delete(u.key); post(u.msg);
+  setTimeout(() => { if (sent.get(u.key) === mark && live.has(u.key)) { /* 只認自己這一次：同一題又答了一次，舊的計時器不可把它放回來 */ sent.delete(u.key); note.set(u.key, true); render(); } }, RETRY);
   render();
 }
 function sendLater(c, msg, label, byMouse) {
@@ -234,6 +238,7 @@ document.addEventListener("click", e => {
   if (e.target.closest("#strip")) return expand();
   const b = hit(e.target), d = down; down = null; if (!b) return;
   if (b.dataset.undo != null) { const u = undos.get(b.dataset.undo); if (!u) return; clearTimeout(u.t); undos.delete(u.key); sent.delete(u.key); if (u.draft) drafts.set(u.key, u.draft); if (ghost) { clearTimeout(ghost.t); ghost = null; } cur = u.key; disarm(); lock(); $("card").dataset.key = ""; if (!open) return expand(); return render(); }      // 復原只回到那題：要再點一次卡片，鍵盤才有效
+  if ($("over").contains(b) && (!d || !d.ok)) return;                                 // 那格剛換內容：連點復原不可變成跳走
   if (b.dataset.later != null) return collapse(true);
   if (b.dataset.jump != null) return jump();
   if (!d || d.b !== b || d.key !== cur || !d.ok) return;
