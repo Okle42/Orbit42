@@ -355,7 +355,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
     /// 點到球上的衛星：Orbit42 開的（終端機是我們的）就打開它；背景 session 就 attach 進來看；其他回 false（照舊跳 Ghostty）
     func open(_ ref: SphereEmbed.SessionRef) -> Bool {
-        if let s = sats.values.first(where: { sat in sat.pty.map { $0.pid == ref.pid || Self.parent(of: ref.pid) == $0.pid } ?? false }) {
+        if ref.pid > 0, let s = sats.values.first(where: { sat in sat.pty.map { $0.pid == ref.pid || Self.parent(of: ref.pid) == $0.pid } ?? false }) {
             onOpen(s.id); return true
         }
         if ref.kind == "bg", let job = ref.jobId {
@@ -687,7 +687,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in self?.raiseUnder(e); return e }
         SphereEmbed.openSession = { [weak self] ref in
             guard let self else { return false }
-            if ref.kind == "board" { return self.showBoard(sid: ref.sessionId, cwd: ref.cwd, name: ref.name) }       // 隊長這類（引擎持有）：衛星外框＋對話內容
             return self.host.open(ref)
         }
         SphereEmbed.command = { [weak self] cmd in
@@ -962,20 +961,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 }
             } }
         }
-        // 測試：ORBIT_TEST_BOARD="<sessionId>@<截圖路徑>" ⇒ 10 秒後打開那個戰情中心 session 的小視窗，6 秒後截它
-        if let spec = env["ORBIT_TEST_BOARD"], let at = spec.firstIndex(of: "@") {
-            let sid = String(spec[..<at]), out = String(spec[spec.index(after: at)...])
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in MainActor.assumeIsolated {
-                guard let self else { return }
-                if let th = env["ORBIT_TEST_THEME"] { self.applyTheme(th) }
-                print("board open \(self.showBoard(sid: sid, cwd: NSHomeDirectory(), name: "隊長"))"); fflush(stdout)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 6) { MainActor.assumeIsolated {
-                    guard let v = self.boards[sid], let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return }
-                    v.cacheDisplay(in: v.bounds, to: rep)
-                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out)); print("board shot saved"); fflush(stdout)
-                } }
-            } }
-        }
         // 測試：ORBIT_TEST_ARRANGE=<秒數> ⇒ 幾秒後執行「衛星斜對角排開」（跟球體按自動排版一樣）
         if let t = env["ORBIT_TEST_ARRANGE"].flatMap(Double.init) {
             DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in MainActor.assumeIsolated { self?.arrangeSats(in: CGRect(x: 340, y: 60, width: 760, height: 640)) } }
@@ -1090,30 +1075,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     func windowDidExitFullScreen(_ n: Notification) { UserDefaults.standard.set(false, forKey: "orbit.desktop"); layoutTerm() }
 
     /// 11-23 Keng：球體切深淺（◐）時，衛星終端機（xterm 色票＋裡面的 Claude Code）和小視窗標題列一起換
-    // MARK: 戰情中心持有的 session（kind board，例如隊長）
-    // 11-23 T1123115042 Keng：點戰情列表的 board 跳出舊的「工作視窗」⇒ 改開在跟衛星終端機一樣的小視窗（毛玻璃、紅光、三顆燈），
-    // 內容是工作視窗那份網頁（黑白灰紅、透明底）。這類 session 是引擎用 claude -p 跑的，不是終端機程式，所以不是 xterm
-    private var boards: [String: TermWindowView] = [:]
     private var themeNow = "dark"
-    func showBoard(sid: String, cwd: String?, name: String) -> Bool {
-        guard let root = window.contentView else { return false }
-        if let w = boards[sid] {
-            w.isHidden = false; raise(w); w.flash(); return true
-        }
-        guard let content = SphereEmbed.workView(sessionId: sid, cwd: cwd, theme: themeNow) else { return false }
-        let w = TermWindowView(content: content)
-        w.titleLabel.stringValue = "\(name) · Claude · 戰情中心 session"
-        w.appearance = NSAppearance(named: themeNow == "light" ? .aqua : .darkAqua)
-        var f = w.restoredFrame(in: root.bounds).offsetBy(dx: -36, dy: -28)
-        f = TermWindowView.fit(f, in: root.bounds)
-        w.frame = f
-        w.onClose = { [weak self, weak w] in SphereEmbed.closeWorkView(sessionId: sid); w?.removeFromSuperview(); self?.boards[sid] = nil }
-        w.onMinimize = { [weak w] in w?.isHidden = true }
-        root.addSubview(w); raise(w)
-        boards[sid] = w
-        w.flash()
-        return true
-    }
 
     // MARK: 3D 檔案小視窗（11-24 Keng：像終端機視窗，看各種 3D 檔）。跟衛星放同一本冊子：疊放、自動排版、點空白全收都一起
     private var modelSeq = 0
@@ -1247,8 +1209,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
 
     func applyTheme(_ name: String) {
         themeNow = name == "light" ? "light" : "dark"
-        SphereEmbed.workTheme(themeNow)
-        for w in boards.values { w.appearance = NSAppearance(named: themeNow == "light" ? .aqua : .darkAqua) }
         let dark = name != "light"
         let ap = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.appearance = ap
@@ -1473,7 +1433,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private func layoutTerm() {
         guard let root = window.contentView else { return }
         // Orbit42 視窗變小：開著的小視窗縮進來、留在視窗裡
-        for w in Array(satWins.values) + Array(boards.values) where !w.isHidden { w.frame = TermWindowView.fit(w.frame, in: root.bounds) }
+        for w in satWins.values where !w.isHidden { w.frame = TermWindowView.fit(w.frame, in: root.bounds) }
     }
     /// 小視窗打開時從下方放大淡入（像 macOS 開視窗），收起時縮小淡出
     private func animate(_ w: TermWindowView, on: Bool, then: (() -> Void)? = nil) {
