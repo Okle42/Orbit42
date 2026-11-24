@@ -27,7 +27,7 @@ final class WebPane: NSView, WKNavigationDelegate, WKUIDelegate, NSTextFieldDele
         address.setContentHuggingPriority(.init(1), for: .horizontal)
         address.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         bar.addArrangedSubview(address)
-        for (t, a, tip) in [("－", #selector(tuck), "收起（小衛星留著，點它叫回來）"), ("✕", #selector(shut), "關掉網頁（小衛星也不見）")] {
+        for (t, a, tip) in [("Chrome", #selector(chrome), "用 Chrome 開這一頁"), ("－", #selector(tuck), "收起（小衛星留著，點它叫回來）"), ("✕", #selector(shut), "關掉網頁（小衛星也不見）")] {
             let b = NSButton(title: t, target: self, action: a); b.bezelStyle = .inline; b.font = .systemFont(ofSize: 11); b.toolTip = tip; bar.addArrangedSubview(b)
         }
         bar.spacing = 6; addSubview(bar)
@@ -44,6 +44,11 @@ final class WebPane: NSView, WKNavigationDelegate, WKUIDelegate, NSTextFieldDele
     @objc private func back() { web.goBack() }
     @objc private func forward() { web.goForward() }
     @objc private func reload() { web.reload() }
+    @objc private func chrome() {
+        guard let u = web.url.flatMap({ Self.parse($0.absoluteString) }) ?? Self.parse(address.stringValue),
+              let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else { NSSound.beep(); return }
+        NSWorkspace.shared.open([u], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+    }
     @objc private func shut() { onShut() }
     @objc private func tuck() { onTuck() }
     @objc private func go() { if let u = Self.parse(address.stringValue) { open(u) } }

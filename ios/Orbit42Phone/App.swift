@@ -219,6 +219,7 @@ struct TermScreen: View {
     @StateObject var panes: PaneModel
     @StateObject private var phoneWeb = PhoneWeb()
     @State var tab = "term"
+    @State private var composing = false
     @Binding var want: String?
     @ObservedObject private var look = Look.shared
     init(link: MacLink, sat: Sat, want: Binding<String?>) {
@@ -243,14 +244,15 @@ struct TermScreen: View {
                     WebBox(web: model.web)
                     if let e = model.error { Banner(text: e) }
                 }
+                if composing { Composer(light: model.light) { t, enter in model.sendText(t, enter: enter) } close: { composing = false } }
                 KeyBar(light: model.light, send: { model.send(Data($0.utf8)) })
             }
         }
         .background(model.light ? Color(uiColor: TermModel.lightBG) : Color.black)
         .navigationTitle(model.sat.name).navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
-            if tab == "term" { Button { model.toggleKeyboard() } label: { Image(systemName: model.keyboard ? "keyboard.chevron.compact.down" : "keyboard") }
-                .accessibilityLabel(model.keyboard ? "收起鍵盤" : "打字") }
+            if tab == "term" { Button { composing.toggle() } label: { Image(systemName: composing ? "keyboard.chevron.compact.down" : "keyboard") }
+                .accessibilityLabel(composing ? "收起鍵盤" : "打字") }
         } }
         .onAppear { _ = model.web; model.setLight(look.light); take(); sync() }
         .onChange(of: want) { _, _ in take() }
@@ -261,6 +263,40 @@ struct TermScreen: View {
     /// 看 3D／網頁時終端機先停（Mac 那邊 5 秒後恢復自己的大小），回來再接上
     private func sync() {
         if tab == "term" { panes.stop(); model.start() } else { model.stop(); panes.start() }
+    }
+}
+
+/// 11-24 Keng「手機上用語音輸入，打字會亂掉」：聽寫會邊聽邊改寫前面的字，終端機網頁（xterm）只會往後加、不會取代
+/// ⇒ 改用原生輸入框，字改好才整段送進終端機。「送出」＝打進去＋Enter；「只貼上」不按 Enter（選單、補字用）
+struct Composer: View {
+    var light = false
+    let send: (String, Bool) -> Void
+    let close: () -> Void
+    @State private var text = ""
+    @FocusState private var focus: Bool
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField("打字或按鍵盤上的麥克風說話", text: $text, axis: .vertical)
+                .lineLimit(1...6).textFieldStyle(.plain).focused($focus)
+                .autocorrectionDisabled().textInputAutocapitalization(.never)
+                .padding(10).background(light ? Color.black.opacity(0.06) : Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+            VStack(spacing: 6) {
+                Button("送出") { go(true) }.buttonStyle(.borderedProminent)
+                Button("只貼上") { go(false) }.font(.caption)
+            }.disabled(text.isEmpty)
+        }
+        .padding(.horizontal, 8).padding(.top, 6)
+        .background(light ? Color(uiColor: TermModel.lightBG) : Color.black)
+        .onAppear { focus = true }
+    }
+    private func go(_ enter: Bool) {
+        focus = false                              // 先收鍵盤：聽寫／注音沒確定的字才會寫回來
+        Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            let t = text.trimmingCharacters(in: .newlines)
+            guard !t.isEmpty else { return }
+            send(t, enter); text = ""; focus = true
+        }
     }
 }
 

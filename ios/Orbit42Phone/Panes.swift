@@ -179,6 +179,13 @@ final class PhoneWeb: NSObject, ObservableObject, WKNavigationDelegate, WKUIDele
         return u
     }
     func follow(_ s: String) { guard !s.isEmpty, s != followed else { return }; followed = s; text = s; go() }
+    /// 用 Chrome App 開（沒裝就寫明）
+    func chrome() {
+        guard let u = web.url ?? Self.parse(text), var c = URLComponents(url: u, resolvingAgainstBaseURL: false) else { error = "先輸入網址"; return }
+        c.scheme = u.scheme == "http" ? "googlechrome" : "googlechromes"
+        guard let g = c.url else { return }
+        UIApplication.shared.open(g) { [weak self] ok in if !ok { Task { @MainActor in self?.error = "這支手機沒有裝 Chrome" } } }
+    }
     func go() {
         if text.hasPrefix("file:") { error = "這是 Mac 上的檔案，手機開不到"; return }
         guard let u = Self.parse(text) else { error = "網址不對"; return }
@@ -206,6 +213,7 @@ struct WebPaneView: View {
                 TextField("輸入網址", text: $model.text).textFieldStyle(.roundedBorder).font(.footnote)
                     .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).submitLabel(.go).onSubmit { model.go() }
                 Button { model.web.reload() } label: { Image(systemName: "arrow.clockwise") }
+                Button("Chrome") { model.chrome() }.font(.footnote)
             }.padding(8)
             ZStack {
                 WebBox(web: model.web)

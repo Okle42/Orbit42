@@ -222,6 +222,18 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
 
     func toggleKeyboard() { keyboard.toggle(); js(web, "window.orbitKeyboard", [keyboard]) }
 
+    /// 整段文字（多行用「貼上」格式，才不會每行都送出）；Enter 隔一下再送，跟文字黏在一起會被當成貼上的換行
+    func sendText(_ t: String, enter: Bool) {
+        let clean = String(t.unicodeScalars.filter { $0 == "\n" || $0 == "\t" || ($0.value >= 32 && $0.value != 127) })
+        send(Data((clean.contains("\n") ? "\u{1b}[200~" + clean.replacingOccurrences(of: "\n", with: "\r") + "\u{1b}[201~" : clean).utf8))
+        guard enter else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            while let s = self, s.sending { try? await Task.sleep(for: .milliseconds(50)) }
+            self?.send(Data("\r".utf8))
+        }
+    }
+
     /// 送進 Mac 那顆衛星：40ms 內打的字合成一筆（請求一次只走一個）；送完馬上拿一次畫面，不用等滿 1 秒
     func send(_ d: Data) {
         if link.isDemo { return }
