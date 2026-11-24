@@ -602,6 +602,7 @@ extension CaptainInbox {
     /// 使用者在終端機送出一句話（UserPromptSubmit）：記成事先放行；鍵盤打的、而且點名了等著的單，當場放行。
     /// 答案卡打進去的（TypedMark）只記事先放行，等那個指令重跑才過。每句只記一次
     public static func typedPrompt(sid: String, prompt p: String, who: String, now: Date) -> CaptainInboxItem? {
+        guard !Peer.quotesPeer(p) else { return nil }        // 夾著別的 session 的訊息：不算本人打的
         let fromCard = TypedMark.take(sid: sid, prompt: p, now: now)
         recordAnswer(sid: sid, answer: p, question: nil, now: now)
         guard !fromCard else { return nil }

@@ -38,10 +38,19 @@ public enum Peer {
         }
     }
 
+    /// 內文不能冒充訊息或系統標籤的開頭結尾。只轉這些標籤的 <：11-25 實測收端不會把 &lt; 還原，全轉的話派工單裡的程式碼會變樣
+    static func neutral(_ s: String) -> String {
+        s.replacingOccurrences(of: #"<(?=[^A-Za-z<>]{0,16}(cross-session-message|system-reminder|task-notification|local-command|command-name|bash-|pasted_content))"#, with: "&lt;", options: [.regularExpression, .caseInsensitive])
+    }
+    /// 內含其他 session 訊息的標籤（＝不是本人打的整句）
+    public static func quotesPeer(_ s: String) -> Bool {
+        s.range(of: #"<[^A-Za-z<>]{0,16}cross-session-message"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
     /// 訊息本體（純函式，測試用）
     public static func lines(token: String, text: String, fromName: String, replyTo: String?, id: String) -> [String] {
         func esc(_ s: String) -> String { s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "<", with: "&lt;") }
         let from = "uds:" + (replyTo ?? "")
+        let text = neutral(text)
         let body = "<cross-session-message from=\"\(esc(from))\" from-name=\"\(esc(fromName))\">\n\(text)\n</cross-session-message>"
         let auth: [String: Any] = ["type": "auth", "token": token]
         let msg: [String: Any] = ["msgV": 1, "msg_id": id, "type": "user", "priority": "next", "from": from,

@@ -36,11 +36,15 @@ static class Peer
     }
 
     /// 訊息本體（純函式，測試用）。鍵照字母排（同 Mac 的 .sortedKeys）
+    /// 內文不能冒充訊息或系統標籤（同 Mac Peer.neutral；只轉這些標籤的 <）
+    public static string Neutral(string s) => System.Text.RegularExpressions.Regex.Replace(s, @"<(?=[^A-Za-z<>]{0,16}(cross-session-message|system-reminder|task-notification|local-command|command-name|bash-|pasted_content))", "&lt;", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    /// 內含其他 session 訊息的標籤（＝不是本人打的整句）
+    public static bool QuotesPeer(string s) => System.Text.RegularExpressions.Regex.IsMatch(s, @"<[^A-Za-z<>]{0,16}cross-session-message", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     public static List<string> Lines(string token, string text, string fromName, string? replyTo, string id)
     {
         static string Esc(string s) => s.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;");
         var from = "uds:" + (replyTo ?? "");
-        var body = $"<cross-session-message from=\"{Esc(from)}\" from-name=\"{Esc(fromName)}\">\n{text}\n</cross-session-message>";
+        var body = $"<cross-session-message from=\"{Esc(from)}\" from-name=\"{Esc(fromName)}\">\n{Neutral(text)}\n</cross-session-message>";
         var auth = HookJson.Write(w => { w.WriteStartObject(); w.WriteString("token", token); w.WriteString("type", "auth"); w.WriteEndObject(); });
         var msg = HookJson.Write(w =>
         {

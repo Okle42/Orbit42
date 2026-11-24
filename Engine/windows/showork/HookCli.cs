@@ -188,7 +188,7 @@ static class HookCli
         if (ev == "UserPromptSubmit" && o.Str("session_id") is { Length: > 0 } js && CaptainStore.Captain() == js) CaptainStore.Stamp(js, ClaudePid(), now);
         // 11-01 使用者：「我叫你傳 LINE 還要再打放行」⇒ 使用者在 session 直接打的指令也算事先放行（同戰情中心回答：點名的動作、30 分鐘、每種一次、否定句不算）。
         //   已經擋著的單，這則指令點名了就直接放行。其他 session／系統訊息（NeedsStart 擋掉的 <…> 標籤）不算。（Mac 2ce3a8a）
-        if (ev == "UserPromptSubmit" && sid != null && CaptainLink.NeedsStart(prompt) && !prompt!.Trim().StartsWith("放行", StringComparison.Ordinal))
+        if (ev == "UserPromptSubmit" && sid != null && CaptainLink.NeedsStart(prompt) && !Peer.QuotesPeer(prompt!) && !prompt!.Trim().StartsWith("放行", StringComparison.Ordinal))
             typed = TypedRelease(sid, prompt.Trim(), now);
         // 收尾後只有使用者本人又下指令才不自動 /clear；其他 session／看板的訊息回一段「交接中」提醒（T1026230337）
         if (ev == "UserPromptSubmit" && sid != null) handoverNote = Handover.NoteNewPrompt(sid, prompt, now);

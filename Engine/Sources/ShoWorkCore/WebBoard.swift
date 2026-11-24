@@ -289,9 +289,27 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
         guard it.askId != nil else { return .failure(.init("這題不在待答清單裡，這裡答不了，請到它的終端機回答")) }
         guard let askId else { return .failure(.init("App 版本太舊，請更新或到電腦答")) }
         guard let q = c.asks.first(where: { $0.id == askId }) else { return .failure(.init("這題已經答過或已收掉，沒有送出")) }
-        let pick = option == nil && free == nil ? AnswerPick(askId: askId, option: text) : AnswerPick(askId: askId, option: option, free: free)
+        let pick = option == nil && free == nil ? AnswerPick(askId: askId, option: text) : AnswerPick(askId: askId, option: option, free: free.map(cleanTyped))
+        if option == nil, free != nil, cleanTyped(free!).isEmpty { return .failure(.init("沒有看得到的字")) }
         guard let t = pick.text(for: q) else { return .failure(.init("只能按卡片上的選項")) }
+        if pick.free?.isEmpty == false, soundsLikeRelease(t) { return .failure(.init("手機打字不能放行，請到電腦答")) }
         return .success(Answer(card: c, pick: pick, text: t))
+    }
+    /// 「放行」開頭（全形半形、夾空白標點也算）
+    static func soundsLikeRelease(_ s: String) -> Bool {
+        String(String.UnicodeScalarView(s.precomposedStringWithCompatibilityMapping.unicodeScalars.filter { $0.properties.isAlphabetic })).hasPrefix("放行")
+    }
+    /// 手機打的字：拿掉控制字元、看不見的字（換行留著），< 換成全形（不能冒充訊息標籤）
+    static func cleanTyped(_ s: String) -> String {
+        var out = String.UnicodeScalarView()
+        for u in s.unicodeScalars {
+            switch u.properties.generalCategory {
+            case .control where u != "\n", .format, .surrogate, .privateUse, .unassigned: continue
+            case .lineSeparator, .paragraphSeparator: out.append("\n")
+            default: out.append(u == "<" ? "＜" : u)
+            }
+        }
+        return String(out).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// 傳話／派工的對象：看板上活著的 session（子 agent 那種「#」卡不算）

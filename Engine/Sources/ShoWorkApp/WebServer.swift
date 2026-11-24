@@ -161,12 +161,11 @@ final class WebServer {
         case .answer(let id, let text, let askId, let option, let free):
             // 跟原生收件匣按選項同一條：BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝；轉秘書【使用者已答】；「放行」直接放行）
             return WebSnapshot.validate(answer: text, askId: askId, option: option, free: free, for: id, cards: cards).flatMap { a in
-                // 真的送到（題目從佇列拿掉）才算成功；在按的同時被答走、正在送、沒送到都回失敗，不能看起來像已送出
-                let was = AskQueue.load(id).contains { $0.id == a.pick.askId }
-                let m = BoardActions.answer(a.card, pick: a.pick, source: .other) { _ in }
-                guard was, !AskQueue.load(id).contains(where: { $0.id == a.pick.askId }) else { return .failure(CardError(m)) }
+                // 這一次真的送到才算成功；被別處答走、正在送、沒送到都回失敗
+                let r = BoardActions.answering(a.card, pick: a.pick, source: .other) { _ in }
+                guard r.sent else { return .failure(CardError(r.message)) }
                 answered[id] = Date()
-                return .success(m)
+                return .success(r.message)
             }
         case .send(let id, let text):
             // 跟 3D 辦公室「跟他說」同一條（OfficeView onPersonSend → BoardActions.answer），前面加網頁前綴

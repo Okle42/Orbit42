@@ -85,12 +85,16 @@ final class AnswerSourceTests: XCTestCase {
         // 手機：按選項照舊記一筆；有打字（補充、只打字、打「放行」）送得到、題目收掉，但不記事先放行
         func phone(_ x: AnswerPick?) -> String { BoardActions.answer(c, pick: x, source: .other) { _ in } }
         AskQueue.save("test-once", [q]); _ = phone(p); XCTAssertEqual([sent.count, pre()], [n + 3, before + 2])
-        for x in [AnswerPick(askId: "Q1", option: "好，現在部署", free: "先別部署"), .init(askId: "Q1", option: nil, free: "好，部署"), .init(askId: "Q1", option: nil, free: "放行 BABCD")] {
+        for x in [AnswerPick(askId: "Q1", option: "好，現在部署", free: "先別部署"), .init(askId: "Q1", option: nil, free: "好，部署")] {
             AskQueue.save("test-once", [q]); let k = sent.count
             _ = phone(x); XCTAssertEqual(sent.count, k + 1); XCTAssertTrue(AskQueue.load("test-once").isEmpty); XCTAssertEqual(pre(), before + 2)
             _ = phone(x); XCTAssertEqual(sent.count, k + 1)
         }
-        XCTAssertTrue(sent.last == "放行 BABCD")
+        XCTAssertEqual(sent.last, "【手機打字，不是放行】好，部署")
+        XCTAssertTrue(sent[sent.count - 2].hasPrefix("【手機打字，不是放行】好，現在部署"))
+        // 別處先答走了：明確回沒送到
+        XCTAssertFalse(BoardActions.answering(c, pick: p, source: .other) { _ in }.sent)
+        AskQueue.save("test-once", [q]); XCTAssertTrue(BoardActions.answering(c, pick: p, source: .other) { _ in }.sent)
         AskQueue.save("test-once", [q]); BoardActions.testDeliver = { _ in false }
         _ = phone(.init(askId: "Q1", option: nil, free: "x")); XCTAssertEqual(AskQueue.load("test-once").map(\.id), ["Q1"])
         XCTAssertTrue(press(nil).contains("不在待答清單"))

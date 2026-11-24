@@ -6,6 +6,8 @@ import Foundation
 
 public enum Answered {
     public static let prefix = "【使用者已答】"
+    /// 手機／網頁打字的答案，給 AI 和秘書的訊息都標
+    public static let phoneTyped = "【手機打字，不是放行】"
 
     /// 「【使用者已答】Ruby：要 push 嗎？→好，push」
     public static func relay(name: String, question: String?, answer: String) -> String {

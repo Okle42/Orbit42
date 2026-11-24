@@ -241,22 +241,26 @@ enum BoardActions {
 
     /// 按答案卡：有開著的衛星終端機就打進去（跟自己打字一樣），看不準才走原本的訊息。done＝之後的結果（打進去、改走訊息、沒確認到）
     static func answer(_ c: BoardCard, pick: AnswerPick?, source: AnswerSource, done: @escaping @MainActor (String) -> Void) -> String {
+        answering(c, pick: pick, source: source, done: done).message
+    }
+    /// sent：這一次真的送到了（正在打進終端機、答過、沒送到都是 false）
+    static func answering(_ c: BoardCard, pick: AnswerPick?, source: AnswerSource, done: @escaping @MainActor (String) -> Void) -> (sent: Bool, message: String) {
         let sid = c.sessionId, gone = "「\(c.title)」這題已經答過或已收掉，沒有送出"
         // 驗題目與選項、標成送出中：一把鎖。不行就什麼都不送、不記、不轉
-        guard pick != nil else { return "「\(c.title)」這題不在待答清單裡，這裡答不了，沒有送出；請到它的終端機回答" }
+        guard pick != nil else { return (false, "「\(c.title)」這題不在待答清單裡，這裡答不了，沒有送出；請到它的終端機回答") }
         let ask: PendingAsk, raw: String, queued: Int
         switch AskQueue.claim(sid: sid, pick: pick) {
         case .ok(let q, let t, let n): ask = q; raw = t; queued = n
-        case .gone: return gone
-        case .busy: return "「\(c.title)」這題上一個答案還在送，或沒確認有沒有送到，這次沒有送出；請到它的終端機看"
+        case .gone: return (false, gone)
+        case .busy: return (false, "「\(c.title)」這題上一個答案還在送，或沒確認有沒有送到，這次沒有送出；請到它的終端機看")
         }
-        func byMessage(_ note: String) -> String {
+        func byMessage(_ note: String) -> (sent: Bool, message: String) {
             // 手機／網頁打的字（補充或只打字）：送得到，但整句不當放行、不記事先放行（補充可能是反話）
             let typed = source == .other && !(pick?.free?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
             let m = answer(c, text: raw, ask: ask, queued: queued, grants: !typed)
             let left = AskQueue.load(sid).contains { $0.id == ask.id }      // 送到的題目已經拿掉；還在＝沒送出（只拷貝到剪貼簿）
             AskQueue.unclaim(sid: sid, id: ask.id)
-            return left ? m : m + note
+            return (!left, left ? m : m + note)
         }
         guard source == .user else { return byMessage("") }
         let off = "（終端機不方便打字，已改用訊息送出）"
@@ -272,14 +276,14 @@ enum BoardActions {
                 if case .sentDropped(let what) = r { done("已打進「\(c.title)」的終端機；\(what)") } else { done("已打進「\(c.title)」的終端機") }
             case .notStarted:       // 一個位元組都沒寫：題目還在、選項還對才改走訊息
                 guard let q = AskQueue.load(sid).first(where: { $0.id == ask.id }), pick?.text(for: q) == raw else { AskQueue.unclaim(sid: sid, id: ask.id); done(gone); return }
-                done(byMessage(off))
+                done(byMessage(off).message)
             case .unsure(let why):      // 寫過字了：絕不再走訊息，題目留著
                 AskQueue.markUnsure(sid: sid, id: ask.id)
                 if testHook == nil { BoardModel.shared.append(["ev": "answer-unsure", "id": sid, "project": c.project, "text": t, "why": why]) }
                 done("「\(c.title)」\(why)，請到它的終端機看一下；這題先留著")
             }
         }
-        return started ? "正在打進「\(c.title)」的終端機" : byMessage(off)
+        return started ? (false, "正在打進「\(c.title)」的終端機") : byMessage(off)
     }
 
     /// grants＝false：這句不能放行任何東西，也只走訊息，不打進終端機（打進去 hook 會把整句記成事先放行）
@@ -290,9 +294,10 @@ enum BoardActions {
         let said = line
         let recordedAt = Date()
         var ok = given == nil           // 認題目的（given）：真的送到才轉秘書、才留事先放行
-        defer { if ok { tellCaptain(c, answer: said, question: question) } else if grants { CaptainInbox.dropAnswer(sid: c.sessionId, answer: said, at: recordedAt) } }
+        defer { if ok { tellCaptain(c, answer: grants ? said : Answered.phoneTyped + said, question: question) } else if grants { CaptainInbox.dropAnswer(sid: c.sessionId, answer: said, at: recordedAt) } }
         // 同一個 AI 排了好幾題：答案後面註明答的是哪一題（不然它分不出來）
         if let a = ask, (queued ?? c.asks.count) > 1 { line += "（回答的是：\(a.ask.prefix(60))）" }
+        if !grants { line = Answered.phoneTyped + line }
         func delivered(_ msg: String) -> String {
             ok = true
             if let a = ask { AskQueue.resolve(sid: c.sessionId, id: a.id) }
