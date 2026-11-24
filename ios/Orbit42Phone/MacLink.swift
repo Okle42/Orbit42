@@ -142,6 +142,10 @@ struct OrbitAPI: Sendable {
     func input(_ id: String, _ data: Data) async throws {
         _ = try await request("api/input", body: ["id": id, "data": data.base64EncodedString()])
     }
+    /// 11-24 手機說話給 Mac 上的智能體（/api/say；Mac 的 Orbit42 沒開會回 503）
+    func say(_ text: String) async throws {
+        _ = try await request("api/say", body: ["text": text])
+    }
     /// 回答答案卡（走 Mac 跟收件匣按鈕同一條路；Mac 那端會記稽核）
     func answer(session: String, text: String) async throws -> String {
         let d = try await request("api/answer", body: ["id": session, "text": text])

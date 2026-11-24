@@ -25,12 +25,21 @@ struct Orbit42PhoneApp: App {
                 // 測試：ORBIT_PHONE_HEAL_TEST=<秒> ⇒ 幾秒後模擬「網路換了」整個重開內建 Tailscale，看會不會自己連回來
                 if let t = ProcessInfo.processInfo.environment["ORBIT_PHONE_HEAL_TEST"].flatMap(Double.init) {
                     Task { try? await Task.sleep(for: .seconds(t)); tailnet.heal(reason: "測試") } } } }        // App 內建 Tailscale：一打開就上線（第一次要登入）
-            .onChange(of: phase) { _, p in if p == .active { tailnet.refresh() } }
+            .onChange(of: phase) { _, p in if p == .active { tailnet.refresh(); listenIfAsked() } }
+            .onReceive(NotificationCenter.default.publisher(for: ListenTrigger.note)) { _ in listenIfAsked() }
+            .onChange(of: link?.base) { _, _ in VoiceInput.shared.link = link?.isDemo == true ? nil : link }
+            .task { VoiceInput.shared.link = link?.isDemo == true ? nil : link; listenIfAsked() }
             .preferredColorScheme(.dark)
             .foregroundStyle(Color.okGreen)          // 11-24 深色綠白對調：原本白的字改綠、原本綠的強調改白；灰字、黑底維持
             .tint(Color.white)
         }
     }
+}
+
+/// 11-24 動作按鈕／控制中心按了「Orbit42 開始說話」：App 起來或回到前景就開始聽（等內建 Tailscale 一下）
+@MainActor func listenIfAsked() {
+    guard ListenTrigger.take() else { return }
+    Task { try? await Task.sleep(for: .milliseconds(600)); VoiceInput.shared.start() }
 }
 
 // MARK: - 連線
@@ -130,6 +139,7 @@ struct MainView: View {
                 WebBox(web: sphere.web)          // 避開瀏海／動態島和分頁列（球體的工具列、狀態字才不會被蓋到）
                 if !link.isDemo, !tailnet.isRunning { TailnetBox().padding() }      // 內建 Tailscale 還沒上線（例如要重新登入）：主畫面也給登入按鈕
                 else if let e = sphere.error { Banner(text: e) }
+                if !link.isDemo { VoiceOverlay().frame(maxWidth: .infinity, alignment: .trailing) }      // 11-24 對智能體說話
             }
             .tabItem { Label("球體", systemImage: "circle.hexagongrid") }.tag(0)
 

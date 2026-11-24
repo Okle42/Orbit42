@@ -10,8 +10,10 @@ targets:
     platform: iOS
     sources:
       - Orbit42Phone
+      - Shared
     # App 內建 Tailscale（TailscaleKit；不放進 git，做法見 ios/README.md）
     dependencies:
+      - target: Orbit42Controls          # 11-24 控制中心按鈕
       - framework: Frameworks/TailscaleKit.framework
         embed: true
         codeSign: true
@@ -43,3 +45,24 @@ targets:
           rsync -a --delete --exclude .DS_Store "$ROOT/Web/" "$OUT/OrbitWeb/"
           rsync -a --delete --exclude bench --exclude .DS_Store --exclude '*.md' "$SW/windows/ShoWork.Win/Board/Web/" "$OUT/Web/"
         basedOnDependencyAnalysis: false
+
+  # 11-24 Keng：控制中心／鎖定畫面的「Orbit42 說話」按鈕（ControlWidget 要 iOS 18）
+  Orbit42Controls:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - Orbit42Controls
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.okle42.orbit42.phone.controls
+        PRODUCT_NAME: Orbit42Controls
+        DEVELOPMENT_TEAM: "J79PXNQ765"
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: Orbit42Controls/Info.plist
+        SWIFT_VERSION: "5.0"
+        SKIP_INSTALL: YES
