@@ -118,7 +118,7 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
             guard let sid = o["sessionId"] as? String, let text = o["text"] as? String else { return }
             if link.isDemo { return toast("示範模式：不送出") }
             Task {
-                do { toast(try await OrbitAPI(link: link).answer(session: sid, text: text, askId: o["askId"] as? String)) }
+                do { toast(try await OrbitAPI(link: link).answer(session: sid, text: text, askId: o["askId"] as? String, option: o["option"] as? String, free: o["free"] as? String)) }
                 catch { toast("沒送出：\(error.localizedDescription)") }
             }
         case "moon":           // 11-24 點小衛星 ⇒ 到那顆衛星的 3D／網頁

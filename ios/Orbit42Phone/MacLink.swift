@@ -157,8 +157,8 @@ struct OrbitAPI: Sendable {
         _ = try await request("api/say", body: ["text": text])
     }
     /// 回答答案卡（走 Mac 跟收件匣按鈕同一條路；Mac 那端會記稽核）
-    func answer(session: String, text: String, askId: String?) async throws -> String {
-        let d = try await request("api/answer", body: askId.map { ["id": session, "text": text, "askId": $0] } ?? ["id": session, "text": text])
+    func answer(session: String, text: String, askId: String?, option: String? = nil, free: String? = nil) async throws -> String {
+        let d = try await request("api/answer", body: ["id": session, "text": text, "askId": askId, "option": option, "free": free].compactMapValues { $0 })
         return (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["message"] as? String ?? "已送出"
     }
 }

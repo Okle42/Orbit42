@@ -250,13 +250,32 @@ struct WebBoardTests {
 
     @Test("按選項只收卡片上的選項；傳話對象要是活著的 session（不收子 agent 卡）")
     func validate() {
-        let ask = SelfReport(status: .review, ask: "要 push 嗎", options: ["好，push", "先不要"], at: t0)
+        let rep = SelfReport(status: .review, ask: "要 push 嗎", options: ["好，push（建議）", "先不要"], at: t0)
         var sub = card("s#1", .active, reason: "工作中"); sub.sessionId = "s"
-        let cards = [card("a", .review, reason: "要你決定：要 push 嗎", report: ask, at: t0), card("w", .active, reason: "工作中"), sub]
-        #expect((try? WebSnapshot.validate(answer: "好，push", for: "a", cards: cards).get())?.sessionId == "a")
-        #expect((try? WebSnapshot.validate(answer: "rm -rf /", for: "a", cards: cards).get()) == nil)
-        #expect((try? WebSnapshot.validate(answer: "好，push", for: "w", cards: cards).get()) == nil)
-        #expect((try? WebSnapshot.validate(answer: "好，push", for: "x", cards: cards).get()) == nil)
+        var a = card("a", .review, reason: "要你決定：要 push 嗎", report: rep, at: t0)
+        a.asks = [PendingAsk(id: "Q1", ask: "要 push 嗎", options: rep.options, at: t0)]
+        let loose = card("l", .review, reason: "要你決定：要 push 嗎", report: rep, at: t0)      // 只有 report.ask，沒排進佇列
+        let cards = [a, loose, card("w", .active, reason: "工作中"), sub]
+        func sent(_ t: String = "", _ askId: String? = "Q1", o: String? = nil, f: String? = nil, _ id: String = "a") -> String {
+            switch WebSnapshot.validate(answer: t, askId: askId, option: o, free: f, for: id, cards: cards) { case .success(let x): x.text; case .failure(let e): "✗" + e.message }
+        }
+        // 按選項：全文、去掉「（建議）」都行；字由這裡組
+        #expect(sent("好，push（建議）") == "好，push" && sent("好，push") == "好，push" && sent("先不要") == "先不要")
+        #expect(sent("亂寫", o: "好，push", f: "只推 main") == "好，push\n補充：只推 main")
+        #expect(sent("亂寫", f: "我自己說") == "我自己說")
+        #expect(sent("rm -rf /") == "✗只能按卡片上的選項" && sent("好，push", o: "rm -rf /", f: "x") == "✗只能按卡片上的選項")
+        #expect(sent("好，push\n補充：x") == "✗只能按卡片上的選項")
+        // 舊版 App（沒帶 id）、不在佇列、答過的
+        #expect(sent("好，push", nil) == "✗App 版本太舊，請更新或到電腦答")
+        #expect(sent("好，push", "Q9") == "✗這題已經答過或已收掉，沒有送出")
+        #expect(sent("好，push", "Q1", "l").contains("不在待答清單"))
+        #expect(sent("好，push", "Q1", "w").hasPrefix("✗") && sent("好，push", "Q1", "x").hasPrefix("✗"))
+        // 解析：option／free 有帶就用；補充可以長、選項不行
+        func parse(_ o: [String: Any]) -> WebAction? { try? WebAction.parse(path: "/api/answer", body: JSONSerialization.data(withJSONObject: o)).get() }
+        #expect(parse(["id": "a", "text": "x", "askId": "Q1", "option": "好", "free": ""]) == .answer(session: "a", text: "好", askId: "Q1", option: "好"))
+        #expect(parse(["id": "a", "askId": "Q1", "option": "好", "free": "補"]) == .answer(session: "a", text: "好\n補充：補", askId: "Q1", option: "好", free: "補"))
+        #expect(parse(["id": "a", "free": String(repeating: "字", count: 2000)]) != nil && parse(["id": "a", "free": String(repeating: "字", count: 2001)]) == nil)
+        #expect(parse(["id": "a", "option": String(repeating: "字", count: 201)]) == nil)
         #expect((try? WebSnapshot.target("w", cards: cards).get())?.sessionId == "w")
         #expect((try? WebSnapshot.target("s", cards: cards).get()) == nil)
         #expect(WebSnapshot.sendPrefix == "【使用者從網頁戰情中心】")

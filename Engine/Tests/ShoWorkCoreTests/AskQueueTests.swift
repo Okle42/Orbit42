@@ -30,7 +30,7 @@ struct AskQueueTests {
         #expect(it.kind == .reply && it.question == "律師那封要不要回？" && it.options == ["回", "先不要"] && it.askId == "Q0001")
         let web = WebSnapshot.make(cards: [c], tasks: [], answered: [:], now: now)
         #expect(web.sessions.first?.question == "律師那封要不要回？" && web.sessions.first?.canAnswer == true)
-        #expect(WebSnapshot.validate(answer: "回", for: "S", cards: [c]).map(\.sessionId) == .success("S"))
+        #expect((try? WebSnapshot.validate(answer: "回", askId: c.asks.first?.id, for: "S", cards: [c]).get())?.card.sessionId == "S")
         // 舊行為（沒有佇列）：blocked 自報是「卡住」，不在等你回答
         #expect(build(glow: .waiting, report: r, asks: []).column == .stuck)
     }

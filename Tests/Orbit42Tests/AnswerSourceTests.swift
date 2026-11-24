@@ -82,6 +82,18 @@ final class AnswerSourceTests: XCTestCase {
         XCTAssertFalse(press(p).contains("已改用訊息")); XCTAssertEqual(AskQueue.load("test-once").map(\.id), ["Q1"]); XCTAssertNil(AskQueue.load("test-once")[0].sendingAt); XCTAssertEqual(pre(), before)
         BoardActions.testDeliver = { sent.append($0); return true }
         _ = press(p); XCTAssertEqual(sent.count, n + 2); XCTAssertEqual(pre(), before + 1)
+        // 手機：按選項照舊記一筆；有打字（補充、只打字、打「放行」）送得到、題目收掉，但不記事先放行
+        func phone(_ x: AnswerPick?) -> String { BoardActions.answer(c, pick: x, source: .other) { _ in } }
+        AskQueue.save("test-once", [q]); _ = phone(p); XCTAssertEqual([sent.count, pre()], [n + 3, before + 2])
+        for x in [AnswerPick(askId: "Q1", option: "好，現在部署", free: "先別部署"), .init(askId: "Q1", option: nil, free: "好，部署"), .init(askId: "Q1", option: nil, free: "放行 BABCD")] {
+            AskQueue.save("test-once", [q]); let k = sent.count
+            _ = phone(x); XCTAssertEqual(sent.count, k + 1); XCTAssertTrue(AskQueue.load("test-once").isEmpty); XCTAssertEqual(pre(), before + 2)
+            _ = phone(x); XCTAssertEqual(sent.count, k + 1)
+        }
+        XCTAssertTrue(sent.last == "放行 BABCD")
+        AskQueue.save("test-once", [q]); BoardActions.testDeliver = { _ in false }
+        _ = phone(.init(askId: "Q1", option: nil, free: "x")); XCTAssertEqual(AskQueue.load("test-once").map(\.id), ["Q1"])
+        XCTAssertTrue(press(nil).contains("不在待答清單"))
     }
     /// 舊的 showork（不認得 caps）、不存在的：不打字
     func testOldHookMeansNoTyping() throws {

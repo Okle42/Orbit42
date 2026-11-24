@@ -280,11 +280,18 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
     }
 
     /// 按選項：只收這張卡片列出的選項之一（任意文字走「傳話」，會加前綴）
-    public static func validate(answer text: String, for id: String, cards: [BoardCard]) -> Result<BoardCard, CardError> {
+    /// 手機球體另外帶 option／free（11-25）：選項可以是去掉「（建議）」的、可以加補充或只打字；要送的字由 AnswerPick 組，不用對方給的整句。
+    /// 沒帶題目 id（舊版 App）＝認不出答哪一題 ⇒ 不送
+    public struct Answer: Sendable { public let card: BoardCard, pick: AnswerPick, text: String }
+    public static func validate(answer text: String, askId: String?, option: String? = nil, free: String? = nil, for id: String, cards: [BoardCard]) -> Result<Answer, CardError> {
         guard let c = cards.first(where: { $0.sessionId == id }) else { return .failure(.init("找不到這個 session，可能已經關了")) }
         guard let it = Inbox.items([c]).first, it.kind == .reply else { return .failure(.init("它現在沒有在等你回答")) }
-        guard it.options.contains(text) else { return .failure(.init("只能按卡片上的選項")) }
-        return .success(c)
+        guard it.askId != nil else { return .failure(.init("這題不在待答清單裡，這裡答不了，請到它的終端機回答")) }
+        guard let askId else { return .failure(.init("App 版本太舊，請更新或到電腦答")) }
+        guard let q = c.asks.first(where: { $0.id == askId }) else { return .failure(.init("這題已經答過或已收掉，沒有送出")) }
+        let pick = option == nil && free == nil ? AnswerPick(askId: askId, option: text) : AnswerPick(askId: askId, option: option, free: free)
+        guard let t = pick.text(for: q) else { return .failure(.init("只能按卡片上的選項")) }
+        return .success(Answer(card: c, pick: pick, text: t))
     }
 
     /// 傳話／派工的對象：看板上活著的 session（子 agent 那種「#」卡不算）
@@ -298,7 +305,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
 
 /// 網頁能做的事只有這五種：沒有跑指令、看檔案、關／重開 session、改名字或設定
 public enum WebAction: Equatable, Sendable {
-    case answer(session: String, text: String, askId: String? = nil)     // 按卡片選項（跟原生收件匣同一條 BoardActions.answer）
+    case answer(session: String, text: String, askId: String? = nil, option: String? = nil, free: String? = nil)     // 按卡片選項（跟原生收件匣同一條 BoardActions.answer）
     case send(session: String, text: String)       // 傳話給某個 session（BoardActions.answer 同一條送法，前面加 sendPrefix）
     case dispatch(session: String, text: String)   // 開派工單（BoardActions.dispatch，跟看板「派工」同一條；內文加 sendPrefix）
     case cancel(task: String)                      // 取消派工單（Captain.cancel，跟 showork task cancel 同一條）
@@ -308,10 +315,10 @@ public enum WebAction: Equatable, Sendable {
         switch self { case .answer: "answer"; case .send: "send"; case .dispatch: "dispatch"; case .cancel: "cancel"; case .ack: "ack" }
     }
     public var target: String {
-        switch self { case .answer(let s, _, _), .send(let s, _), .dispatch(let s, _): s; case .cancel(let t): t; case .ack(let i): i }
+        switch self { case .answer(let s, _, _, _, _), .send(let s, _), .dispatch(let s, _): s; case .cancel(let t): t; case .ack(let i): i }
     }
     public var text: String? {
-        switch self { case .answer(_, let t, _), .send(_, let t), .dispatch(_, let t): t; default: nil }
+        switch self { case .answer(_, let t, _, _, _), .send(_, let t), .dispatch(_, let t): t; default: nil }
     }
 
     public static let paths = ["/api/answer", "/api/send", "/api/task", "/api/task/cancel", "/api/inbox/ack"]
@@ -331,6 +338,13 @@ public enum WebAction: Equatable, Sendable {
         switch path {
         case "/api/answer", "/api/send", "/api/task":
             guard let id = str("id"), sessionOK(id) else { return .failure(.init("缺 id 或格式不對")) }
+            if path == "/api/answer", str("option") != nil || str("free") != nil {
+                let option = str("option"), free = str("free")
+                guard (option?.count ?? 0) <= maxAnswer else { return .failure(.init("選項太長了（最多 \(maxAnswer) 字）")) }
+                guard (free?.count ?? 0) <= maxText else { return .failure(.init("太長了（最多 \(maxText) 字）")) }
+                let text = [option, free.map { option == nil ? $0 : "補充：" + $0 }].compactMap { $0 }.joined(separator: "\n")      // 稽核用
+                return .success(.answer(session: id, text: text, askId: str("askId"), option: option, free: free))
+            }
             guard let text = str("text") else { return .failure(.init("缺 text")) }
             let limit = path == "/api/answer" ? maxAnswer : maxText
             guard text.count <= limit else { return .failure(.init("太長了（最多 \(limit) 字）")) }
