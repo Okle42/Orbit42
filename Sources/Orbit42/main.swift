@@ -218,6 +218,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         return ""
     }
+    private(set) var composing: Set<String> = []
     func attachForTest(job: String) {
         userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": "測試背景", "cwd": NSHomeDirectory()]))
     }
@@ -353,6 +354,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             guard let s = sats[id] else { return }
             if s.pty == nil || s.exited != nil { start(s, cols: cols, rows: rows) }
             else { if let v = views[id] { Self.call(v, "window.orbitReplay", [id, s.snapshot().base64EncodedString()]) }; s.localResize(cols: cols, rows: rows) }
+        case "compose": if m["on"] as? Bool == true { composing.insert(id) } else { composing.remove(id) }      // 輸入法組字中（滑過浮起要暫停）
         case "input":
             if let d = (m["data"] as? String)?.data(using: .utf8) { input(id, d) }
         case "resize": sats[id]?.localResize(cols: cols, rows: rows); if ProcessInfo.processInfo.environment["ORBIT_TEST_DRAG"] != nil { print("resize \(id) \(cols)x\(rows) pty=\(sats[id]?.pty != nil)"); fflush(stdout) }
@@ -647,7 +649,9 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     let host = Host()
     let login = LoginPanel()
     private var sphereView: NSView?
+    private(set) var askFloat: AskFloat?
     private var askTimer: Timer?
+    private var loginWatch: NSKeyValueObservation?
     private var webWatch: Timer?
     /// 11-23 Keng「Orbit42 改檔自動重新載入，免重開」：每秒看球體頁（Web/sphere.html，SHOWORK_WEB_DIR 優先）的修改時間，
     /// 變了且連續 2 次一樣（檔案寫完）才 reload 球體 WebView；資料下一秒由宿主重推，版面在 localStorage。衛星終端機不動。
@@ -683,6 +687,10 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         askTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, let web = self.sphereView as? WKWebView, !web.isHidden else { return }
+                if SphereEmbed.askFloat {          // 浮層活著：球體不畫答案卡，不用讓位（剛剛讓位的放回來）
+                    for x in self.satWins.values where x.yieldingToAsk { x.yieldingToAsk = false; x.alphaValue = 1 }
+                    return
+                }
                 web.evaluateJavaScript(js) { [weak self] r, _ in
                     MainActor.assumeIsolated {
                         guard let self, let root = self.window.contentView, let s = r as? String, let d = s.data(using: .utf8),
@@ -705,7 +713,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     }
     /// 11-23 Keng：每顆衛星一個終端機小視窗，可以同時開好幾個、重疊、各自拖動；點哪個哪個到最上面
     private var satWins: [String: TermWindowView] = [:]
-    private var zTop: CGFloat = 10
     /// 最上面那個開著的衛星小視窗（測試 hooks 用）
     private var frontSat: TermWindowView? {
         satWins.values.filter { !$0.isHidden }.max { ($0.layer?.zPosition ?? 0) < ($1.layer?.zPosition ?? 0) }
@@ -721,7 +728,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         window.collectionBehavior = [.fullScreenPrimary, .managed]
         window.isReleasedWhenClosed = false
         window.delegate = self
-        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        let root = AskFloatRoot(frame: NSRect(origin: .zero, size: size))
         root.wantsLayer = true
         window.contentView = root
         let sphere = SphereEmbed.makeView()
@@ -734,6 +741,12 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         // 球體載入後把它整個蓋住（按「帳號⋯」只看到球淡出、登入頁出不來）
         root.addSubview(login.web, positioned: .above, relativeTo: sphere)      // 終端機小視窗在下面最後才加，自然在最上層
         login.web.wantsLayer = true; login.web.layer?.zPosition = 1               // 小視窗從 10 起跳，點到的再往上（raise）
+        if let f = AskFloat() {                // 11-25 Keng：答案卡浮在最上層；建得起來、說過 ready 球體才不畫
+            f.terminals = { [weak self] in self?.satWins.values.filter { !$0.isHidden && $0.wantShown }.map(\.frame) ?? [] }
+            root.addSubview(f.view); root.float = f.view; askFloat = f
+            f.suppressed = !login.web.isHidden
+            loginWatch = login.web.observe(\.isHidden) { [weak f] w, _ in MainActor.assumeIsolated { f?.suppressed = !w.isHidden } }
+        }
         login.runInTerminal = { [weak self] name, brain, cmd in self?.host.runCommand(name: name, brain: brain, command: cmd) }
         login.onEnter = { [weak self] list in self?.enter(list) }
         host.onExited = { [weak self] _ in self?.login.check() }
@@ -763,11 +776,70 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             if cmd.hasPrefix("theme:") { self?.applyTheme(String(cmd.dropFirst(6))) }
             if cmd.hasPrefix("arrangeSats") {          // "arrangeSats:x,y,w,h"＝球體量好的空位（網頁座標，左上原點）
                 let v = cmd.split(separator: ":").dropFirst().first?.split(separator: ",").compactMap { Double($0) } ?? []
+                if cmd.hasPrefix("arrangeSatsNow"), let self { self.pinned = nil; for w in self.satWins.values { w.userMoved = false } }     // 按了「自動排版」：全部歸位、疊放回到排列順序
                 self?.arrangeSats(in: v.count == 4 ? CGRect(x: v[0], y: v[1], width: v[2], height: v[3]) : nil)
             }
         }
         watchAskCard(); watchSphereFile()
-        startModels(test: test); startMoons()
+        // 測試：ORBIT_TEST_ASK="<題目 json>@<png>" ⇒ 開 3 顆印字的衛星＋假題目，整個主視窗截圖（展開、縮成一條），印位置後結束
+        if let spec = env["ORBIT_TEST_ASK"], let at = spec.lastIndex(of: "@"), test {
+            let out = String(spec[spec.index(after: at)...])
+            @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+            @MainActor func shot(_ path: String) {
+                guard let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
+                root.cacheDisplay(in: root.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                print("ask shot \(path) float=\(askFloat?.view.frame ?? .zero) hidden=\(askFloat?.view.isHidden ?? true) first=\(type(of: window.firstResponder ?? self))"); fflush(stdout)
+            }
+            after(3) { [weak self] in
+                guard let self else { return }
+                self.login.web.isHidden = true
+                self.applyTheme(env["ORBIT_TEST_THEME"] ?? "dark")
+                (self.sphereView as? WKWebView)?.evaluateJavaScript("window.karaTheme('\(self.themeNow)')", completionHandler: nil)
+                for i in 1...3 { _ = self.host.runCommand(name: "測試 \(i)", brain: .claude, command: "for n in 1 2 3 4 5 6 7 8; do echo 衛星 \(i) 第 $n 行; done; sleep 60") }
+                after(4) {
+                    self.askFloat?.testUpdate(URL(fileURLWithPath: String(spec[..<at])))
+                    after(2) { shot(out); self.askFloat?.testJS("collapse(false)"); after(2) { shot(out + ".strip.png")
+                        self.askFloat?.testJS("expand()"); after(1) { self.window.setContentSize(NSSize(width: 620, height: 460)); after(2) { shot(out + ".small.png"); self.host.shutdown(); exit(0) } } } }
+                }
+            }
+        }
+        // 測試：ORBIT_TEST_LIFT="<題目 json>@<png>" ⇒ 7 顆衛星，假滑鼠位置：平常、滑過、打字中另一顆被滑過、答案卡同時在；印疊放／焦點／位置有沒有變、每步耗時
+        if let spec = env["ORBIT_TEST_LIFT"], let at = spec.lastIndex(of: "@"), test {
+            let out = String(spec[spec.index(after: at)...])
+            @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+            after(3) { [weak self] in
+                guard let self else { return }
+                self.login.web.isHidden = true; self.liftTest = true
+                self.askFloat?.testUpdate(URL(fileURLWithPath: "/dev/null"))
+                self.applyTheme(env["ORBIT_TEST_THEME"] ?? "dark")
+                (self.sphereView as? WKWebView)?.evaluateJavaScript("window.karaTheme('\(self.themeNow)')", completionHandler: nil)
+                let ids = (1...7).map { i in self.host.runCommand(name: "測試 \(i)", brain: .claude, command: "for n in 1 2 3 4 5 6; do echo 衛星 \(i) 第 $n 行; done; sleep 90") }
+                func num(_ id: String?) -> String { id.flatMap { ids.firstIndex(of: $0) }.map { "\($0 + 1)" } ?? "-" }
+                @MainActor func shot(_ tag: String) {
+                    guard let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
+                    root.cacheDisplay(in: root.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out + "." + tag + ".png"))
+                    print("lift \(tag) order=\(root.subviews.compactMap { v in ids.firstIndex { self.satWins[$0] === v }.map { "\($0 + 1)" } }.joined()) lifted=\(num(self.lift.lifted)) typing=\(num(self.typingSat)) dim=\(ids.filter { self.satWins[$0]?.dimmed == true }.map { num($0) }.joined()) last=\(type(of: root.subviews.last!)) frames=\(ids.map { NSStringFromRect(self.satWins[$0]!.frame) }.joined().hashValue)"); fflush(stdout)
+                }
+                @MainActor func over(_ i: Int) { let f = self.satWins[ids[i]]!.frame; self.mouse = NSPoint(x: f.minX + 40, y: f.maxY - 14); self.liftStep() }
+                after(6) {
+                    self.pinned = nil; self.restack()
+                    self.window.makeFirstResponder(self.satWins[ids[3]]!.content)
+                    let fr = self.window.firstResponder
+                    shot("1平常"); over(1)
+                    after(0.05) { print("lift 0.05s lifted=\(num(self.lift.lifted))")
+                    after(0.8) { shot("2滑過"); print("lift focus same=\(self.window.firstResponder === fr)"); do { let f = self.satWins[ids[5]]!.frame; self.mouse = NSPoint(x: f.maxX - 30, y: f.maxY - 14); self.liftStep() }
+                    after(0.8) { shot("3打字中另一顆被滑過")
+                        self.askFloat?.testUpdate(URL(fileURLWithPath: String(spec[..<at])))
+                    after(2) { over(1); after(0.8) { shot("4答案卡同時在"); self.mouse = nil; self.liftStep(); shot("5離開歸位")
+                        print("lift focus same=\(self.window.firstResponder === fr) timer=\(self.liftTimer != nil)")
+                        let t = CACurrentMediaTime(); for k in 0..<2000 { self.mouse = NSPoint(x: CGFloat(200 + k % 900), y: 400); self.liftStep() }
+                        print(String(format: "lift step=%.1fus", (CACurrentMediaTime() - t) / 2000 * 1e6)); fflush(stdout); self.host.shutdown(); exit(0) } } } } }
+                }
+            }
+        }
+        startModels(test: test); startMoons(); startLift()
         // 測試：ORBIT_TEST_CHROME=<網址> ⇒ 衛星裡開 Chrome，點輸入框、組字、打字、按 Enter、開新視窗連結，印結果
         if let u = env["ORBIT_TEST_CHROME"].flatMap(WebPane.parse) {
             @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
@@ -1282,6 +1354,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         for w in satWins.values { w.appearance = ap }
         host.theme = themeNow
         host.js("window.orbitTheme", dark ? "dark" : "light")
+        askFloat?.theme = themeNow
         login.web.appearance = ap
     }
 
@@ -1326,7 +1399,9 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     /// 11-23 Keng「我要限定範圍」：只在左欄卡片右緣＋小縫 ～ 右欄戰情卡左緣－小縫、「思考中」狀態字上面這塊排（web＝球體量好的空位）
     func arrangeSats(in web: CGRect? = nil) {
         guard let root = window.contentView else { return }
-        let wins = root.subviews.compactMap { $0 as? TermWindowView }.filter { !$0.isHidden && $0.wantShown }.sorted { $0.seq < $1.seq }   // 照打開先後：點一下疊到最上面不會換位置
+        let wins = root.subviews.compactMap { $0 as? TermWindowView }.filter { !$0.isHidden && $0.wantShown && !$0.userMoved && !$0.zoomed }      // 自己拖過／放大的不動
+            .sorted { ($0.secretary ? 1 : 0, $0.seq) < ($1.secretary ? 1 : 0, $1.seq) }   // 照打開先後，秘書最後（右下最上層）：跟疊放順序同一套（SatStack）
+        restack()
         guard !wins.isEmpty else { return }
         let H = root.bounds.height
         let area = web.map { NSRect(x: $0.minX, y: H - $0.maxY, width: $0.width, height: $0.height) }
@@ -1361,12 +1436,13 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     /// 現任秘書的衛星：紅框＋光暈＋小標，標題改成它當下在做的事（換人就跟著換）
     private func markSecretary() {
         guard !satWins.isEmpty else { return }
+        var swapped = false; defer { if swapped { restack(); autoArrange() } }      // 換了秘書才動
         let cap = CaptainStore.captain()?.sessionId, test = ProcessInfo.processInfo.environment["ORBIT_TEST_SECRETARY"] != nil
         for (id, w) in satWins where !id.hasPrefix("3d-") {
             let sid = host.sessionId(id), on = test || (cap != nil && sid == cap)
             if on { w.titleLabel.stringValue = sid.flatMap { NicknameStore.get($0)?.doing } ?? "待命中" }
             else if w.secretary { w.titleLabel.stringValue = host.title(id) }
-            w.secretary = on
+            if w.secretary != on { w.secretary = on; swapped = true }
         }
     }
 
@@ -1471,6 +1547,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private var confirmAlert: NSAlert?          // 測試 hook 用（按確認視窗的按鈕）
     private func closeSat(_ id: String) {
         guard let w = satWins.removeValue(forKey: id) else { return }
+        lift.drop(id); if pinned == id { pinned = nil }; restack()
         dropMoons(id); moonSids[id] = nil
         animate(w, on: false) { [weak self] in w.removeFromSuperview(); self?.autoArrange() }
     }
@@ -1488,19 +1565,93 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         for id in open { if let w = satWins[id] { animate(w, on: false) } }
     }
 
-    /// 疊到最上面：zPosition 遞增，再照 zPosition 重排 subview 順序（不把視圖拿下來重放，終端機不會失焦）
+    // MARK: 疊放與滑過浮起（11-25 Keng）：平常照排列順序疊，滑過 0.15 秒浮起（只改畫的順序，不動焦點、位置、打字目標）
+    private var pinned: String?                 // 點過／在裡面打字的那顆：留在上面，點別顆才換
+    private var lift = HoverLift()
+    private var mouse: NSPoint?                 // 主視窗座標；nil＝不在視窗裡
+    private var lastScroll = 0.0, menuOpen = 0, liftTimer: Timer?
+    private var liftTrack: LiftTracker?
+    private var stackWins: [SatStack.Win] { satWins.map { SatStack.Win(id: $0.key, seq: $0.value.seq, secretary: $0.value.secretary) } }
+    private func id(of w: NSView) -> String? { satWins.first { $0.value === w }?.key }
+    private var typingSat: String? {
+        guard let v = window.firstResponder as? NSView else { return nil }
+        return satWins.first { v.isDescendant(of: $0.value.content) }?.key
+    }
     private func raise(_ w: NSView) {
+        pinned = id(of: w); lift.settle(hover: hoverSat()); restack()
+    }
+    private var stackOrder: [String] { SatStack.order(stackWins, pinned: pinned, lifted: lift.lifted) }
+    private func hoverSat() -> String? {
+        guard let p = mouse else { return nil }
+        if let f = askFloat?.view, !f.isHidden, f.frame.contains(p) { return nil }       // 在答案卡上：不算碰到底下的終端機
+        let shown = satWins.filter { !$0.value.isHidden && $0.value.wantShown }
+        return SatStack.hit(p, order: stackOrder, frames: shown.mapValues(\.frame))
+    }
+    private var liftPaused: Bool {
+        NSEvent.pressedMouseButtons != 0 || CACurrentMediaTime() - lastScroll < 0.3 || menuOpen > 0 || window.attachedSheet != nil || NSApp.modalWindow != nil
+            || host.composing.contains { satWins[$0]?.isHidden == false } || askFloat?.dragging == true
+    }
+    private func liftStep() {
+        let now = CACurrentMediaTime(), was = lift.lifted
+        lift.step(now, hover: hoverSat(), inside: mouse != nil && (window.isKeyWindow || liftTest), paused: liftPaused)
+        if lift.lifted != was { restack() }
+        liftTimer?.invalidate(); liftTimer = nil
+        // 有事在等（停留、歸位緩衝）才排下一次；暫停中有浮起或滑鼠在視窗裡時 0.1 秒再看，沒事就完全不跑
+        let next = lift.due(now) ?? (liftPaused && mouse != nil && !satWins.isEmpty ? 0.1 : nil)
+        if let t = next { liftTimer = Timer.scheduledTimer(withTimeInterval: max(0.01, t), repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.liftStep() } } }
+    }
+    private var liftTest = false
+    /// 照順序設 zPosition、重排 subview（不把視圖拿下來重放，終端機不會失焦）；變暗與打字標記一起更新
+    private func restack() {
         guard let root = window.contentView else { return }
-        if root.subviews.last === w, (w.layer?.zPosition ?? 0) >= zTop { return }
-        zTop += 1; w.wantsLayer = true; w.layer?.zPosition = zTop
+        let order = stackOrder, typing = lift.lifted == nil ? nil : typingSat, dim = SatStack.dimmed(order, lifted: lift.lifted, typing: typing)
+        let move = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        var changed = false
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for (i, id) in order.enumerated() {
+            guard let w = satWins[id] else { continue }
+            w.wantsLayer = true; let z = CGFloat(10 + i)
+            if w.layer?.zPosition != z { w.layer?.zPosition = z; changed = true }
+            w.setLift(dim: dim.contains(id), typing: typing == id && lift.lifted != id, animate: move)
+        }
+        CATransaction.commit()
+        guard changed else { return }
         root.sortSubviews({ a, b, _ in
             let za = a.layer?.zPosition ?? 0, zb = b.layer?.zPosition ?? 0
             return za < zb ? .orderedAscending : za > zb ? .orderedDescending : .orderedSame
         }, context: nil)
     }
+    private func startLift() {
+        guard let root = window.contentView else { return }
+        let t = LiftTracker(); liftTrack = t
+        t.moved = { [weak self] e in
+            guard let self, let root = self.window.contentView else { return }
+            self.mouse = e.map { root.convert($0.locationInWindow, from: nil) }
+            self.liftStep()
+        }
+        root.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect, .enabledDuringMouseDrag], owner: t))
+        NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .keyDown]) { [weak self] e in
+            MainActor.assumeIsolated {
+                guard let self, e.window === self.window else { return }
+                if e.type == .scrollWheel { self.lastScroll = CACurrentMediaTime(); if self.lift.lifted != nil || self.lift.due(0) != nil { self.liftStep() } }
+                else if !e.modifierFlags.contains(.command), let s = self.typingSat, self.pinned != s || self.lift.lifted != nil {      // 在裡面打字：那顆留在上面
+                    self.pinned = s; self.lift.settle(hover: self.hoverSat()); self.restack()
+                }
+            }
+            return e
+        }
+        let nc = NotificationCenter.default
+        for (n, d) in [(NSMenu.didBeginTrackingNotification, 1), (NSMenu.didEndTrackingNotification, -1)] {
+            nc.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { if let self { self.menuOpen = max(0, self.menuOpen + d) } } }
+        }
+        for n in [NSWindow.didResignKeyNotification, NSWindow.didMiniaturizeNotification] {
+            nc.addObserver(forName: n, object: window, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.mouse = nil; self?.liftStep() } }
+        }
+    }
     private func raiseUnder(_ e: NSEvent) {
         guard e.window === window, let root = window.contentView else { return }
         let p = root.convert(e.locationInWindow, from: nil)
+        if let f = askFloat?.view, !f.isHidden, f.frame.contains(p) { return }        // 點在答案卡上：不把底下的衛星提上來
         guard let w = root.subviews.last(where: { ($0 as? TermWindowView)?.yieldingToAsk == false && !$0.isHidden && $0.frame.contains(p) }) else { return }
         raise(w)
     }
@@ -1509,10 +1660,11 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         guard let root = window.contentView else { return }
         // Orbit42 視窗變小：開著的小視窗縮進來、留在視窗裡
         for w in satWins.values where !w.isHidden { w.frame = TermWindowView.fit(w.frame, in: root.bounds) }
+        askFloat?.layout()
     }
     /// 小視窗打開時從下方放大淡入（像 macOS 開視窗），收起時縮小淡出
     private func animate(_ w: TermWindowView, on: Bool, then: (() -> Void)? = nil) {
-        w.wantShown = on; w.yieldingToAsk = false         // 開／收動畫自己管透明度；淡掉與否下一輪 watchAskCard 再判斷
+        w.wantShown = on; w.yieldingToAsk = false
         guard let layer = w.layer, let root = window.contentView else { w.isHidden = !on; then?(); return }
         if on {
             w.frame = TermWindowView.fit(w.frame, in: root.bounds)
@@ -1541,6 +1693,15 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     }
     func windowDidResize(_ n: Notification) { layoutTerm() }
     func windowWillClose(_ n: Notification) { host.shutdown(); NSApp.terminate(nil) }
+}
+
+/// 滑鼠在主視窗裡的移動（離開＝nil）；只在視窗有焦點時收
+final class LiftTracker: NSResponder {
+    var moved: (NSEvent?) -> Void = { _ in }
+    override func mouseMoved(with e: NSEvent) { moved(e) }
+    override func mouseEntered(with e: NSEvent) { moved(e) }
+    override func mouseDragged(with e: NSEvent) { moved(e) }
+    override func mouseExited(with e: NSEvent) { moved(nil) }
 }
 
 /// Orbit42 取代 ShoWorkAgent：兩個不能同時跑（播報講兩次、權限卡兩邊搶、socket 打架）。

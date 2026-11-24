@@ -23,6 +23,7 @@ import ShoWorkCore
 final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     let web: WKWebView
     let desk: Bool          // 11-22：球體桌面版（SphereMini 的浮動面板，?desk=1）
+    let orbit: Bool
     private var loaded = false
     private var sent: String?
     private var pending = false
@@ -35,7 +36,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
 
     init?(dir: URL? = WorkWindow.webDir, desk: Bool = false, orbit: Bool = false) {
         guard let dir, FileManager.default.fileExists(atPath: dir.appendingPathComponent("sphere.html").path) else { return nil }
-        self.desk = desk
+        self.desk = desk; self.orbit = orbit
         let cfg = WKWebViewConfiguration()
         cfg.setURLSchemeHandler(OfficeWebSchemeHandler(root: dir), forURLScheme: OfficeWebSchemeHandler.scheme)
         let wv = SphereWebView(frame: .zero, configuration: cfg)
@@ -84,10 +85,15 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     // MARK: 網頁 → 原生端
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let m = message.body as? [String: Any], let a = m["action"] as? String else { return }
+        // 只收自己包裡的頁面、主框架（answer／permit 會變成使用者的輸入）
+        guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == OfficeWebSchemeHandler.scheme, let m = message.body as? [String: Any] else { return }
+        handle(m)
+    }
+    func handle(_ m: [String: Any]) {
+        guard let a = m["action"] as? String else { return }
         let str = { (k: String) in m[k] as? String }
         switch a {
-        case "ready": loaded = true; sent = nil; push(); pushPrefs()
+        case "ready": loaded = true; sent = nil; push(); pushPrefs(); pushAskFloat()
         case "focus":
             guard let c = card(str("sessionId")) else { return say("找不到這個 session 了。") }
             jump(c)
@@ -107,11 +113,13 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             let text = (str("text") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
             if blocked { return say("測試：不送出「\(text)」。") }
-            say(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { [weak self] in self?.say($0 + "。") } + "。")
+            let sid = c.sessionId, aid = str("askId") ?? ""
+            let tell: @MainActor (String) -> Void = { [weak self] in self?.say($0 + "。"); SphereEmbed.askResult?(sid, aid, $0) }
+            tell(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { tell($0) })
         case "permit":
             guard let c = card(str("sessionId")) else { return say("這個 session 已經不在了。") }
-            let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") ?? .deny
-            if let pid = str("permitId"), let cur = c.permit?.id, pid != cur { return say("這個對話框已經關了。") }
+            guard let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") else { return say("看不懂這個回答，沒有送出。") }
+            guard let pid = str("permitId"), pid == c.permit?.id else { return say("這個對話框已經關了。") }
             if blocked { return say("測試：不回答權限（\(d.rawValue)）。") }
             say(BoardActions.permit(c, PermitAnswer(d, message: str("message"), answers: m["answers"] as? [String: [String]])) + "。")
         case "listen": (m["on"] as? Bool ?? false) ? startListening() : listener?.finish()
@@ -136,6 +144,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         case "deskChrome":
             (web as? SphereWebView)?.noDrag = (m["noDrag"] as? [[Double]] ?? []).filter { $0.count == 4 }.map { NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) }
         case "openBoard": openBoard()
+        case "askShow": SphereEmbed.askShow?(str("sessionId") ?? "")      // 戰情列的「● 等你答」：叫出浮層那一題
         case "theme":           // 11-22 Keng：終端機（Ghostty）配色跟球體連動
             GhosttyTheme.apply(mode: str("mode") ?? "auto", now: str("name") ?? "dark", blocked: blocked)
             SphereEmbed.command?("theme:" + (str("name") ?? "dark"))     // 11-23 Orbit42：衛星終端機、標題列跟著球體深淺換
@@ -318,7 +327,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     }
 
     func webView(_ w: WKWebView, didFinish n: WKNavigation!) {
-        loaded = true; sent = nil; push(); pushPrefs()
+        loaded = true; sent = nil; push(); pushPrefs(); pushAskFloat()
         // 測試：SHOWORK_TEST_SPHERE_SHOT=<png> 12 秒後（等卡片讀完）用 WebKit 自己截（BoardWindow.snapshot 的 cacheDisplay 拍不到 WebGL 的顏色）
         let env = ProcessInfo.processInfo.environment
         if BoardWindow.testMode, let out = env[desk ? "SHOWORK_TEST_SPHERE_MINI_SHOT" : "SHOWORK_TEST_SPHERE_SHOT"] {
@@ -352,6 +361,8 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
                                 "voices": SphereVoices.all().map { ["id": $0.id, "name": $0.name, "group": $0.group] }])
     }
 
+    /// 答案卡由浮層畫還是球體自己畫
+    func pushAskFloat() { if orbit { web.evaluateJavaScript("window.karaAskFloat && window.karaAskFloat(\(SphereEmbed.askFloat))", completionHandler: nil) } }
     private func push() {
         guard loaded else { return }
         let heat = CityParse.cool42(FileManager.default.contents(atPath: HeatGate.cool42Path), now: Date())
@@ -368,6 +379,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         guard let d = try? JSONSerialization.data(withJSONObject: o, options: .sortedKeys) else { return }
         let s = String(decoding: d, as: UTF8.self)
         SphereEmbed.latestSphere = d                   // 11-23 iPhone App：GET /api/sphere 給同一份
+        if SphereEmbed.hosts.last === self, s != sent { SphereEmbed.askPayload?(d) }
         guard s != sent else { return }
         sent = s
         if ProcessInfo.processInfo.environment["SHOWORK_TEST_SPHERE_LOG"] != nil { print("sphere push", s.prefix(160)); fflush(stdout) }
@@ -411,6 +423,8 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             if let a = c.asks.first {
                 t["ask"] = a.shown; t["askId"] = a.id
                 if let opts = a.options, !opts.isEmpty { t["options"] = opts }
+                if a.unsureAt != nil { t["askState"] = "unsure" }                // 11-25 浮層：送出中／沒確認到要看得出來、不可再按
+                else if let x = a.sendingAt { t["askState"] = now.timeIntervalSince(x) < 60 ? "sending" : "unsure" }
             } else if let p = c.permit {
                 t["ask"] = p.isAsk ? (p.questions?.first?.question ?? "有選擇題要你回答")
                     : p.isPlan ? "計畫要你核准" : "要不要讓它執行 \(p.tool)：\(p.summary)"

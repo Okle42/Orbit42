@@ -280,6 +280,8 @@ function makeTerm(id) {
   }
   // 11-24 iPhone 鏡像也能打字、點擊：送 "key" 給 App（App 再轉給 Mac）。重播 Mac 的輸出時 xterm 會自動回答查詢
   // （游標位置、裝置屬性、焦點進出…），那些不是人打的，送回去會變成亂碼打進 Claude ⇒ 擋掉
+  // 11-25 滑過浮起：輸入法組字中要暫停（組字時換疊放會閃），告訴 App
+  if (!MIRROR) for (const [ev, on] of [["compositionstart", true], ["compositionend", false], ["blur", false]]) term.textarea?.addEventListener(ev, () => post({ action: "compose", id, on }));
   term.onData(data => { if (!MIRROR) return post({ action: "input", id, data }); if (!MIRROR_REPLY.test(data)) post({ action: "key", id, data }); });
   // 11-23：Claude Code 的「自動」主題會問終端機背景是什麼顏色（OSC 11／10）。xterm.js 預設不回答，
   // Claude Code 就當成深色背景、用白字 ⇒ 淺色模式下你送出的訊息、標籤都變成白字看不到。這裡照目前色票回答。
