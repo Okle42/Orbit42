@@ -650,7 +650,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     func show(test: Bool) {
         let env = ProcessInfo.processInfo.environment
         let size = NSSize(width: Double(env["ORBIT_TEST_W"] ?? "") ?? 1440, height: Double(env["ORBIT_TEST_H"] ?? "") ?? 900)
-        window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+        window = (test ? HiddenTestWindow.self : NSWindow.self).init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         window.title = "Orbit42"
         window.titlebarAppearsTransparent = true
@@ -1126,7 +1126,8 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             }
         }
         if test {
-            window.setFrameOrigin(NSPoint(x: -6000, y: -6000)); window.orderBack(nil)
+            window.alphaValue = 0; window.ignoresMouseEvents = true; window.isExcludedFromWindowsMenu = true; window.collectionBehavior = [.transient, .ignoresCycle]
+            window.setFrameOrigin(NSPoint(x: -30000, y: -30000)); window.orderBack(nil)
         } else {
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
             // 11-23 Keng：Orbit42 像系統一樣佔滿整個畫面（全螢幕桌面模式，預設開；切掉會記住）
@@ -1574,6 +1575,15 @@ enum AgentSwap {
     static func launchctl(_ args: [String]) { let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/launchctl"); p.arguments = args; try? p.run(); p.waitUntilExit() }
     static func stop() { launchctl(["bootout", "gui/\(getuid())/\(label)"]) }
     static func start() { if FileManager.default.fileExists(atPath: plist) { launchctl(["bootstrap", "gui/\(getuid())", plist]) } }
+}
+
+/// 測試視窗（11-24 Keng「不要跟我搶螢幕」）：有標題列的視窗排上來時，系統會把它拉回最近的螢幕（第二螢幕在左邊就拉到那裡）⇒ 不准拉、全透明、點不到、不當主視窗
+final class HiddenTestWindow: NSWindow {
+    override func constrainFrameRect(_ r: NSRect, to s: NSScreen?) -> NSRect { r }
+    override func toggleFullScreen(_ sender: Any?) {}
+    override func makeKeyAndOrderFront(_ sender: Any?) { orderBack(sender) }
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
 
 let orbitEnv = ProcessInfo.processInfo.environment
