@@ -153,6 +153,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         default: break
         }
     }
+    public var dragging: Bool { dragFrom != nil }
     private var told = NSSize.zero
     /// 視窗改大小、卡片內容變了、衛星動了都叫這個
     public func layout() {

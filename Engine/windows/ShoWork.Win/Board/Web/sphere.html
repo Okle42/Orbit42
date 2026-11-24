@@ -3016,7 +3016,7 @@ function syncSatArea(now) {
   satTimer = setTimeout(() => {
     const a = satArea(), sig = a.map(v => Math.round(v / 6)).join(",");
     if (sig === lastSatSig) return; lastSatSig = sig;
-    post({ action: "orbit", cmd: "arrangeSats:" + a.join(",") });
+    post({ action: "orbit", cmd: (now ? "arrangeSatsNow:" : "arrangeSats:") + a.join(",") });      // Now＝按了「自動排版」：自己拖過的也歸位
   }, now ? 0 : 150);
 }
 $("bAuto").onclick = () => {

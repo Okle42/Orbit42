@@ -14,6 +14,9 @@ final class TermWindowView: NSView {
     let seq: Int = { TermWindowView.seqN += 1; return TermWindowView.seqN }()     // 打開的先後（斜對角排的順序）
     var onResized: (NSSize) -> Void = { _ in }     // 11-23：拉右下角改大小 ⇒ 其他衛星跟著變一樣大
     var onMinimize: () -> Void = {}
+    /// 11-25：自己拖過／改過大小：自動重排不動它，按「自動排版」才歸位
+    var userMoved = false
+    var zoomed: Bool { zoomedFrom != nil }
     var wantShown = false                 // 目前該不該顯示（收起動畫跑到一半又被打開時用）
     private let bar = NSView()
     private let clip = NSView()
@@ -74,10 +77,23 @@ final class TermWindowView: NSView {
         addSubview(grip)
         self.grip = grip
         buildSecretary()
+        shade.wantsLayer = true; shade.layer?.cornerRadius = 12; shade.layer?.backgroundColor = NSColor(white: 0, alpha: 1).cgColor; shade.layer?.opacity = 0
+        shade.autoresizingMask = [.width, .height]; addSubview(shade)
         applyColors()
     }
     required init?(coder: NSCoder) { fatalError() }
     private var grip: ResizeGrip!
+    // 11-25 滑過浮起：別顆浮起時這顆稍微變暗；正在打字的那顆不變暗、多一圈強調色
+    private let shade = PassView()
+    private(set) var dimmed = false, typingMark = false
+    func setLift(dim: Bool, typing: Bool, animate: Bool) {
+        guard dim != dimmed || typing != typingMark else { return }
+        dimmed = dim; typingMark = typing
+        CATransaction.begin(); CATransaction.setDisableActions(!animate); CATransaction.setAnimationDuration(0.16)
+        shade.layer?.opacity = !dim ? 0 : effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? 0.28 : 0.12
+        layer?.borderWidth = typing ? 2 : 0; layer?.borderColor = typing ? accent(alpha: 0.9) : nil
+        CATransaction.commit()
+    }
 
     // MARK: 檢視面板（11-24 Keng「用衛星終端機把 3D 視窗吃掉」）：3D／圖片直接開在這顆衛星裡
     // 視窗夠寬＝左終端機、右檢視；窄＝上檢視、下終端機。中間那條線可以拖
@@ -270,7 +286,7 @@ final class TermWindowView: NSView {
         stroke.frame = bounds
         if bounds.width > 24, bounds.height > 24 { stroke.path = CGPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), cornerWidth: 10.5, cornerHeight: 10.5, transform: nil) }
         CATransaction.commit()
-        ring.frame = bounds; glow.frame = bounds.insetBy(dx: -Self.glowPad, dy: -Self.glowPad)
+        shade.frame = bounds; ring.frame = bounds; glow.frame = bounds.insetBy(dx: -Self.glowPad, dy: -Self.glowPad)
         titleLabel.frame = NSRect(x: side, y: 9, width: max(0, bounds.width - side * 2), height: 16)
         let area = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - Self.barHeight)
         if let pane {
@@ -318,7 +334,7 @@ final class TermWindowView: NSView {
         var o = NSPoint(x: d.origin.x + e.locationInWindow.x - d.mouse.x, y: d.origin.y + e.locationInWindow.y - d.mouse.y)
         o.x = min(max(o.x, -frame.width + 120), sup.bounds.width - 120)       // keep the title bar reachable
         o.y = min(max(o.y, -frame.height + Self.barHeight + 8), sup.bounds.height - Self.barHeight)
-        setFrameOrigin(o); zoomedFrom = nil
+        setFrameOrigin(o); zoomedFrom = nil; userMoved = true
     }
     override func mouseUp(with e: NSEvent) { if dragStart != nil { dragStart = nil; save() } }
 
@@ -327,7 +343,7 @@ final class TermWindowView: NSView {
         f.size.width = max(420, f.width + dx)
         let h = max(260, f.height - dy)
         f.origin.y += f.height - h; f.size.height = h
-        frame = f; zoomedFrom = nil
+        frame = f; zoomedFrom = nil; userMoved = true
         needsLayout = true
         onResized(frame.size)
     }
