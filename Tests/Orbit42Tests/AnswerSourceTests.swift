@@ -98,6 +98,10 @@ final class AnswerSourceTests: XCTestCase {
         AskQueue.save("test-once", [q]); BoardActions.testDeliver = { _ in false }
         _ = phone(.init(askId: "Q1", option: nil, free: "x")); XCTAssertEqual(AskQueue.load("test-once").map(\.id), ["Q1"])
         XCTAssertTrue(press(nil).contains("不在待答清單"))
+        // 前後換行的不算；手機傳話只有暗號＋種類才記
+        for t in ["\n放行！部署", "放行！\n部署", "幫我部署", "放行！部署吧"] { _ = BoardActions.answer(c, text: WebSnapshot.sendPrefix + t, resolvesAsk: false, speaker: .phone, word: t) }
+        AskQueue.save("test-once", [q]); _ = press(.init(askId: "Q1", option: nil, free: "\n放行！部署"))
+        _ = BoardActions.answer(c, text: "放行！\n部署", resolvesAsk: false); XCTAssertEqual(pre(), before)
         // 選項本身以暗號開頭才記事先放行；不打進終端機；指令列按的不算
         let w = PendingAsk(id: "Q1", ask: "部署嗎", options: ["放行！部署"], at: Date()), wp = AnswerPick(askId: "Q1", option: "放行！部署")
         BoardActions.testDeliver = { sent.append($0); return true }

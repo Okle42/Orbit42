@@ -159,7 +159,7 @@ final class WebServer {
         defer { BoardModel.shared.refresh() }
         switch a {
         case .answer(let id, let text, let askId, let option, let free):
-            // 跟原生收件匣按選項同一條：BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝；轉秘書【使用者已答】；「放行」直接放行）
+            // 跟原生收件匣按選項同一條：BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝；轉秘書【使用者已答】；放行暗號見 ReleaseWord）
             return WebSnapshot.validate(answer: text, askId: askId, option: option, free: free, for: id, cards: cards).flatMap { a in
                 // 這一次真的送到才算成功；被別處答走、正在送、沒送到都回失敗
                 let r = BoardActions.answering(a.card, pick: a.pick, source: .phone) { _ in }
@@ -171,7 +171,7 @@ final class WebServer {
             // 跟 3D 辦公室「跟他說」同一條（OfficeView onPersonSend → BoardActions.answer），前面加網頁前綴
             return WebSnapshot.target(id, cards: cards).map { c in
                 answered[c.sessionId] = Date()
-                return BoardActions.answer(c, text: WebSnapshot.sendPrefix + Inbox.message(text), resolvesAsk: false, speaker: .phone, word: text)
+                return BoardActions.answer(c, text: WebSnapshot.sendPrefix + Inbox.message(text), resolvesAsk: false, speaker: .phone, word: text, relayTag: Answered.webSent)
             }
         case .dispatch(let id, let text):
             // 跟看板「派工」（DispatchSheet）同一條：BoardActions.dispatch → Captain.dispatch（建單＋直送）

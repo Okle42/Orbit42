@@ -258,7 +258,7 @@ enum BoardActions {
         func byMessage(_ note: String) -> (sent: Bool, message: String) {
             // 手機／網頁打的字（補充或只打字）：送得到，但整句不當放行、不記事先放行（補充可能是反話）
             let typed = source == .phone && !(pick?.free?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
-            let m = answer(c, text: raw, ask: ask, queued: queued, speaker: typed || source == .other ? .none : .card, phoneTyped: typed)
+            let m = answer(c, text: raw, ask: ask, queued: queued, speaker: typed || source == .other || pick?.free?.contains(where: \.isNewline) == true ? .none : .card, phoneTyped: typed)
             let left = AskQueue.load(sid).contains { $0.id == ask.id }      // 送到的題目已經拿掉；還在＝沒送出（只拷貝到剪貼簿）
             AskQueue.unclaim(sid: sid, id: ask.id)
             return (!left, left ? m : m + note)
@@ -287,15 +287,17 @@ enum BoardActions {
         return started ? (false, "正在打進「\(c.title)」的終端機") : byMessage(off)
     }
 
-    /// speaker／word：放行怎麼判（CaptainInbox.decide；word＝要判的那段字，預設整句）。phoneTyped：標明手機打字、只走訊息不打進終端機
-    static func answer(_ c: BoardCard, text: String, resolvesAsk: Bool = true, ask given: PendingAsk? = nil, queued: Int? = nil, speaker: CaptainInbox.Speaker = .card, word: String? = nil, phoneTyped: Bool = false) -> String {
+    /// speaker／word：放行怎麼判（CaptainInbox.decide；word＝要判的那段字，預設整句）。phoneTyped：標明手機打字、只走訊息不打進終端機。relayTag：沒放行時轉秘書的標示
+    static func answer(_ c: BoardCard, text: String, resolvesAsk: Bool = true, ask given: PendingAsk? = nil, queued: Int? = nil, speaker: CaptainInbox.Speaker = .card, word: String? = nil, phoneTyped: Bool = false, relayTag: String = "") -> String {
         var line = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
         let ask = given ?? (resolvesAsk ? c.asks.first : nil)
         let question = ask?.ask ?? c.report?.ask
         let said = line
         let recordedAt = Date()
+        let judged = word ?? text      // 判原文（換行還在；line 已經把換行換成空白）
+        var recorded = false
         var ok = given == nil           // 認題目的（given）：真的送到才轉秘書、才留事先放行
-        defer { if ok { tellCaptain(c, answer: phoneTyped ? Answered.phoneTyped + said : said, question: question) } else { CaptainInbox.dropAnswer(sid: c.sessionId, answer: word ?? said, at: recordedAt) } }
+        defer { if ok { tellCaptain(c, answer: (phoneTyped ? Answered.phoneTyped : recorded ? "" : relayTag) + said, question: question) } else { CaptainInbox.dropAnswer(sid: c.sessionId, answer: judged, at: recordedAt) } }
         // 同一個 AI 排了好幾題：答案後面註明答的是哪一題（不然它分不出來）
         if let a = ask, (queued ?? c.asks.count) > 1 { line += "（回答的是：\(a.ask.prefix(60))）" }
         if phoneTyped { line = Answered.phoneTyped + line }
@@ -304,17 +306,21 @@ enum BoardActions {
             if let a = ask { AskQueue.resolve(sid: c.sessionId, id: a.id) }
             return msg
         }
-        // 會變成它的輸入的路（tmux、戰情中心自己持有的）：留記號讓 hook 不再判一次；留不了就不在這裡放行
+        // 會變成它的輸入的路（tmux、戰情中心自己持有的）：留記號讓 hook 不再判一次；留不了就只走訊息（打進去會被當成鍵盤）
         let viaPrompt = !phoneTyped && (SessionHost.shared.handle(for: c.sessionId) != nil || tmuxPane(of: c.pid) != nil)
         let marked = !viaPrompt || (hookKnowsMark() && TypedMark.put(sid: c.sessionId, text: line))
-        if marked, case .missed(let m) = CaptainInbox.decide(sid: c.sessionId, text: word ?? said, speaker: speaker, by: "戰情中心", byName: "使用者（戰情中心回答）", source: "戰情中心回答", question: question, now: recordedAt) {
-            line += "（戰情中心：\(m)）"
+        let peerOnly = phoneTyped || !marked
+        let decision = CaptainInbox.decide(sid: c.sessionId, text: judged, speaker: speaker, by: "戰情中心", byName: "使用者（戰情中心回答）", source: "戰情中心回答", question: question, now: recordedAt)
+        switch decision {
+        case .missed(let m): line += "（戰情中心：\(m)）"
+        case .recorded, .released: recorded = true
+        case .none: break
         }
         if let t = testDeliver { return t(line) ? delivered("已送給「\(c.title)」") : "沒送到" }
-        if !phoneTyped, let h = SessionHost.shared.handle(for: c.sessionId), let s = try? SessionHost.shared.ensure(h), s.send(line) {
+        if !peerOnly, let h = SessionHost.shared.handle(for: c.sessionId), let s = try? SessionHost.shared.ensure(h), s.send(line) {
             return delivered("已送進「\(c.title)」")
         }
-        if !phoneTyped, tmuxPane(of: c.pid) != nil {
+        if !peerOnly, tmuxPane(of: c.pid) != nil {
             if case .typed = sendBack(c, text: line) { return delivered("已送進「\(c.title)」") }
         }
         if let r = Peer.find(c.sessionId) {
@@ -324,7 +330,7 @@ enum BoardActions {
             case .failure(let e): NSLog("answer peer failed: \(e.message)")
             }
         }
-        if phoneTyped { return "沒送到「\(c.title)」，請到它的終端機回答" }
+        if peerOnly { return "沒送到「\(c.title)」，請到它的終端機回答" }
         if case .copied(let m) = sendBack(c, text: line) { return m }      // 只拷貝、還沒真的送到：題目留著
         return delivered("已送進「\(c.title)」")
     }

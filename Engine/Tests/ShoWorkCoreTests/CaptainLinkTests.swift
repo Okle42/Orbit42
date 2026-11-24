@@ -207,6 +207,9 @@ struct CaptainLinkTests {
         #expect(CaptainInbox.typedPrompt(sid: "c", prompt: "放行！BBBBB", who: "x", now: t0 + 1) == .none && CaptainInbox.item("BBBBB")?.released == nil)
         #expect(CaptainInbox.typedPrompt(sid: "c", prompt: "放行！BBBBB", who: "x", now: t0 + 5) != .none && CaptainInbox.item("BBBBB")?.released != nil)
         #expect(TypedMark.put(sid: "d", text: "先不要", now: t0) && TypedMark.take(sid: "d", prompt: "先不要", now: t0 + 2) && !TypedMark.take(sid: "d", prompt: "先不要", now: t0 + 3))
+        // 前一句還沒用掉：不蓋、第二句不打；過期的可以換
+        #expect(TypedMark.put(sid: "m", text: "第一句", now: t0) && !TypedMark.put(sid: "m", text: "第二句", now: t0 + 1) && TypedMark.put(sid: "m", text: "第一句", now: t0 + 2))
+        #expect(TypedMark.take(sid: "m", prompt: "第一句", now: t0 + 3) && TypedMark.put(sid: "m", text: "第二句", now: t0 + 4) && TypedMark.put(sid: "m", text: "第三句", now: t0 + 4 + TypedMark.ttl))
         // 收成 [Pasted text]、前後多了字：從嚴
         #expect(TypedMark.put(sid: "f", text: "開 PR", now: t0) && TypedMark.take(sid: "f", prompt: "[Pasted text #1 +3 lines]", now: t0 + 1))
         #expect(TypedMark.put(sid: "f", text: "開 PR", now: t0) && TypedMark.take(sid: "f", prompt: "好 開PR 喔", now: t0 + 1))
@@ -255,11 +258,11 @@ struct CaptainLinkTests {
             #expect(!CaptainInbox.authorizes(a, rule: r), "不該放行：\(a)")
         }
         #expect(CaptainInbox.usePreapproval(sid: "a", rules: [gh], now: t0) == nil)  // 沒回答過
-        CaptainInbox.recordAnswer(sid: "a", answer: "放行！開 PR，用 LINE 通知對方", question: "要開 PR 嗎？", now: t0)
+        CaptainInbox.recordAnswer(sid: "a", answer: "放行！開 PR", question: "要開 PR 嗎？", now: t0)
         #expect(CaptainInbox.usePreapproval(sid: "b", rules: [gh], now: t0 + 10) == nil)       // 別的 session 不算
         #expect(CaptainInbox.usePreapproval(sid: "a", rules: [gh, rm], now: t0 + 10) == nil)   // 有沒點名的就整條照擋
         let p = try #require(CaptainInbox.usePreapproval(sid: "a", rules: [gh], now: t0 + 10))
-        #expect(p.answer.hasPrefix("放行！開 PR"))
+        #expect(p.answer == "放行！開 PR")
         #expect(CaptainInbox.usePreapproval(sid: "a", rules: [gh], now: t0 + 20) == nil)       // 每種一次
         #expect(CaptainInbox.usePreapproval(sid: "a", rules: [line], now: t0 + 1801) == nil)   // 30 分鐘過期
         let i = CaptainInbox.releaseByAnswer(item("BPREA", .block, sid: "a", at: t0 + 10, fp: "f"), answer: p, now: t0 + 10)

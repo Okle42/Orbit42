@@ -6,7 +6,7 @@ public enum ReleaseWord: Equatable, Sendable {
     case none                       // 沒有暗號
     case latest                     // 放行！
     case id(String)                 // 放行！BABCD
-    case kinds(String)              // 放行！部署（後面的字交給 authorizes 看種類）
+    case kind(String)               // 放行！部署（完全等於固定清單；值＝規則名）
     case bad(String)                // 有暗號但不成立：原因
 
     /// 頭尾只去一般空白；零寬字、引號、別的正規化都不算
@@ -19,33 +19,44 @@ public enum ReleaseWord: Equatable, Sendable {
     }
 
     public static func parse(_ raw: String) -> ReleaseWord {
+        guard !raw.unicodeScalars.contains(where: CharacterSet.newlines.contains) else { return .none }      // 整句單行才算
         let t = trim(raw), u = Array(t.unicodeScalars)
         guard u.count >= 3, u[0] == "放", u[1] == "行", u[2] == "！" || u[2] == "!" else { return .none }
         // 夾著別的 session 的訊息、貼上的內容：不是本人打的整句
         guard !Peer.quotesPeer(t), !t.contains("<pasted_content"), !t.contains("[Pasted text") else { return .none }
-        let rest = trim(String(String.UnicodeScalarView(u.dropFirst(3))))
+        // 白名單（Gavin5 退件後改）：空、一個單號、一個種類詞；多一個字都不算
+        var r = Array(u.dropFirst(3))
+        let ws: Set<Unicode.Scalar> = [" ", "\t", "\u{3000}"], end: Set<Unicode.Scalar> = ["。", ".", "！", "!", "，", ",", "、", "；", ";", "~", "～"]
+        while let c = r.first, ws.contains(c) { r.removeFirst() }
+        while let c = r.last, ws.contains(c) || end.contains(c) { r.removeLast() }
+        let rest = String(String.UnicodeScalarView(r))
         if rest.isEmpty { return .latest }
-        if CaptainInbox.isQuestion(rest) { return .bad("這是問句") }
-        if CaptainInbox.isNegated(rest) { return .bad("句子裡有否定或延後的字") }
-        if rest.contains(where: \.isNewline) { return .bad("只能一行") }
-        if rest.range(of: "^[Bb][A-Za-z2-9]{4}$", options: .regularExpression) != nil { return .id(rest.uppercased()) }
-        return .kinds(rest)
+        if rest.range(of: "\\A[Bb][A-HJ-NP-Za-hj-np-z2-9]{4}\\z", options: .regularExpression) != nil { return .id(rest.uppercased()) }
+        if let k = rule(of: rest) { return .kind(k) }
+        return .bad("「放行！」後面只能是一個單號或一個種類，多一個字都不算")
     }
     /// 事先放行：這句有沒有點名這條規則
     public static func grants(_ raw: String, rule: String) -> Bool {
-        if case .kinds(let t) = parse(raw) { return CaptainInbox.authorizes(t, rule: rule) }
+        if case .kind(let k) = parse(raw) { return rule.hasPrefix(k) }
         return false
     }
     /// 「放行」開頭但沒有暗號（給提示用）
     public static func nearMiss(_ raw: String) -> Bool { parse(raw) == .none && trim(raw).hasPrefix("放行") }
-    public static let how = "要放行請用打的：放行！單號（要有驚嘆號；語音聽寫通常沒有）"
+    /// 種類的固定清單（Windows ReleaseWord.cs 同一份）。每一句都要本來就過得了 authorizes；刪檔不在內（一定要單號）
+    static let words: [(rule: String, words: [String])] = [
+        ("GitHub 公開發言", ["開 PR", "開 issue", "發 PR", "發 issue", "PR 留言", "issue 留言", "GitHub 留言", "發布", "create PR", "create issue"]),
+        ("LINE 對外傳訊", ["傳 LINE", "發 LINE", "用 LINE 通知", "LINE 通知"]),
+        ("firebase 部署", ["部署", "上線", "deploy"]),
+        ("App 上傳", ["上傳", "送審", "上架", "TestFlight"])
+    ]
+    static func rule(of rest: String) -> String? {
+        let r = rest.lowercased()
+        return words.first { $0.words.contains { let w = $0.lowercased(); return r == w || r == w.replacingOccurrences(of: " ", with: "") } }?.rule
+    }
+    public static let how = "沒放行，請打：放行！單號，或放行！部署（要有驚嘆號，後面只能是一個單號或種類；語音聽寫通常沒有驚嘆號）"
 }
 
 extension CaptainInbox {
-    static func isNegated(_ s: String) -> Bool {
-        let a = s.lowercased()
-        return a.contains("不") || negations.contains { a.range(of: $0, options: .regularExpression) != nil } || deferrals.contains { a.contains($0) }
-    }
     /// 誰說的：keyboard＝本人在終端機打；card＝本人在 Mac 介面按／打（答案卡、戰情傳話）；phone＝手機傳話（以前不能放行單號 ⇒ 只能事先放行種類）；none＝不算（CLI、手機答案卡打字、卡片打進終端機的）
     public enum Speaker: Sendable { case keyboard, card, phone, none }
     public enum Decision: Equatable, Sendable {
@@ -75,11 +86,9 @@ extension CaptainInbox {
         case .id(let id):
             guard let i = release(id: id, target: sid, by: by, byName: byName, source: source, now: now) else { return miss("找不到單號 \(id)（打錯、別的 session 的、已放行過、或超過一天）") }
             return .released(i)
-        case .kinds(let t):
-            let ks = preapprovalActions.map(\.rule).filter { authorizes(t, rule: $0) }
-            guard !ks.isEmpty else { return miss("看不出要放行哪一種動作或哪個單號") }
+        case .kind(let k):
             recordAnswer(sid: sid, answer: text, question: question, now: now)
-            return .recorded(ks.joined(separator: "、"))
+            return .recorded(k)
         }
     }
     static func open(_ sid: String, _ now: Date) -> [CaptainInboxItem] {

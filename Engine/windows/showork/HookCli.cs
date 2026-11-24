@@ -9,7 +9,7 @@ namespace ShoWork.Hooks;
 // showork.exe 的 hook 端子指令（W5，Mac 版 Sources/showork/main.swift＋CaptainCLI.swift 的移植）：
 //   showork brief          SessionStart hook：印出給 AI 的戰情中心說明
 //   showork card …         AI 每輪自報（完成度／信心度／要你決定的事）；--kind start 開工卡也進秘書收件匣
-//   showork title          UserPromptSubmit hook：開工卡提醒；使用者打「放行」／「放行 <單號>」放行被擋的指令
+//   showork title          UserPromptSubmit hook：開工卡提醒；使用者打「放行！」／「放行！<單號>」放行被擋的指令
 //   showork guard-push     PreToolUse(Bash) hook：動作預告（擋／告）＋1 樓保全的 push 守門
 //   showork preview-check "<指令>"…   動作預告的分類試算（不擋、不送、不寫檔）
 //   showork names          活著的 session：英文名、session 名、正在做的任務
@@ -177,7 +177,7 @@ static class HookCli
 
     /// UserPromptSubmit：開工卡提醒（使用者直接下的指令；秘書自己不用；local.json 的 noKickoffRepos 不發）。
     ///   距上一道使用者指令超過 10 分鐘＝完整提醒；10 分鐘內＝只在換了任務時才發。
-    ///   使用者打「放行」／「放行 <單號>」＝放行這個 session 被擋下的指令（寫 board\permits\releases.jsonl）。
+    ///   使用者打「放行！」／「放行！<單號>」＝放行這個 session 被擋下的指令（寫 board\permits\releases.jsonl）。
     /// Mac 的 Ghostty 標題（terminalSequence、做完時補寫 OSC 0）Windows 不做，只輸出 hookSpecificOutput
     public static string Title(string? stdin, string? envSid, DateTime now, string showork)
     {
@@ -193,7 +193,7 @@ static class HookCli
         {
             var p = prompt!.Trim();
             var who = NicknameStore.Get(sid)?.Name ?? "使用者";
-            var (freed, kinds, missed) = CaptainInbox.Decide(sid, p, sid, $"使用者（在 {who} 的終端機）", "使用者輸入", null, now);
+            var (freed, kinds, missed) = CaptainInbox.Decide(sid, prompt!, sid, $"使用者（在 {who} 的終端機）", "使用者輸入", null, now);
             if (freed is { } i)
             {
                 if (CaptainStore.Captain() is { } cap && cap != sid && Peer.Find(cap) is { } to)
@@ -253,7 +253,7 @@ static class HookCli
                 Preapproval? pre = blocks.Count > 0 && !released ? CaptainInbox.UsePreapproval(sid, blocks.Select(r => r.Name).ToList(), now) : null;
                 if (pre != null)
                 {
-                    // 戰情中心回答已點名這個動作＝事先放行：記成已放行＋已用、通知秘書，照常往下跑
+                    // 使用者事先放行（放行！種類）：記成已放行＋已用、通知秘書，照常往下跑
                     var item = CaptainInbox.ReleaseByAnswer(CaptainInbox.Waiting(sid, fp, now) ?? NewBlock(CaptainLink.HitSummary(cmd, hs)), pre, now);
                     if (captain != null && Peer.Find(captain) is { } to
                         && Peer.Send(to, $"【已放行 {item.Id}】{CaptainLink.Label(name, project)}：使用者事先放行「{pre.Answer}」・{item.Text}", "AI工作戰情中心（動作預告）").Id != null)

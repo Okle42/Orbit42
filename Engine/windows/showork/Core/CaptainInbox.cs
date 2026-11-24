@@ -180,11 +180,6 @@ static class CaptainInbox
         return named.Count > 0 && named.All(c => !Negations.Any(n => c.Contains(n, StringComparison.Ordinal)) && !c.Contains('不'));
     }
 
-    public static List<string> KindsNamed(string t) => PreapprovalWords.Select(p => p.Rule).Where(r => Authorizes(t, r)).ToList();
-    static readonly string[] Deferrals = { "再說", "再決定", "再看", "再談", "再議", "明天", "後天", "下週", "下禮拜", "下次", "改天", "晚點", "晚一點", "回頭", "之後", "以後", "給我看", "還沒", "了沒", "考慮", "想想", "嗎", "？", "?", "等", "之前", "已經", "如果", "要不要", "是否" };
-    static readonly string[] QuestionMarkers = { "？", "?", "嗎", "嘛", "幹麻", "能幹嘛", "要幹嘛", "是什麼", "為什麼", "為何", "怎麼", "怎樣", "如何", "什麼意思", "什麼", "可以嗎", "好嗎", "呢", "哪", "多少", "要不要", "是否", "對不對", "有沒有", "會不會", "能不能", "行不行", "可不可以" };
-    public static bool IsQuestion(string s) => QuestionMarkers.Any(m => s.Contains(m, StringComparison.Ordinal));
-    public static bool IsNegated(string s) => s.Contains('不') || Negations.Any(n => s.Contains(n, StringComparison.Ordinal)) || Deferrals.Any(n => s.Contains(n, StringComparison.Ordinal));
     public static List<InboxItem> Open(string sid, DateTime now) => All().Where(i => i.Kind == "block" && i.Sid == sid && i.Released == null && now - i.At < BlockWindow).ToList();
 
     /// 唯一會放行／記事先放行的地方（同 Mac decide；秘書 release 指令另有條件）。回傳：放行的單、記下的種類、沒放行的說明
@@ -205,11 +200,9 @@ static class CaptainInbox
                 return Release(xs[0].Id, sid, by, byName, source, now) is { } one ? (one, null, null) : Miss("找不到單");
             case "id":
                 return Release(v, sid, by, byName, source, now) is { } it ? (it, null, null) : Miss($"找不到單號 {v}（打錯、別的 session 的、已放行過、或超過一天）");
-            case "kinds":
-                var ks = KindsNamed(v);
-                if (ks.Count == 0) return Miss("看不出要放行哪一種動作或哪個單號");
+            case "kind":
                 RecordAnswer(sid, text, question, now);
-                return (null, string.Join("、", ks), null);
+                return (null, v, null);
             default: return (null, null, null);
         }
     }

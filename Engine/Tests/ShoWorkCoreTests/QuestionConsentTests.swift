@@ -35,7 +35,7 @@ struct QuestionConsentTests {
         let t0 = Date(timeIntervalSince1970: 1_793_000_000)
         CaptainInbox.recordAnswer(sid: "w", answer: "放行！開pr能幹嘛", question: "要開 PR 嗎？", now: t0)
         #expect(CaptainInbox.usePreapproval(sid: "w", rules: [gh], now: t0 + 5) == nil)
-        CaptainInbox.recordAnswer(sid: "w", answer: "放行！開pr merge", question: "要開 PR 嗎？", now: t0 + 10)
-        #expect(CaptainInbox.usePreapproval(sid: "w", rules: [gh], now: t0 + 15)?.answer == "放行！開pr merge")
+        CaptainInbox.recordAnswer(sid: "w", answer: "放行！開pr", question: "要開 PR 嗎？", now: t0 + 10)
+        #expect(CaptainInbox.usePreapproval(sid: "w", rules: [gh], now: t0 + 15)?.answer == "放行！開pr")
     }
 }

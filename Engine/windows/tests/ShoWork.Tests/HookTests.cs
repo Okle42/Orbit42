@@ -298,7 +298,7 @@ public sealed class HookTests : IDisposable
         Assert.False(CaptainInbox.Authorizes("刪掉吧", rm));
         Assert.True(CaptainInbox.Authorizes("好，上傳 TestFlight", "App 上傳 App Store Connect"));
         Assert.Null(CaptainInbox.UsePreapproval("a", new() { gh }, T0));
-        CaptainInbox.RecordAnswer("a", "放行！開 PR，用 LINE 通知對方", "要開 PR 嗎？", T0);
+        CaptainInbox.RecordAnswer("a", "放行！開 PR", "要開 PR 嗎？", T0);
         Assert.Null(CaptainInbox.UsePreapproval("b", new() { gh }, T0.AddSeconds(10)));
         Assert.Null(CaptainInbox.UsePreapproval("a", new() { gh, rm }, T0.AddSeconds(10)));
         Assert.StartsWith("放行！開 PR", CaptainInbox.UsePreapproval("a", new() { gh }, T0.AddSeconds(10))!.Answer);
@@ -311,14 +311,14 @@ public sealed class HookTests : IDisposable
     [Fact] // guard-push 走事先放行：點名的照常跑、記成已放行＋已用、稽核紀錄 source＝戰情中心回答；同一種第二次照擋；rm 照擋
     public void PreapprovalThroughGuard()
     {
-        CaptainInbox.RecordAnswer("S5", "放行！用 LINE 通知對方", "要通知嗎？", T0);
+        CaptainInbox.RecordAnswer("S5", "放行！傳 LINE", "要通知嗎？", T0);
         var line = "python3 ~/demo/line_send.py 對方 '晚上見'";
         Assert.Null(HookCli.GuardPush(Stdin("S5", line), T0.AddSeconds(5), NoGit, NoView));
         var i = Assert.Single(CaptainInbox.All());
         Assert.True(i.Released == T0.AddSeconds(5) && i.Used == T0.AddSeconds(5) && !i.Delivered);       // 沒有秘書：留在收件匣
         Assert.Equal("戰情中心回答", Assert.Single(CaptainInbox.Releases()).Str("source"));
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S5", line), T0.AddSeconds(6), NoGit, NoView)));
-        CaptainInbox.RecordAnswer("S5", "放行！刪掉吧，部署也可以", null, T0.AddSeconds(7));
+        CaptainInbox.RecordAnswer("S5", "放行！部署", null, T0.AddSeconds(7));
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S5", "rm -rf build"), T0.AddSeconds(8), NoGit, NoView)));
         Assert.Null(HookCli.GuardPush(Stdin("S5", "firebase deploy"), T0.AddSeconds(9), NoGit, NoView));
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S5", line), T0.AddSeconds(31 * 60), NoGit, NoView)));

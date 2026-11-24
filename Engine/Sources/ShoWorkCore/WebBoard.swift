@@ -368,7 +368,7 @@ public enum WebAction: Equatable, Sendable {
             guard text.count <= limit else { return .failure(.init("太長了（最多 \(limit) 字）")) }
             switch path {
             case "/api/answer": return .success(.answer(session: id, text: text, askId: str("askId")))
-            case "/api/send": return .success(.send(session: id, text: text))
+            case "/api/send": return .success(.send(session: id, text: o["text"] as? String ?? text))      // 原文：前後有換行的不能當放行暗號
             default: return .success(.dispatch(session: id, text: text))
             }
         case "/api/task/cancel":

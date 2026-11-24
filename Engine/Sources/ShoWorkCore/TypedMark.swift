@@ -13,12 +13,16 @@ public enum TypedMark {
     }
     static func file(_ sid: String) -> URL { dir.appendingPathComponent(sid + ".json") }
 
-    /// 寫好才能打字（寫不進去＝不打）
+    /// 寫好才能打字（寫不進去＝不打）。前一句的記號還沒用掉、內容不同：不蓋掉，這句不打（蓋掉的話前一句會被當成鍵盤打的）
     public static func put(sid: String, text: String, now: Date = Date()) -> Bool {
         guard !sid.isEmpty, !sid.contains("/") else { return false }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if let old = FileManager.default.contents(atPath: file(sid).path) {
+            if let m = try? BoardJSON.decoder.decode(Mark.self, from: old), now.timeIntervalSince(m.at) < ttl, m.text != TermAnswer.squash(text) { return false }
+            try? FileManager.default.removeItem(at: file(sid))
+        }
         guard let d = try? BoardJSON.encoder.encode(Mark(sid: sid, text: TermAnswer.squash(text), at: now)) else { return false }
-        return (try? d.write(to: file(sid), options: .atomic)) != nil
+        return (try? d.write(to: file(sid), options: .withoutOverwriting)) != nil
     }
     /// 這句是不是卡片打的；是就把記號用掉。收成 [Pasted text] 的、前後多了字的也算（寧可嚴）
     public static func take(sid: String, prompt: String, now: Date = Date()) -> Bool {

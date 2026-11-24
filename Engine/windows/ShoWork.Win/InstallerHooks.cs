@@ -72,7 +72,7 @@ static partial class Installer
         // 動作預告（擋／告）＋1 樓保全的 push 守門；不是高風險指令也不是 git push 就馬上放行
         pre.Add(Sub("Bash", "guard-push", 60));
         var prompt = Group(null, "working", async: true);
-        // 開工卡提醒；使用者打「放行」放行被擋的指令（Windows 不改視窗標題，所以只裝在 UserPromptSubmit）
+        // 開工卡提醒；使用者打「放行！」放行被擋的指令（Windows 不改視窗標題，所以只裝在 UserPromptSubmit）
         prompt.Add(Sub(null, "title", 2));
         return new JsonObject
         {

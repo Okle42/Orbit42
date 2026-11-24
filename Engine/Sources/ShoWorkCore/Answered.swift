@@ -9,6 +9,8 @@ public enum Answered {
     /// 手機／網頁打字的答案，給 AI 和秘書的訊息都標
     public static let phoneTyped = "【手機打字，不是放行】"
 
+    public static let webSent = "【網頁傳話，不是放行】"
+
     /// 「【使用者已答】Ruby：要 push 嗎？→好，push」
     public static func relay(name: String, question: String?, answer: String) -> String {
         let q = question.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } ?? "（卡片上沒有問題文字）"

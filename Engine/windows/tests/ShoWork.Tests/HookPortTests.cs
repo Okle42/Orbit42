@@ -177,7 +177,7 @@ public sealed class HookPortTests : IDisposable
         Assert.Contains("找不到單號", Say("放行！BZZZZ", 1));
         Assert.Contains($"使用者剛放行了單號 {item.Id}", Say("放行！", 2));
         Assert.Contains("沒有單可放", Say("放行！", 3));
-        Assert.Contains("事先放行了：LINE", Say("放行！傳給學弟", 4));
+        Assert.Contains("事先放行了：LINE", Say("放行！傳 LINE", 4));
     }
 
     // MARK: 自動交接

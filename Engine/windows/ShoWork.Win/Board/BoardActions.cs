@@ -219,7 +219,7 @@ static class BoardActions
             {
                 BoardHistory.Append(new Dictionary<string, string> { ["ev"] = "answer", ["id"] = c.SessionId, ["project"] = c.Project, ["text"] = line });
                 // 沒打進終端機（打進去由 hook 判）：這裡判放行暗號（CaptainInbox.Decide）
-                if (CaptainInbox.Decide(c.SessionId, line, "戰情中心", "使用者（戰情中心回答）", "戰情中心回答", c.Report?.Ask, t).Missed is { } miss) line += $"（戰情中心：{miss}）";
+                if (CaptainInbox.Decide(c.SessionId, text, "戰情中心", "使用者（戰情中心回答）", "戰情中心回答", c.Report?.Ask, t).Missed is { } miss) line += $"（戰情中心：{miss}）";
                 var (id, err) = SendPeer(peer, CaptainThread.AnswerPrefix + line, "AI工作戰情中心（使用者）", null);
                 if (id != null) return $"已送給「{c.Title}」";
                 Log.Note($"BOARD answer peer failed: {err}");
