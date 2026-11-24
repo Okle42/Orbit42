@@ -107,9 +107,9 @@ struct DisplayNameTests {
         var n = Nickname(name: "Hana", doing: "全部測試")
         #expect(Nicknames.title(n, project: "Room42v2", fallback: "x") == "Room42v2 · 全部測試")
         #expect(Nicknames.title(n, project: "（家目錄）", fallback: "x") == "全部測試")
-        n.role = "隊長"
-        #expect(Nicknames.title(n, project: "Room42v2", fallback: "x") == "隊長 · 全部測試")
-        #expect(Nicknames.label(n, project: "（家目錄）") == "隊長")
+        n.role = "秘書"
+        #expect(Nicknames.title(n, project: "Room42v2", fallback: "x") == "秘書 · 全部測試")
+        #expect(Nicknames.label(n, project: "（家目錄）") == "秘書")
         #expect(Nicknames.title(nil, project: "Room42v2", fallback: "開場那句") == "Room42v2 · 開場那句")
     }
 }

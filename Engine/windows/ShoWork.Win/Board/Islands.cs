@@ -46,7 +46,7 @@ public sealed class Island
 
 public static class Islands
 {
-    /// 回訊息類（戴耳機）：預設是秘書、電話窗口
+    /// 回訊息類（戴耳機）：預設是 LINE 秘書、電話窗口
     public static readonly string[] DefaultHeadsetProjects = { "ProjectC", "ProjectE" };
     /// 研究／審核類（戴眼鏡）：看標題
     static readonly string[] GlassesWords = { "研究", "審核", "審查", "盤點", "review", "research", "audit" };

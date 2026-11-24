@@ -70,7 +70,7 @@ struct OfficeView: View {
     @State private var inboxOpen = OfficeView.testEnv("SHOWORK_OFFICE_INBOX") != nil
     @State private var wide = true
     @State private var captainBusy = false
-    @State private var talkingTo: String? = OfficeView.testEnv("SHOWORK_OFFICE_TALK") ?? OfficeMemory.talkingTo   // 右側對話窗格在看誰（卡片 id）；nil＝隊長
+    @State private var talkingTo: String? = OfficeView.testEnv("SHOWORK_OFFICE_TALK") ?? OfficeMemory.talkingTo   // 右側對話窗格在看誰（卡片 id）；nil＝秘書
     static let inboxWidth: CGFloat = 1300
     static let railOn = ProcessInfo.processInfo.environment["SHOWORK_OFFICE_RAIL"] != "off"
     static let helpShownKey = "office.helpShown"
@@ -161,7 +161,7 @@ struct OfficeView: View {
         .onAppear { if let t = talkingTo { talk(t) } }        // 重開視窗（內容拆掉重建）或測試視窗指定了人：接回去讀它的對話
     }
 
-    /// 收件匣：按選項／打字回答、交給隊長
+    /// 收件匣：按選項／打字回答、交給秘書
     @ViewBuilder private func inbox(_ cards: [BoardCard], close: (() -> Void)?) -> some View {
         InboxPanel(items: Inbox.items(cards, answered: answered), captain: cards.first { $0.captain && !$0.id.contains("#") },
                    onAnswer: { it, text in
@@ -178,7 +178,7 @@ struct OfficeView: View {
                    },
                    onJump: jump, onFocus: { focusAttention([$0], answer: false) },
                    onCaptain: { text in
-                       if OfficeDemo.mode != nil || BoardWindow.testMode { onToast("測試：不交給隊長「\(text)」"); return }
+                       if OfficeDemo.mode != nil || BoardWindow.testMode { onToast("測試：不交給秘書「\(text)」"); return }
                        captainBusy = true
                        DispatchQueue.global().async {
                            let msg = BoardActions.askCaptain(text)
@@ -199,7 +199,7 @@ struct OfficeView: View {
                    onBack: { talk(nil) }, runs: runs)
     }
 
-    /// 右側對話窗格換人（nil＝回到隊長）：資料層改讀那個人的對話紀錄
+    /// 右側對話窗格換人（nil＝回到秘書）：資料層改讀那個人的對話紀錄
     private func talk(_ id: String?) {
         talkingTo = id; OfficeMemory.talkingTo = id
         let sid = id.map { String($0.split(separator: "#").first ?? Substring($0)) }   // 卡片 id＝sessionId（排隊卡多 #q…）；重開視窗時卡片還沒讀到也找得到
@@ -424,7 +424,7 @@ struct OfficeView: View {
         }
     }
 
-    /// 點角色：右邊窗格換成它的對話（隊長＝隊長對話）；等你回答的另外開回答卡。點保全開保全面板
+    /// 點角色：右邊窗格換成它的對話（秘書＝秘書對話）；等你回答的另外開回答卡。點保全開保全面板
     private func click(_ id: String) {
         if id.hasPrefix("neural:") { openGraph(String(id.dropFirst(7))); return }
         if id == "b1-board" { answeringId = nil; guardOpen = false; cityOpen = nil; boardOpen = true; return }
@@ -1143,7 +1143,7 @@ private struct B1BoardCard: View {
                 Button { onClose() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
                     .buttonStyle(.plain).help("關閉").accessibilityLabel("關閉").keyboardShortcut(.cancelAction)
             }
-            Text("AI 在 B1 休息時留下的工作心得；每則也會轉給隊長當流程優化的參考").font(.caption).foregroundStyle(.secondary)
+            Text("AI 在 B1 休息時留下的工作心得；每則也會轉給秘書當流程優化的參考").font(.caption).foregroundStyle(.secondary)
             if posts.isEmpty {
                 Text("還沒有留言。").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
             } else {
@@ -1182,7 +1182,7 @@ private struct B1BoardCard: View {
 // MARK: - 示範資料
 
 /// 截圖／量 CPU 用的假資料（只看環境變數，正式使用不會設）：
-///   SHOWORK_OFFICE_DEMO=all     每種動作、卡住原因、子 agent、等你回答各一個＋休息（咖啡吧）＋隊長；保全＝警示
+///   SHOWORK_OFFICE_DEMO=all     每種動作、卡住原因、子 agent、等你回答各一個＋休息（咖啡吧）＋秘書；保全＝警示
 ///   SHOWORK_OFFICE_DEMO=idle    真資料，但沒有人在工作（量閒置 CPU）
 ///   SHOWORK_OFFICE_DEMO=floors  N 層假專案（SHOWORK_OFFICE_DEMO_FLOORS，預設 15），量十幾層大樓的夜景燈光
 ///   SHOWORK_OFFICE_DEMO=camera  真資料，開窗 6 秒後最後一個人變成「要你決定」（看鏡頭會不會飛過去）
@@ -1205,15 +1205,15 @@ enum OfficeDemo {
         ]
     }
 
-    /// 示範的隊長對話與派工單（第 3 步截圖用）
+    /// 示範的秘書對話與派工單（第 3 步截圖用）
     static var captainThread: [CaptainLine] {
         let t = Date()
         return [
             CaptainLine(id: "d1", at: t.addingTimeInterval(-1500), role: .kang, text: "把 ProjectD 的設定頁做完，匯出功能一起做", via: "戰情中心"),
             CaptainLine(id: "d2", at: t.addingTimeInterval(-1480), role: .captain, text: "收到，兩條線並行：\n- **Dora** 繼續 ProjectD 設定頁\n- 匯出功能我開 workflow，三個決策已發到收件匣，你拍板就開工"),
             CaptainLine(id: "d3", at: t.addingTimeInterval(-900), role: .report, text: "【工作回報】Dora（ProjectD）：設定頁 完成度 92%", via: "AI工作戰情中心"),
-            CaptainLine(id: "d4", at: t.addingTimeInterval(-600), role: .report, text: "【派工回報 T1022020414】Ethan：完成——794c14b 已 push", via: "AI工作戰情中心"),
-            CaptainLine(id: "d5", at: t.addingTimeInterval(-590), role: .captain, text: "Ethan 的固定英文名已上線，我核對過 origin/main 一致。Dora 設定頁做到 11 項，有 3 項要你決定預設值，做完列表給你看。"),
+            CaptainLine(id: "d4", at: t.addingTimeInterval(-600), role: .report, text: "【派工回報 T1022020414】Fiona：完成——794c14b 已 push", via: "AI工作戰情中心"),
+            CaptainLine(id: "d5", at: t.addingTimeInterval(-590), role: .captain, text: "Fiona 的固定英文名已上線，我核對過 origin/main 一致。Dora 設定頁做到 11 項，有 3 項要你決定預設值，做完列表給你看。"),
             CaptainLine(id: "d6", at: t.addingTimeInterval(-120), role: .kang, text: "預設值照你建議的", via: "終端機"),
         ]
     }
@@ -1300,7 +1300,7 @@ enum OfficeDemo {
             make("Demo-等你", "Done-做完", .review, "做完了，你還沒看")
             for n in ["Coffee-休息", "Latte-休息", "Mocha-休息"] { make("Demo-休息", n, .done, "閒置") }
             make("Demo-休息", "Sleepy-沒交代", .done, "閒置") { $0.unused = true }
-            make("Demo-隊長", "Captain-派工", .active, "工作中") { c in c.captain = true; c.activity = .thinking }
+            make("Demo-統籌秘書", "Captain-派工", .active, "工作中") { c in c.captain = true; c.activity = .thinking }
             // 影分身：人住 Demo-休息、cd 去 Demo-動作逛（那層前帶畫半透明分身，驗證站位不穿家具）
             for n in ["Visitor-逛", "Guest-逛"] { make("Demo-休息", n, .active, "工作中") { $0.visiting = "Demo-動作" } }
             return out
@@ -1317,7 +1317,7 @@ enum OfficeDemo {
         private var sig = ""
         private var out: (TowerPlan, [String: FloorDecor], WanderPlan) = (TowerPlan(), [:], WanderPlan())
         static let themes: [String: TowerTheme] = ["demo-動作": .app_studio, "demo-卡住": .print_shop, "demo-等你": .call_room,
-                                                   "demo-休息": .library, "demo-隊長": .monitor]
+                                                   "demo-休息": .library, "demo-統籌秘書": .monitor]
         func make(_ deps: [OfficeDepartment], cards: [BoardCard], real: [String: FloorDecor]) -> (TowerPlan, [String: FloorDecor], WanderPlan) {
             let now = Date()
             let s = deps.map { "\($0.name)\($0.isActive)" }.joined(separator: ",") + "|" + cards.map { "\($0.id)\(Mood.of($0).rawValue)" }.joined(separator: ",")
@@ -1378,7 +1378,7 @@ enum OfficeDemo {
         if m == "alert" {
             let t = Date()
             g.merge(pushes: [
-                { var e = PushEvent(at: t.addingTimeInterval(-300), name: "Ethan", repo: "Okle42/示範", dir: "/x", refs: ["main"], commits: 2, verdict: .block,
+                { var e = PushEvent(at: t.addingTimeInterval(-300), name: "Fiona", repo: "Okle42/示範", dir: "/x", refs: ["main"], commits: 2, verdict: .block,
                           reasons: ["force push 到 main 會改寫遠端歷史"]); e.head = "abc"; return e }(),
                 PushEvent(at: t.addingTimeInterval(-3600), name: "Dora", repo: "Okle42/示範二", dir: "/y", refs: ["main"], commits: 1, verdict: .ok, reasons: []),
             ])
@@ -1806,7 +1806,7 @@ final class OfficeSCNView: SCNView {
         }
     }
     /// 測試：等 delay 秒後，再等大樓穩定（樓層數與總高度連續 4 次、每 0.5 秒一樣）才動手；最多再等 15 秒。
-    /// 10-25：鏡頭在樓層還沒讀完時就定位，大約一半的截圖構圖跑掉（隊長 Penny：讓三張一致變成必然，不是機率）
+    /// 10-25：鏡頭在樓層還沒讀完時就定位，大約一半的截圖構圖跑掉（秘書 Penny：讓三張一致變成必然，不是機率）
     private func afterTowerSettles(_ delay: Double, _ body: @escaping @MainActor () -> Void) {
         Task { @MainActor [self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))

@@ -72,7 +72,7 @@ sealed class OrbitApp
             poll.Tick += (_, _) => { if (login.Visible) CheckAccounts(); };
             poll.Start();
             flushTimer.Tick += (_, _) => Flush(); flushTimer.Start();
-            tick.Tick += (_, _) => { PushSats(); QuitRequested(); }; tick.Start();
+            tick.Tick += (_, _) => { PushSats(); MarkSecretary(); QuitRequested(); }; tick.Start();
             askTimer.Tick += async (_, _) => await WatchAskCard(); askTimer.Start();
             form.Resize += (_, _) => { foreach (var x in wins.Values.Where(x => x.Visible)) x.Bounds = SatWindow.Fit(x.Bounds, form.ClientRectangle); };
             Log($"attach ok web={OrbitPaths.WebDir} test={Test}");
@@ -355,6 +355,21 @@ sealed class OrbitApp
         Raise(w);
         if (!w.Visible || !w.WantShown) { Animate(w, true); AutoArrange(); } else w.Flash();
         w.Content.Focus();
+    }
+
+    /// 現任秘書的衛星：常駐框＋小標、標題改成當下在做的事（同 Mac markSecretary）
+    void MarkSecretary()
+    {
+        if (wins.Count == 0) return;
+        var cap = ShoWork.Hooks.CaptainStore.Captain();
+        var recs = cap == null ? new() : SessionFile.All().Where(r => r.SessionId == cap).ToList();
+        foreach (var (id, w) in wins)
+        {
+            if (!sats.TryGetValue(id, out var s)) continue;
+            var on = s.Pty is { } p && recs.Any(r => r.Pid == p.Pid || ProcTree.IsAncestor(p.Pid, r.Pid));
+            if (on) w.Title = ShoWork.Hooks.NicknameStore.Get(cap!)?.Doing ?? "待命中"; else if (w.Secretary) w.Title = Title(s);
+            w.Secretary = on;
+        }
     }
 
     string Title(Satellite s) => $"{s.Name} · {s.Brain.Label()}";

@@ -6,7 +6,7 @@ import ShoWorkCore
 /// 每次刷新看一遍 board/handover：
 ///   pending      ＋它閒下來 ⇒ 對它的終端機送 /clear（tmux send-keys；Ghostty 走 AppleScript `input text … to terminal id`，不搶焦點）
 ///   clearing     ＋sessions/<pid>.json 換了 sid ⇒ 再打一句「開始接手」；20 秒沒換 ⇒ failed
-///   interrupted  ⇒ 轉隊長一則提醒（收尾後使用者又派新工作）
+///   interrupted  ⇒ 轉秘書一則提醒（收尾後使用者又派新工作）
 ///   failed       ⇒ 卡片 blocked＋系統通知請 Kang 手動 /clear
 /// 目標一定要閉環驗證（09-26 搬 Kang 7 個視窗的教訓）：tmux＝claude 行程的 tty 擁有的 pane；Ghostty＝同一個 tty 探出來的 terminal，
 /// 而且 terminal 標題開頭是它的英文名。驗不過就不送。每筆紀錄只自動送一次。

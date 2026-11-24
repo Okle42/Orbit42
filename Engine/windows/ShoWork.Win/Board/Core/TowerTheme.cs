@@ -32,7 +32,7 @@ public static class TowerThemes
     public static string title(this TowerTheme t) => t switch
     {
         TowerTheme.monitor => "監控中心", TowerTheme.app_studio => "App 開發室", TowerTheme.library => "研究書房", TowerTheme.print_shop => "3D 列印工坊",
-        TowerTheme.call_room => "秘書電話室", TowerTheme.trading_desk => "交易室", TowerTheme.media_studio => "攝影棚", TowerTheme.design_studio => "設計工作室",
+        TowerTheme.call_room => "LINE 秘書電話室", TowerTheme.trading_desk => "交易室", TowerTheme.media_studio => "攝影棚", TowerTheme.design_studio => "設計工作室",
         TowerTheme.legal_room => "法務室", TowerTheme.ledger_room => "財務帳房", TowerTheme.game_lab => "遊戲工作室", TowerTheme.hw_lab => "硬體實驗室",
         TowerTheme.marketing => "行銷室", TowerTheme.dispatch_room => "調度中心", TowerTheme.drafting_room => "建築製圖室", _ => "通用辦公",
     };
@@ -96,7 +96,7 @@ public static class TowerThemes
         TowerTheme.app_studio => new[] { "swiftui", "xcode", "ios", "iphone", "ipad", "android", "kotlin", "testflight", "app store", "info.plist", ".xcodeproj", "上架", "送審", "nfc" },
         TowerTheme.library => new[] { "research", "survey", "paper", "研究", "報告", "調查", "文獻" },
         TowerTheme.print_shop => new[] { "stl", "3mf", ".step", ".stp", "fusion", "blender", "picogk", "build123d", "cad", "bambu", "列印", "切片", "公仔", "外殼", "浮雕", "模型", "cnc", "雕刻", "sdf" },
-        TowerTheme.call_room => new[] { "adb", "tablet", "hotline", "gmail", "calendar", "responder", "秘書", "平板", "電話", "訊息", "好友", "提醒", "行事曆", "LINE 群", "LINE 帳號", "接聽" },
+        TowerTheme.call_room => new[] { "adb", "tablet", "hotline", "gmail", "calendar", "responder", "LINE 秘書", "平板", "電話", "訊息", "好友", "提醒", "行事曆", "LINE 群", "LINE 帳號", "接聽" },
         TowerTheme.trading_desk => new[] { "stock", "ticker", "backtest", "trade", "k線", "股票", "回測", "交易", "期貨", "盤後", "投資" },
         TowerTheme.media_studio => new[] { "video", "ffmpeg", "mp4", "mov", "higgsfield", "kling", "veo", "tts", "剪輯", "影片", "分鏡", "配音", "字幕", "reels", "宣傳片" },
         TowerTheme.design_studio => new[] { "design", "figma", "hig", "ui/ux", "css", "font", "logo", "設計", "配色", "品牌", "名片", "版型", "排版", "字型", "介面", "guidelines" },

@@ -12,7 +12,7 @@ import ShoWorkCore
 //   網頁 → 原生端：webkit.messageHandlers.sphere.postMessage({action: …})
 //     ready／focus／speak／stopSpeaking（v2）
 //     answer {sessionId, text}、permit {sessionId, permitId, decision, answers}（v3 #1：球旁邊的選項按鈕）
-//     listen {on}、captain {text}（v3 #2：按住球講話 → 交給隊長）
+//     listen {on}、captain {text}（v3 #2：按住球講話 → 交給秘書）
 //     mini {on}、openBoard（v3 #7：桌面常駐小球）
 //     deskSize {id?}、deskChrome {noDrag}（11-22 球體桌面版：換尺寸、告訴原生端標題列哪些地方是按鈕不能拖）
 // 球體的狀態與播報由網頁自己判（狀態一變就說一句）。
@@ -118,13 +118,13 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         case "captain":
             let text = (str("text") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
-            if blocked { return say("測試：不交給隊長「\(text)」。") }
+            if blocked { return say("測試：不交給秘書「\(text)」。") }
             DispatchQueue.global().async {
                 let msg = BoardActions.askCaptain(text)
                 let rec = BoardActions.liveCaptain()
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     self.say(msg + "。")
-                    if let rec { self.openTerminal(rec) }      // 11-24 Keng：交給隊長後用衛星終端機打開它
+                    if let rec { self.openTerminal(rec) }      // 11-24 Keng：交給秘書後用衛星終端機打開它
                 } }
             }
         case "mini":
@@ -233,7 +233,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
 
     private func openTerminal(_ r: SessionRecord) {
         guard r.kind == "bg" else { return }
-        _ = SphereEmbed.openSession?(SphereEmbed.SessionRef(sessionId: r.sessionId, pid: r.pid, jobId: r.jobId, kind: r.kind, cwd: r.cwd, name: r.name ?? "隊長"))
+        _ = SphereEmbed.openSession?(SphereEmbed.SessionRef(sessionId: r.sessionId, pid: r.pid, jobId: r.jobId, kind: r.kind, cwd: r.cwd, name: Nicknames.captainTitle))
     }
 
     /// 結果回網頁當一句播報
@@ -244,7 +244,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         web.evaluateJavaScript("\(fn) && \(fn)(...\(String(decoding: d, as: UTF8.self)))")
     }
 
-    // MARK: 按住球講話（v3 #2）：本機即時辨識成文字，網頁顯示、放開後交給隊長
+    // MARK: 按住球講話（v3 #2）：本機即時辨識成文字，網頁顯示、放開後交給秘書
 
     private func startListening() {
         if SphereListener.testFile != nil { print("listen start blocked=\(blocked)"); fflush(stdout) }
@@ -361,7 +361,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         if let a = SphereAudit.latest() { o["audit"] = a }
         if let c = SphereCool42.read() { o["cool"] = c }        // 11-23 Keng：cool42 面板併進球體（風扇、時脈降頻、吃 CPU 的程式、風扇模式）       // 11-22 Keng：自檢原子環（流量架構自檢的優化建議，不是用量）
         o["auditBusy"] = SphereAudit.busy
-        // v4 A：隊長最後一句（網頁判斷是不是回覆剛交辦的事）
+        // v4 A：秘書最後一句（網頁判斷是不是回覆剛交辦的事）
         if let l = model.captainThread.last(where: { $0.role == .captain }) {
             o["captain"] = ["id": l.id, "text": String(l.text.prefix(400)), "at": l.at.map { ISO8601DateFormatter().string(from: $0) } ?? ""]
         }

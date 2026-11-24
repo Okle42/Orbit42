@@ -15,7 +15,7 @@ struct VillageTests {
         return c
     }
 
-    @Test("歸屬對照表：本機設定、不分大小寫、內建 Okle42、關鍵字、隊長＝鎮公所、其他＝個人")
+    @Test("歸屬對照表：本機設定、不分大小寫、內建 Okle42、關鍵字、秘書＝鎮公所、其他＝個人")
     func zones() {
         #expect(VillageZones.zone(project: "ProjectShop", config: cfg) == .shop)
         #expect(VillageZones.zone(project: "PROJECTSHOP", config: cfg) == .shop)
@@ -40,7 +40,7 @@ struct VillageTests {
         #expect(old.village == nil)
     }
 
-    @Test("誰在哪：工作中／等你／卡住在自己位置、做完休息到廣場、隊長在鎮公所、排隊訊息不算人")
+    @Test("誰在哪：工作中／等你／卡住在自己位置、做完休息到廣場、秘書在鎮公所、排隊訊息不算人")
     func spots() {
         let cards = [
             card("a", "ProjectShop", .active, name: "Ann"),
@@ -59,11 +59,11 @@ struct VillageTests {
         #expect(r("c").spot == .work && r("c").zone == .company && r("c").needsAnswer)
         #expect(r("d").spot == .work && r("d").stall == 0)
         #expect(r("e").spot == .plaza && r("e").stall == 1)          // 休息的人也有自己的攤（攤位照開）
-        #expect(r("f").zone == .townhall && r("f").spot == .work)    // 隊長閒著也在鎮公所
+        #expect(r("f").zone == .townhall && r("f").spot == .work)    // 秘書閒著也在鎮公所
         #expect(p.stalls == ["音樂", "健康"])
         #expect(r("a").name == "Ann")
         #expect(p.shopName == "小明的店")
-        #expect(r("f").home == nil)                                  // 隊長住鎮公所，不另外蓋家
+        #expect(r("f").home == nil)                                  // 秘書住鎮公所，不另外蓋家
         #expect(p.homes.count == 5)
         // 家：店屋的人住店屋後面（北邊中間）、公司住東邊、個人住西邊
         #expect(VillageLayout.homePrefer[.shop]!.prefix(2).contains(r("a").home!))
@@ -89,7 +89,7 @@ struct VillageTests {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         var m = Village.remember(VillageMemory(), cards: [card("a", "ProjectShop", .active, name: "Ann"), card("b", "ProjectCo", .active, name: "Bob"),
                                                           card("cap", "ProjectShop", .active, name: "Cap", captain: true)], now: now)
-        #expect(m.people.keys.sorted() == ["Ann", "Bob"])                // 隊長不記（住鎮公所）
+        #expect(m.people.keys.sorted() == ["Ann", "Bob"])                // 秘書不記（住鎮公所）
         let p = Village.plan(cards: [card("a", "ProjectShop", .active, name: "Ann")], memory: m, config: cfg, now: now.addingTimeInterval(60))
         let bob = p.residents.first { $0.name == "Bob" }!
         #expect(bob.spot == .home && !bob.online && bob.id == "home:Bob" && bob.zone == .company)
@@ -196,7 +196,7 @@ struct VillageTests {
         #expect(VillageCars.list(d).first?.model == .mpv)
     }
 
-    @Test("隊長的子 agent 不畫、名牌不掛子 agent")
+    @Test("秘書的子 agent 不畫、名牌不掛子 agent")
     func captainSubagents() {
         var c = card("cap", "P", .active, name: "Cap", captain: true)
         c.subagents = [SubagentInfo(description: "背景")]; c.activity = .delegating

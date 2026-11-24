@@ -1,6 +1,6 @@
 // ShoWork42 Windows 戰情中心的 3D 辦公大樓（11-02 P8）：Mac OfficeView.swift（SwiftUI 疊層＋OfficeScene／OfficeSCNView）照搬。
 //   場景：scene/builder.js（OfficeBuilder.swift 照搬）；渲染迴圈、鏡頭、點擊：ui/sceneview.js；名牌：ui/labels.js；
-//   疊層：ui/panels.js（需要你列、樓層列、控制、細節卡、保全、城市、B1 留言板）、ui/inbox.js（收件匣、隊長對話）；純邏輯：ui/core.js。
+//   疊層：ui/panels.js（需要你列、樓層列、控制、細節卡、保全、城市、B1 留言板）、ui/inbox.js（收件匣、秘書對話）；純邏輯：ui/core.js。
 // 資料：C# 用 PostWebMessageAsJson 推 {type:"office2", …}（形狀同 bench/mac-input.json，見 Board\Core\Office2.cs 與 Web/PROTOCOL.md）。
 //   會改資料或觸發動作的按鈕一律 chrome.webview.postMessage({type:"action", action:<BoardActions 的名字>, …}) 交給 C#。
 // 不靠 Windows 單獨看：python3 -m http.server 後開 office.html?demo=1（載入 bench/mac-input.json 當示範資料；示範資料不送任何動作）。
@@ -129,8 +129,8 @@ function toast(text) {
 
 // MARK: - OfficeView 的函式
 
-/** 右側對話窗格換人（null＝回到隊長）：資料層改讀那個人的對話紀錄。
- *  clicked＝點的那個角色的卡片 id（C# 用它開細節卡；隊長也是 watch null，所以另外帶；返回鈕不帶） */
+/** 右側對話窗格換人（null＝回到秘書）：資料層改讀那個人的對話紀錄。
+ *  clicked＝點的那個角色的卡片 id（C# 用它開細節卡；秘書也是 watch null，所以另外帶；返回鈕不帶） */
 function talk(id, clicked = null) {
   S.talkingTo = id; OfficeMemory.talkingTo = id; OfficeMemory.save();
   const sid = id ? id.split("#")[0] : null;      // 卡片 id＝sessionId（排隊卡多 #q…）
@@ -176,7 +176,7 @@ function focusAttention(ids, answer) {
   updateScene(); render();
 }
 
-/** 點角色：右邊窗格換成它的對話（隊長＝隊長對話）；等你回答的另外開回答卡。點保全開保全面板 */
+/** 點角色：右邊窗格換成它的對話（秘書＝秘書對話）；等你回答的另外開回答卡。點保全開保全面板 */
 function click(id) {
   if (id.startsWith("neural:")) { openGraph(id.slice(7)); return; }
   if (id === "b1-board") { S.answeringId = null; S.guardOpen = false; S.cityOpen = null; S.boardOpen = true; boardChanged(); send("b1Refresh", {}, true); render(); return; }
@@ -338,7 +338,7 @@ function zoneRows(d) {
   for (const z of view.builder.zones()) {
     let ps, sub;
     switch (z.id) {
-      case "meeting": ps = all.filter(p => p.card.captain); sub = ps.length ? "隊長在這裡" : "隊長不在"; break;
+      case "meeting": ps = all.filter(p => p.card.captain); sub = ps.length ? "秘書在這裡" : "秘書不在"; break;
       case "lounge": ps = all.filter(p => !p.card.captain && (p.mood === "idle" || p.mood === "asleep")); sub = `閒著 ${ps.length} 個`; break;
       case "pantry": ps = all.filter(p => !p.card.captain && p.mood === "finished"); sub = `做完 ${ps.length} 個`; break;
       case "lobby": rows.push({ id: "lobby", kind: "lobby", title: "前台", subtitle: "保全", accent: "#1E3A8A", active: true }); continue;
@@ -407,7 +407,7 @@ function inbox(close) {
     },
     onJump: jump, onFocus: id => focusAttention([id], false),
     onCaptain: text => {
-      if (demoMode || !host) { toast(`測試：不交給隊長「${text}」`); return; }
+      if (demoMode || !host) { toast(`測試：不交給秘書「${text}」`); return; }
       S.captainBusy = true; send("askCaptain", { text }); renderInbox();
     },
     onClose: close, captainBusy: S.captainBusy || !!d.captainBusy,

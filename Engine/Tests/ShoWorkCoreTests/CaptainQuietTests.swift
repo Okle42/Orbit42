@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ShoWorkCore
 
-/// 11-10 隊長省額度：只推要隊長動手的事（工作回報、巡檢、開工卡、換哨提醒）
+/// 11-10 秘書省額度：只推要秘書動手的事（工作回報、巡檢、開工卡、換哨提醒）
 @Suite("CaptainQuiet")
 struct CaptainQuietTests {
     let t0 = Date(timeIntervalSince1970: 1_792_500_000)
@@ -37,14 +37,66 @@ struct CaptainQuietTests {
         #expect(out.count == 2)
     }
 
-    @Test("開工卡：預設只進收件匣不推；captain.relayStartCards 打開才推")
+    @Test("開工卡：只進收件匣，不推（舊行為開關打開也不推）")
     func startCards() {
         let start = SelfReport(status: .working, summary: "改按鈕", doing: "改按鈕", kind: "start", at: t0)
+        for p in [CardRelay.Policy.quiet, .legacy] {
+            var st = CardRelay.State(); st.seeded = true
+            #expect(CardRelay.plan(reports: ["a": start], captain: "c", captainLive: true, state: &st, now: t0, policy: p, text: txt).isEmpty)
+        }
+    }
+
+    @Test("同一張卡只推一次；問題從無到有、文字或選項改了一定推；拿掉問題或同題重發不推")
+    func dedupe() {
         var st = CardRelay.State(); st.seeded = true
-        #expect(CardRelay.plan(reports: ["a": start], captain: "c", captainLive: true, state: &st, now: t0, text: txt).isEmpty)
-        var st2 = CardRelay.State(); st2.seeded = true
-        let p = CardRelay.Policy(actionableOnly: true, pushStart: true)
-        #expect(CardRelay.plan(reports: ["a": start], captain: "c", captainLive: true, state: &st2, now: t0, policy: p, text: txt).count == 1)
+        var now = t0
+        func push(_ ask: String?, _ options: [String]? = nil, how: String? = nil, summary: String = "卡住") -> Bool {
+            var r = card(.blocked, summary, at: now, ask: ask); r.options = options; r.how = how
+            defer { now += 70 }
+            return !CardRelay.plan(reports: ["a": r], captain: "c", captainLive: true, state: &st, now: now, text: txt).isEmpty
+        }
+        #expect(push(nil))
+        #expect(!push(nil) && !push(nil, how: "換了方法"))
+        #expect(push("要 push 嗎"))
+        #expect(!push("要 push 嗎") && !push(nil) && !push("要 push 嗎"))
+        #expect(push("要部署嗎"))
+        #expect(push("要部署嗎", ["好", "不要"]))
+        #expect(!push(nil))
+        #expect(push(nil, summary: "又卡住"))
+        #expect(push("要部署嗎", ["好", "不要"], summary: "又卡住"))       // 換了一張卡，同一題也算新的
+    }
+
+    @Test("巡檢：跟上次一樣不推，App 重開後也不重推；時間、ctx 數字變動不算")
+    func alarmRepeat() throws {
+        let block = CaptainInboxItem(id: "BAAAA", kind: .block, at: t0 - 60, sid: "x", name: "x", project: nil, kinds: ["rm"], text: "rm")
+        func act(_ tokens: Int, _ now: Date, _ inbox: [CaptainInboxItem]) -> (reasons: [String], sig: String) {
+            CaptainLink.alarmActions(Roster(at: now, captain: "cap", entries: [entry("滿滿", tokens: tokens)]), openTaskSessions: [], inbox: inbox, ctxLimit: 250_000, now: now)
+        }
+        let f = FileManager.default.temporaryDirectory.appendingPathComponent("alarm-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: f) }
+        let a = act(300_000, t0, [block])
+        #expect(CaptainLink.alarmShouldPush(reasons: a.reasons, sig: a.sig, last: CaptainLink.loadAlarmSig(f)))
+        CaptainLink.saveAlarmSig(a.sig, f)
+        let b = act(420_000, t0 + 1800, [block])
+        #expect(!CaptainLink.alarmShouldPush(reasons: b.reasons, sig: b.sig, last: CaptainLink.loadAlarmSig(f)))
+        var b2 = block; b2.id = "BBBBB"
+        let c = act(420_000, t0 + 1800, [block, b2])
+        #expect(CaptainLink.alarmShouldPush(reasons: c.reasons, sig: c.sig, last: CaptainLink.loadAlarmSig(f)))
+    }
+
+    @Test("改名秘書：新舊地址都收得到；舊職稱顯示成秘書；LINE 秘書不混；新 session 不會叫 Ethan")
+    func secretary() {
+        let ss: [(String, String?)] = [("cap-1", "Ethan9"), ("b-2", "Bella")], nick = ["cap-1": "Zack", "b-2": "Bella"]
+        for who in ["秘書", "隊長", "Ethan"] { #expect(ShortName.match(who, among: ss, nick: nick, captain: "cap-1") == ["cap-1"]) }
+        #expect(ShortName.match("LINE 秘書", among: ss, nick: nick, captain: "cap-1").isEmpty)
+        #expect(ShortName.match("秘書", among: ss, nick: nick, captain: "gone").isEmpty)
+        #expect(ShortName.match("Ethan", among: ss + [("e-3", "Ethan")], nick: nick, captain: "cap-1") == ["e-3"])      // 真有人叫這個名字就是他
+        var n = Nickname(name: "Ethan"); n.role = "隊長"
+        #expect(Nicknames.label(n, project: "x") == "秘書")
+        #expect(!Nicknames.pool.contains("Ethan"))
+        #expect(Nicknames.inherited(Data(#"{"type":"custom-title","customTitle":"Ethan"}"#.utf8)) == "Ethan")
+        #expect(CaptainThread.boardText("\(CaptainThread.boardPrefix)修球\n請照隊長守則處理") == "修球")
+        #expect(!Captain.manual(showork: "s").contains("隊長") && !CaptainLaunch.bootstrap(showork: "s", task: "t").contains("隊長"))
     }
 
     @Test("設定讀取：沒設過＝新行為；設了照設定")
@@ -53,7 +105,7 @@ struct CaptainQuietTests {
         let d = try #require(UserDefaults(suiteName: name))
         defer { d.removePersistentDomain(forName: name) }
         #expect(CardRelay.Policy.from(d) == .quiet)
-        d.set(false, forKey: CardRelay.Policy.actionableKey); d.set(true, forKey: CardRelay.Policy.startKey)
+        d.set(false, forKey: CardRelay.Policy.actionableKey)
         #expect(CardRelay.Policy.from(d) == .legacy)
         #expect(CaptainLink.captainCtxLimit(d) == 750_000)
         d.set(400_000, forKey: CaptainLink.captainCtxKey)
@@ -69,26 +121,27 @@ struct CaptainQuietTests {
 
     @Test("巡檢：沒事＝空（不推）；閒置但沒派工單不算；開工卡不算")
     func alarmNothing() {
-        let r = Roster(at: t0, captain: "隊長", entries: [entry("小明"), entry("阿華", idle: 7200), entry("隊長", tokens: 900_000, cap: true)])
+        let r = Roster(at: t0, captain: "秘書", entries: [entry("小明"), entry("阿華", idle: 7200), entry("秘書", tokens: 900_000, cap: true)])
         let start = CaptainInboxItem(id: "SAAAA", kind: .start, at: t0 - 60, sid: "小明", name: "小明", project: nil, text: "開工")
         let a = CaptainLink.alarmActions(r, openTaskSessions: [], inbox: [start], ctxLimit: 250_000, now: t0)
         #expect(a.reasons.isEmpty)
         #expect(a.sig == "")
     }
 
-    @Test("巡檢：卡住、待審、ctx 到門檻、有派工單閒太久、擋下、預告都算；同一批指紋不變")
+    @Test("巡檢：卡住、待審、ctx 到門檻、有派工單閒太久、擋下都算，預告不算；同一批指紋不變")
     func alarmActionable() {
-        let r = Roster(at: t0, captain: "隊長", entries: [
+        let r = Roster(at: t0, captain: "秘書", entries: [
             entry("卡卡", column: .stuck), entry("審審", column: .review), entry("滿滿", tokens: 300_000),
-            entry("收好", tokens: 300_000, handover: "已收尾待 /clear"), entry("閒閒", idle: 7200), entry("隊長", cap: true)])
+            entry("收好", tokens: 300_000, handover: "已收尾待 /clear"), entry("閒閒", idle: 7200), entry("秘書", cap: true)])
         let block = CaptainInboxItem(id: "BAAAA", kind: .block, at: t0 - 60, sid: "x", name: "x", project: nil, kinds: ["rm"], text: "rm -rf")
         let notice = CaptainInboxItem(id: "NAAAA", kind: .notice, at: t0 - 60, sid: "x", name: "x", project: nil, kinds: ["mv"], text: "mv")
         var acked = notice; acked.id = "NBBBB"; acked.acked = t0
         let a = CaptainLink.alarmActions(r, openTaskSessions: ["閒閒"], inbox: [block, notice, acked], ctxLimit: 250_000, now: t0)
         let all = a.reasons.joined(separator: "；")
-        for k in ["卡住：卡卡", "待審／等回答：審審", "ctx 到門檻 250k：滿滿 300k", "閒置超過 30 分鐘：閒閒", "擋下等放行 1 則：BAAAA", "動作預告沒 ack 1 則"] {
+        for k in ["卡住：卡卡", "待審／等回答：審審", "ctx 到門檻 250k：滿滿 300k", "閒置超過 30 分鐘：閒閒", "擋下等放行 1 則：BAAAA"] {
             #expect(all.contains(k))
         }
+        #expect(!all.contains("預告"))
         #expect(!all.contains("收好"))          // 已收尾的交給自動 /clear，不算
         #expect(CaptainLink.alarmActions(r, openTaskSessions: ["閒閒"], inbox: [block, notice], ctxLimit: 250_000, now: t0 + 30).sig == a.sig)
         // 放行了 ⇒ 指紋變
@@ -99,23 +152,23 @@ struct CaptainQuietTests {
         #expect(text.hasSuffix("\n在線 5 人"))
     }
 
-    @Test("換哨提醒：隊長 ctx 過門檻送一次；降下來重新計；組員不算")
+    @Test("換哨提醒：秘書 ctx 過門檻送一次；降下來重新計；組員不算")
     func shift() {
-        func roster(_ t: Int) -> Roster { Roster(at: t0, captain: "隊長", entries: [entry("隊長", tokens: t, cap: true), entry("小明", tokens: 999_000)]) }
+        func roster(_ t: Int) -> Roster { Roster(at: t0, captain: "秘書", entries: [entry("秘書", tokens: t, cap: true), entry("小明", tokens: 999_000)]) }
         let a = CaptainLink.shiftReminder(roster(700_000), limit: 750_000, sent: [], owner: "Boss", handoff: "交接.md")
         #expect(a.text == nil && a.sent.isEmpty)
         let b = CaptainLink.shiftReminder(roster(760_000), limit: 750_000, sent: a.sent, owner: "Boss", handoff: "交接.md")
         let t = b.text ?? ""
-        #expect(t.hasPrefix("【換哨提醒】隊長 context 已用 760k（門檻 750k）"))
+        #expect(t.hasPrefix("【換哨提醒】秘書 context 已用 760k（門檻 750k）"))
         #expect(t.contains("交接.md") && t.contains("請Boss在這個視窗打 /clear，再說「換哨」"))
-        #expect(b.sent == ["隊長"])
+        #expect(b.sent == ["秘書"])
         #expect(CaptainLink.shiftReminder(roster(800_000), limit: 750_000, sent: b.sent, owner: "Boss", handoff: "x").text == nil)
         let c = CaptainLink.shiftReminder(roster(10_000), limit: 750_000, sent: b.sent, owner: "Boss", handoff: "x")
         #expect(c.sent.isEmpty)
         #expect(CaptainLink.shiftReminder(roster(900_000), limit: nil, sent: [], owner: "Boss", handoff: "x").text == nil)
     }
 
-    @Test("隊長守則文字跟著改：開工卡不推、巡檢沒事不送、換哨提醒")
+    @Test("秘書守則文字跟著改：開工卡不推、巡檢沒事不送、換哨提醒")
     func manual() {
         let m = Captain.manual(showork: "/x/showork")
         #expect(m.contains("只進你的收件匣、不推給你"))
@@ -125,9 +178,9 @@ struct CaptainQuietTests {
         #expect(!m.contains("無變化"))
     }
 
-    @Test("本機設定的隊長交接文件：沒設用通用說法")
+    @Test("本機設定的秘書交接文件：沒設用通用說法")
     func handoffName() {
-        #expect(LocalConfig().captainHandoffName == "隊長交接文件")
+        #expect(LocalConfig().captainHandoffName == "秘書交接文件")
         var c = LocalConfig(); c.captainHandoff = "~/交接.md"
         #expect(c.captainHandoffName == "~/交接.md")
     }

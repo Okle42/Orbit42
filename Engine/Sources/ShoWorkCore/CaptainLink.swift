@@ -1,10 +1,10 @@
 import Foundation
 
-// 隊長連動（派工 T1024033803，10-24 Kang 拍板）：隊長原本只在組員發卡後才知道，開工與高風險步驟都事後才看到。
+// 秘書連動（派工 T1024033803，10-24 Kang 拍板）：秘書原本只在組員發卡後才知道，開工與高風險步驟都事後才看到。
 //   ① 開工卡：使用者直接下指令（UserPromptSubmit，不含 cross-session 訊息、看板轉送、背景通知）⇒ hook 提醒組員動手前先發
-//      showork card --kind start（--doing／--how／--touch／--outward），看板轉給隊長時前綴【開工】（CardRelay.text）。
-//      組員不等隊長；隊長的修正下一輪送達。只轉組員寫的摘要，不轉使用者指令全文。
-//   ② 動作預告：PreToolUse(Bash) 比對高風險指令（清單在 board/guard/preview.tsv，可改），執行前送「【動作預告】名字：類別・指令摘要」給隊長，不阻擋。
+//      showork card --kind start（--doing／--how／--touch／--outward），看板轉給秘書時前綴【開工】（CardRelay.text）。
+//      組員不等秘書；秘書的修正下一輪送達。只轉組員寫的摘要，不轉使用者指令全文。
+//   ② 動作預告：PreToolUse(Bash) 比對高風險指令（清單在 board/guard/preview.tsv，可改），執行前送「【動作預告】名字：類別・指令摘要」給秘書，不阻擋。
 //      git push 不在這裡（1 樓保全守門照舊）。只看 Bash；Write／Edit 工具寫進 ~/.claude 不會經過這裡。
 public enum CaptainLink {
     // MARK: ① 開工卡
@@ -38,7 +38,7 @@ public enum CaptainLink {
     /// 注入給組員的提醒（UserPromptSubmit 的 additionalContext）
     public static func startContext(showork: String) -> String {
         """
-        【開工卡】這是使用者直接下的指令。動手（讀檔以外的任何改動、跑會改東西的指令）之前，先用 Bash 發一張開工卡給隊長，發完直接開始做、不用等回覆：
+        【開工卡】這是使用者直接下的指令。動手（讀檔以外的任何改動、跑會改東西的指令）之前，先用 Bash 發一張開工卡給秘書，發完直接開始做、不用等回覆：
         "\(showork)" card --kind start --doing "<這件事，10 個字內>" --summary "<要做什麼，一句話>" --how "<打算怎麼做>" --touch "<會動到哪些檔／repo／系統設定；沒有寫「無」>" --outward "<要不要 push、部署、對外傳訊息；沒有寫「無」>"
         只是聊天、回答問題、不動手的回合不用發。不要把使用者的原話整段貼進卡片。
         """
@@ -71,10 +71,10 @@ public enum CaptainLink {
         // 10-31 使用者：xcodebuild archive 只是本機打包、不對外，改成只通知；真正會上傳的 -exportArchive／altool 等照擋
         Rule(name: "App 封裝（xcodebuild archive）", block: false, pattern: #"^xcodebuild\b(?!.*\s-exportArchive\b).*\barchive\b"#),
         Rule(name: "App 上傳 App Store Connect", block: true,
-             // 10-24 隊長：-exportArchive 前面是「-」，原本的 \b(-exportArchive) 永遠比不到 ⇒ Sam 的上傳沒擋到。匯出不論有沒有 upload 都擋
+             // 10-24 秘書：-exportArchive 前面是「-」，原本的 \b(-exportArchive) 永遠比不到 ⇒ Sam 的上傳沒擋到。匯出不論有沒有 upload 都擋
              pattern: #"^xcodebuild\b.*\s-exportArchive\b|^(?:xcrun\s+)?(?:altool\b|notarytool\s+submit\b)|^\S*(?:iTMSTransporter|Transporter)\b|^(?:bundle\s+exec\s+)?fastlane\s+(?:\S+\s+)?(?:deliver|pilot|upload_to_app_store|upload_to_testflight)\b"#),
         Rule(name: "LINE 對外傳訊（line_send.py）", block: true, pattern: #"^(?:python3?\s+(?:-\S+\s+)*)?\S*line_send\.py\b"#),
-        // 10-24 隊長：Sam 在公開 repo 用 gh 留言／開 PR，開工卡回覆前就送出去了。這裡粗篩，Okle42 私有 repo 免擋的細判在 GHGuard
+        // 10-24 秘書：Sam 在公開 repo 用 gh 留言／開 PR，開工卡回覆前就送出去了。這裡粗篩，Okle42 私有 repo 免擋的細判在 GHGuard
         Rule(name: "GitHub 公開發言（gh）", block: true,
              pattern: #"^(?:\S*/)?gh\s+(?:.*\s)?(?:issue\s+(?:comment|create)|pr\s+(?:create|comment|review)|release\s+create)\b|^(?:\S*/)?gh\s+(?:.*\s)?api\b.*\s(?:-X\s*|--method[\s=]+)(?:POST|PATCH|PUT|DELETE)\b|^(?:\S*/)?gh\s+(?:.*\s)?api\b.*\s(?:-f|-F|--field|--raw-field|--input)(?:\s|=)"#),
         Rule(name: "改系統設定（defaults write）", block: false, pattern: #"^defaults\s+(?:-currentHost\s+)?write\b"#),
@@ -100,7 +100,7 @@ public enum CaptainLink {
             let owner = LocalConfig.current.ownerName
             let head = "# 動作預告（T1024033803 ②，\(rulesVersion)）：一行「類別<TAB>擋|告<TAB>正規表示式」，不分大小寫。\n"
                 + "# 比對的是「一段指令」：以 ; && || | 換行切開、去掉 sudo／env／VAR=值 前綴，引號內容換成 Q（ssh 那段保留引號內容），heredoc 內文拿掉 ⇒ ^ 就是指令的第一個詞。\n"
-                + "# 擋＝先擋下、等隊長轉述\(owner)的決定（showork release）或\(owner)在那個 session 打「放行」；告＝只通知隊長不擋。# 開頭是註解，刪掉這個檔會重寫預設\n"
+                + "# 擋＝先擋下、等秘書轉述\(owner)的決定（showork release）或\(owner)在那個 session 打「放行」；告＝只通知秘書不擋。# 開頭是註解，刪掉這個檔會重寫預設\n"
             let body = defaultRules.map { "\($0.name)\t\($0.block ? "擋" : "告")\t\($0.pattern)" }.joined(separator: "\n") + "\n"
             try? FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? (head + body).write(to: f, atomically: true, encoding: .utf8)
@@ -118,15 +118,15 @@ public enum CaptainLink {
         }
     }
 
-    /// 把整條 Bash 指令切成會被執行的「一段段指令」（隊長 10-24：關鍵字只算出現在指令層級的，引號、heredoc、python -c 參數內的不算）
+    /// 把整條 Bash 指令切成會被執行的「一段段指令」（秘書 10-24：關鍵字只算出現在指令層級的，引號、heredoc、python -c 參數內的不算）
     ///   1. 拿掉 heredoc 內文  2. 依引號外的 ; && || | & 換行切段  3. 去掉 sudo／env／VAR=值／time／nohup／( { ! 這類前綴
     ///   4. 引號內容換成 Q（ssh 開頭的那段保留：遠端要跑的指令就在引號裡）
     public static func segments(_ cmd: String) -> [String] { segmentPairs(cmd).map(\.norm) }
 
-    /// (原文, 比對用)：原文給預告摘要（隊長要看到「命中的那一段」，10-24 BR9R8 只看開頭判錯）
+    /// (原文, 比對用)：原文給預告摘要（秘書要看到「命中的那一段」，10-24 BR9R8 只看開頭判錯）
     public static func segmentPairs(_ cmd: String) -> [(raw: String, norm: String)] {
         var t = cmd
-        // 同一條指令前面把變數設成暫存路徑（T=$(mktemp -d)、S=/private/tmp/…、D="$TMPDIR/x"）⇒ 後面的 $T、${T} 當成 /tmp/ 底下（隊長 10-24：BKZQP 誤擋）
+        // 同一條指令前面把變數設成暫存路徑（T=$(mktemp -d)、S=/private/tmp/…、D="$TMPDIR/x"）⇒ 後面的 $T、${T} 當成 /tmp/ 底下（秘書 10-24：BKZQP 誤擋）
         if let re = try? NSRegularExpression(pattern: #"(?:^|[;&|\n(]|\s)(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=["']?(?:\$\(\s*mktemp\b|/tmp/|/private/tmp/|/private/var/folders/|/var/folders/|\$\{?TMPDIR\b|\$\{?TMP\b|[^\s;&|"']*scratchpad)"#) {
             let names = Set(re.matches(in: t, range: NSRange(t.startIndex..., in: t)).compactMap { Range($0.range(at: 1), in: t).map { String(t[$0]) } })
             for n in names {
@@ -261,42 +261,22 @@ public enum CaptainLink {
 
     public static func denyReason(_ item: CaptainInboxItem) -> String {
         let owner = LocalConfig.current.ownerName
-        return "⛔️ 這個指令需要放行才能跑（\(item.kinds.joined(separator: "、"))，單號 \(item.id)）。已通知隊長，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
-            + "要放行請隊長轉述\(owner)的決定（隊長跑 showork release \(item.id)），或\(owner)在這個 session 直接打「放行」。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
+        return "⛔️ 這個指令需要放行才能跑（\(item.kinds.joined(separator: "、"))，單號 \(item.id)）。已通知秘書，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
+            + "要放行請秘書轉述\(owner)的決定（秘書跑 showork release \(item.id)），或\(owner)在這個 session 直接打「放行」。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
             + "等的時候用 showork card --status blocked 回報卡在哪；能改用暫存區（scratchpad、/tmp）的就改用。"
     }
 
-    /// 擋下：立即送隊長
+    /// 擋下：立即送秘書
     public static func blockText(_ item: CaptainInboxItem) -> String {
         let owner = LocalConfig.current.ownerName
         return "【動作預告・擋下 \(item.id)】\(label(item.name, item.project))：\(item.kinds.joined(separator: "、"))・\(item.text)\n"
-            + "（已擋下等放行。\(owner)明說同意這個動作才 showork release \(item.id)；隊長不能自己決定放行對外動作）"
+            + "（已擋下等放行。\(owner)明說同意這個動作才 showork release \(item.id)；秘書不能自己決定放行對外動作）"
     }
 
-    /// 不擋的預告：同一 session 的合成一則
-    public static func noticeText(_ items: [CaptainInboxItem]) -> String {
-        guard let f = items.first else { return "" }
-        var lines = ["【動作預告】\(label(f.name, f.project))：\(items.count) 個動作（不擋，已在跑）"]
-        for i in items { lines.append("・\(i.kinds.joined(separator: "、"))：\(i.text)") }
-        lines.append("（有疑慮馬上 SendMessage 叫它停）")
-        return lines.joined(separator: "\n")
-    }
+    /// 要不要立刻推給秘書：只有擋下等放行的；開工卡和不擋的預告只寫收件匣（11-24 Keng）
+    public static func pushNow(_ i: CaptainInboxItem) -> Bool { i.kind == .block && !i.delivered }
 
-    // MARK: 合併預告：同一 session 安靜 quiet 秒（最多等 maxWait）才送
-
-    public static let quiet: TimeInterval = 5, maxWait: TimeInterval = 30, staleAfter: TimeInterval = 600
-
-    /// 現在該送的預告（依 session 分組）；太舊的（10 分鐘）不送，留給新隊長 showork captain 時印
-    public static func dueNotices(_ items: [CaptainInboxItem], now: Date) -> [[CaptainInboxItem]] {
-        let open = items.filter { $0.kind == .notice && !$0.delivered && now.timeIntervalSince($0.at) < staleAfter }
-        return Dictionary(grouping: open, by: \.sid).values.compactMap { g in
-            let g = g.sorted { $0.at < $1.at }
-            guard let first = g.first, let last = g.last else { return nil }
-            return now.timeIntervalSince(last.at) >= quiet || now.timeIntervalSince(first.at) >= maxWait ? g : nil
-        }.sorted { $0[0].at < $1[0].at }
-    }
-
-    // MARK: ③ 隊長鬧鐘
+    // MARK: ③ 秘書鬧鐘
 
     public static let alarmKey = "captain.alarmMinutes"
     public static let idleAfter: TimeInterval = 30 * 60
@@ -309,7 +289,7 @@ public enum CaptainLink {
         let base = crew.map { "\($0.name):\(($0.ctx ?? -10) / 10)" }.joined(separator: ",") + "|" + idle.joined(separator: ",") + "|\(pending)"
         let wrapped = crew.compactMap { e in e.handover.map { "\(e.name)（\($0)）" } }
         let sig = base + "|" + wrapped.joined(separator: ",")
-        var t = "【巡檢時間】在線 \(crew.count) 人（不含隊長）"
+        var t = "【巡檢時間】在線 \(crew.count) 人（不含秘書）"
         if !ctx.isEmpty { t += "；ctx：" + ctx.joined(separator: "、") }
         t += "；閒置超過 30 分鐘：" + (idle.isEmpty ? "沒有" : idle.joined(separator: "、"))
         if !wrapped.isEmpty { t += "；已收尾、還沒 /clear：" + wrapped.joined(separator: "、") }
@@ -319,42 +299,44 @@ public enum CaptainLink {
     }
     public static func alarmUnchanged(crew n: Int) -> String { "【巡檢時間】無變化（在線 \(n) 人，跟上次一樣）" }
 
-    // MARK: ③' 安靜巡檢（11-10：隊長被巡檢叫醒一週 228 次，多半「無變化」）
-    //   captain.alarmQuiet（預設 true）：只有要隊長動手的事才推——有人卡住／待審、ctx 到門檻、有派工單卻閒太久、
-    //   收件匣有沒 ack 的動作預告／擋下。要處理的事跟上次推的一樣（或沒有）⇒ 不推。設 false 回到每次都推（含「無變化」）。
+    // MARK: ③' 安靜巡檢（11-10：秘書被巡檢叫醒一週 228 次，多半「無變化」）
+    //   captain.alarmQuiet（預設 true）：只有要秘書動手的事才推——有人卡住／待審、ctx 到門檻、有派工單卻閒太久、
+    //   收件匣有沒 ack 的擋下。要處理的事跟上次推的一樣（或沒有）⇒ 不推。設 false 回到每次都推（含「無變化」）。
     public static let alarmQuietKey = "captain.alarmQuiet"
 
-    /// 要隊長處理的事（每項一句）＋指紋；空的＝不用推
+    /// 要秘書處理的事（每項一句）＋指紋；空的＝不用推
     public static func alarmActions(_ r: Roster, openTaskSessions: Set<String>, inbox: [CaptainInboxItem], ctxLimit: Int, now: Date) -> (reasons: [String], sig: String) {
         let crew = r.entries.filter { !$0.captain }.sorted { $0.name < $1.name }
         let stuck = crew.filter { $0.column == .stuck }.map(\.name)
         let review = crew.filter { $0.column == .review }.map(\.name)
         let full = crew.filter { $0.handover == nil && ($0.ctxTokens ?? 0) >= ctxLimit }
         let idle = crew.filter { e in openTaskSessions.contains(e.sessionId) && (e.lastActivity.map { now.timeIntervalSince($0) > idleAfter } ?? true) }.map(\.name)
-        // 擋下：還沒放行；預告：1 小時內、沒 ack（開工卡不算，只留收件匣）
-        let open = inbox.filter { i in
-            i.acked == nil && now.timeIntervalSince(i.at) < 86400
-                && ((i.kind == .block && i.released == nil) || (i.kind == .notice && now.timeIntervalSince(i.at) < 3600))
-        }
+        // 擋下：還沒放行、沒 ack（開工卡、不擋的預告只留收件匣，不為它們叫醒秘書）
+        let open = inbox.filter { $0.acked == nil && now.timeIntervalSince($0.at) < 86400 && $0.kind == .block && $0.released == nil }
         var out: [String] = []
         if !stuck.isEmpty { out.append("卡住：" + stuck.joined(separator: "、")) }
         if !review.isEmpty { out.append("待審／等回答：" + review.joined(separator: "、")) }
         if !full.isEmpty { out.append("ctx 到門檻 \(ctxLimit / 1000)k：" + full.map { "\($0.name) \(($0.ctxTokens ?? 0) / 1000)k" }.joined(separator: "、")) }
         if !idle.isEmpty { out.append("有派工單卻閒置超過 30 分鐘：" + idle.joined(separator: "、")) }
-        let blocks = open.filter { $0.kind == .block }, notices = open.filter { $0.kind == .notice }
-        if !blocks.isEmpty { out.append("擋下等放行 \(blocks.count) 則：" + blocks.map(\.id).joined(separator: "、")) }
-        if !notices.isEmpty { out.append("動作預告沒 ack \(notices.count) 則") }
+        if !open.isEmpty { out.append("擋下等放行 \(open.count) 則：" + open.map(\.id).joined(separator: "、")) }
         let sig = [stuck.joined(separator: ","), review.joined(separator: ","), full.map(\.name).joined(separator: ","),
                    idle.joined(separator: ","), open.map(\.id).sorted().joined(separator: ",")].joined(separator: "|")
         return (out, out.isEmpty ? "" : sig)
     }
+
+    /// 有要處理的事、而且跟上次推的不一樣才推
+    public static func alarmShouldPush(reasons: [String], sig: String, last: String?) -> Bool { !reasons.isEmpty && sig != last }
+
+    /// 上次巡檢的指紋（存檔：App 重開後一樣的事不重推）
+    public static func loadAlarmSig(_ url: URL) -> String? { try? String(contentsOf: url, encoding: .utf8) }
+    public static func saveAlarmSig(_ sig: String, _ url: URL) { try? sig.write(to: url, atomically: true, encoding: .utf8) }
 
     /// 安靜巡檢全文：要處理的事放最前面，再接原本的名冊摘要
     public static func alarmQuietText(reasons: [String], full: String) -> String {
         "【巡檢時間】要處理：" + reasons.joined(separator: "；") + "\n" + full.replacingOccurrences(of: "【巡檢時間】", with: "")
     }
 
-    // MARK: ⑥ 隊長換哨提醒（11-10：組員到 board.ctxTokens 會自動收尾，隊長沒有；隊長不自動 /clear，只提醒一次）
+    // MARK: ⑥ 秘書換哨提醒（11-10：組員到 board.ctxTokens 會自動收尾，秘書沒有；秘書不自動 /clear，只提醒一次）
     //   captain.ctxTokens（預設 750k，範圍同 ContextGuard 250k–1000k；設負數＝關）
     public static let captainCtxKey = "captain.ctxTokens"
     public static let captainCtxDefault = 750_000
@@ -363,7 +345,7 @@ public enum CaptainLink {
         return v < 0 ? nil : ContextGuard.clamp(v == 0 ? captainCtxDefault : v)
     }
 
-    /// 這次要不要送【換哨提醒】：隊長 ctx 過門檻、這個 session 還沒送過。回傳要送的文字＋更新後的已送集合
+    /// 這次要不要送【換哨提醒】：秘書 ctx 過門檻、這個 session 還沒送過。回傳要送的文字＋更新後的已送集合
     public static func shiftReminder(_ r: Roster, limit: Int?, sent: Set<String>, owner: String = LocalConfig.current.ownerName,
                                      handoff: String = LocalConfig.current.captainHandoffName) -> (text: String?, sent: Set<String>) {
         guard let limit, let cap = r.entries.first(where: { $0.captain }) else { return (nil, sent) }
@@ -372,13 +354,13 @@ public enum CaptainLink {
         if t < limit { s.remove(cap.sessionId); return (nil, s) }      // 降下來就重新計
         guard !s.contains(cap.sessionId) else { return (nil, s) }
         s.insert(cap.sessionId)
-        let text = "【換哨提醒】隊長 context 已用 \(t / 1000)k（門檻 \(limit / 1000)k）。請現在：①把目前狀態（進行中的派工單、等誰回覆、要\(owner)決定的事、下一步）更新到 \(handoff) 最上段；"
-            + "②請\(owner)在這個視窗打 /clear，再說「換哨」，新 context 會讀交接接手。看板不會自動 /clear 隊長；這則只送一次。"
+        let text = "【換哨提醒】秘書 context 已用 \(t / 1000)k（門檻 \(limit / 1000)k）。請現在：①把目前狀態（進行中的派工單、等誰回覆、要\(owner)決定的事、下一步）更新到 \(handoff) 最上段；"
+            + "②請\(owner)在這個視窗打 /clear，再說「換哨」，新 context 會讀交接接手。看板不會自動 /clear 秘書；這則只送一次。"
         return (text, s)
     }
 }
 
-// MARK: ④ 隊長收件匣（board/captain-inbox/<id>.json：開工卡、預告、擋下；新隊長 showork captain 先印未處理的）
+// MARK: ④ 秘書收件匣（board/captain-inbox/<id>.json：開工卡、預告、擋下；新秘書 showork captain 先印未處理的）
 
 public struct CaptainInboxItem: Codable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable { case start, notice, block }
@@ -391,10 +373,10 @@ public struct CaptainInboxItem: Codable, Sendable, Equatable {
     public var kinds: [String]            // 預告的類別（開工卡＝空）
     public var text: String               // 指令摘要／開工卡一句話
     public var fingerprint: String?       // 擋下的指令指紋
-    public var delivered = false          // 送到隊長了
+    public var delivered = false          // 送到秘書了
     public var released: Date?            // 擋下的：放行時間
     public var used: Date?                // 放行後真的跑了
-    public var acked: Date?               // 隊長處理過（showork captain ack）：不再算「未處理」
+    public var acked: Date?               // 秘書處理過（showork captain ack）：不再算「未處理」
     public init(id: String, kind: Kind, at: Date, sid: String, name: String, project: String?, kinds: [String] = [], text: String, fingerprint: String? = nil) {
         self.id = id; self.kind = kind; self.at = at; self.sid = sid; self.name = name; self.project = project; self.kinds = kinds; self.text = text; self.fingerprint = fingerprint
     }
@@ -463,12 +445,12 @@ public enum CaptainInbox {
         for i in all() where now.timeIntervalSince(i.at) > 7 * 86400 { try? FileManager.default.removeItem(at: dir.appendingPathComponent(i.id + ".json")) }
     }
 
-    /// 未處理：隊長還沒 ack、而且沒送到隊長的或還在等放行的（24 小時內）
+    /// 未處理：秘書還沒 ack、而且沒送到秘書的或還在等放行的（24 小時內）
     public static func pending(now: Date) -> [CaptainInboxItem] {
         all().filter { $0.acked == nil && now.timeIntervalSince($0.at) < 86400 && (!$0.delivered || ($0.kind == .block && $0.released == nil)) }
     }
 
-    /// 隊長標已處理：單號或 all（全部未處理的）；回傳標了幾筆
+    /// 秘書標已處理：單號或 all（全部未處理的）；回傳標了幾筆
     @discardableResult
     public static func ack(_ id: String, now: Date) -> Int {
         let xs = id.lowercased() == "all" ? pending(now: now) : all().filter { $0.id == id.uppercased() && $0.acked == nil }
@@ -513,7 +495,7 @@ public enum CaptainInbox {
 
 /// 戰情中心回答＝事先放行（10-31 使用者：「我交代你做事還要放行」）。
 /// 使用者在戰情中心按選項／打字回答某個 AI 的問題時，答案裡明說的對外動作（例如「開 PR」「LINE 通知」）
-/// 之後被「擋」規則攔下就直接算放行：同一個 session、30 分鐘內、每種動作一次，照樣寫 releases.jsonl（source＝戰情中心回答）並通知隊長。
+/// 之後被「擋」規則攔下就直接算放行：同一個 session、30 分鐘內、每種動作一次，照樣寫 releases.jsonl（source＝戰情中心回答）並通知秘書。
 /// 點名這個動作的小句有否定字（不要／先不／別⋯）就不算；沒點名的動作照擋。rm 不在內（刪檔一律要明確放行；mv 10-31 起只通知不擋）。
 public struct Preapproval: Codable, Sendable, Equatable {
     public var at: Date

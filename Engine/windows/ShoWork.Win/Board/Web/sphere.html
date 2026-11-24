@@ -4,7 +4,7 @@
 <!-- 戰情中心第四個分頁「球體」（11-21 Kang：參考 IG 的 K.A.R.A 2.0 球體助理）。原型在 IGSkills42/research/kara。
      原生端每次資料變動呼叫 window.karaUpdate({five_hour, seven_day, five_reset, seven_reset, ctx, sessions, doneToday,
        team:[{name,status,sessionId,progress,doing,summary,ask,options,permit}], runs:[{label,name,fraction,eta}], heat:{temp,level}, paused})。
-     v3（11-21）：#1 需要你時球下方浮出選項按鈕（回答／放行）#2 按住球講話交給隊長 #3 session 衛星 #4 額度預警
+     v3（11-21）：#1 需要你時球下方浮出選項按鈕（回答／放行）#2 按住球講話交給秘書 #3 session 衛星 #4 額度預警
                   #5 早報／收工總結 #6 外環＝背景工作進度＋cool42 溫度 #7 ?mini=1＝桌面常駐小球（SphereMini.swift）
      v5（11-22 使用者：照 KARA 影片把 1–6 做到更好＋講話要有聲波；背景改十字點）：
        ① 狀態：中英雙標籤＋解碼動畫、思考掃描彗星、警示衝擊波 ② 事件卡從球拉線彈出（講到誰就彈誰）
@@ -14,7 +14,7 @@
        沒收到（Windows SAPI、測試）就用假的波形頂著。
      球體桌面版（11-22 Keng 選定最終型態，T1122091602）：?desk=1＝SphereMini.swift 的浮動面板，功能跟分頁完全一樣（舊的 ?mini=1 精簡小球拿掉了）。
        上方 34px 是標題列（原生端拖移；按鈕位置用 deskChrome 回報）、右下角拖曳縮放、工具列多「尺寸／戰情中心／收起」。
-       兩顆都開著時，自動播報（狀態變化、額度、溫度、早報、隊長回覆）只有桌面版出聲，分頁那顆只出字幕。 -->
+       兩顆都開著時，自動播報（狀態變化、額度、溫度、早報、秘書回覆）只有桌面版出聲，分頁那顆只出字幕。 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>智能體</title>
@@ -1951,7 +1951,7 @@ $("teamRows").addEventListener("mouseover", e => { const row = e.target.closest(
 $("teamRows").addEventListener("mouseleave", () => { rowSid = null; });
 addEventListener("resize", () => { drawLinks(); if (popEl.classList.contains("on")) drawPopLink(); });
 
-/* v5 ② 事件卡：唸到誰就從球拉一條線彈出誰（session／額度／溫度／隊長） */
+/* v5 ② 事件卡：唸到誰就從球拉一條線彈出誰（session／額度／溫度／秘書） */
 const popEl = $("pop"); let popTimer = null, popSid = null;
 function sessionPop(c) {
   const ln = (k, v) => v == null || v === "" ? "" : `<div class="ln"><span class="t">${k}</span>${esc(v)}</div>`;
@@ -2501,7 +2501,7 @@ function autoState() {
   const line = statusLine();
   if (!typing && $("capText").textContent !== line) { $("capText").textContent = line; $("capBar").style.width = "100%"; }
 }
-/* ---------- 滑鼠：點衛星＝跳過去；點球＝唸現況；按住球（或空白鍵）＝講話交給隊長（v3 #2） ---------- */
+/* ---------- 滑鼠：點衛星＝跳過去；點球＝唸現況；按住球（或空白鍵）＝講話交給秘書（v3 #2） ---------- */
 const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
 function satAt(e) {
   mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
@@ -2574,7 +2574,7 @@ function startListen() {
   listening = true; heard = ""; heardDone = false; queue.length = 0;
   post({ action: "stopSpeaking" });
   setState("listening");
-  $("who").textContent = "智能體 · 聆聽中（放開就交給隊長）";
+  $("who").textContent = "智能體 · 聆聽中（放開就交給秘書）";
   $("capText").textContent = "我在聽⋯"; $("capBar").style.width = "0%";
   post({ action: "listen", on: true });
 }
@@ -2599,11 +2599,11 @@ function finishListen() {
   listening = false;
   const text = heard.trim();
   if (!text) { announce("沒聽清楚，再按住智能體講一次。"); return; }
-  const local = /^(交給|跟|告訴|請)隊長/.test(text) ? null : answerLocal(text);
+  const local = /^(交給|跟|告訴|請)(?:秘書|隊長)/.test(text) ? null : answerLocal(text);
   if (local) { announce(local); return; }
-  post({ action: "captain", text: text.replace(/^(交給|跟|告訴|請)隊長(說)?[，,：:\s]*/, "") || text });
+  post({ action: "captain", text: text.replace(/^(交給|跟|告訴|請)(?:秘書|隊長)(說)?[，,：:\s]*/, "") || text });
   handoffAt = Date.now();
-  announce(`交給隊長：${clip(text, 40)}`);
+  announce(`交給秘書：${clip(text, 40)}`);
 }
 
 // 11-24 Keng：iPhone 動作按鈕／控制中心說的話（經 /api/say 進來）：跟在 Mac 上按住智能體講完放開一樣處理
@@ -2614,7 +2614,7 @@ window.karaRemoteSay = (text) => {
   finishListen();
 };
 
-/* ---------- v4 B：簡單的問題球自己答（用手上的資料，不花隊長的額度）；答不了才交給隊長 ---------- */
+/* ---------- v4 B：簡單的問題球自己答（用手上的資料，不花秘書的額度）；答不了才交給秘書 ---------- */
 function answerLocal(q) {
   const t = q.replace(/\s+/g, "");
   const team = data.team || [];
@@ -2643,7 +2643,7 @@ function answerLocal(q) {
   return null;
 }
 
-/* ---------- v4 A：交給隊長後，隊長回話就唸出來（20 分鐘內的第一句回覆） ---------- */
+/* ---------- v4 A：交給秘書後，秘書回話就唸出來（20 分鐘內的第一句回覆） ---------- */
 let handoffAt = 0, captainSeen = undefined;
 function captainReply() {
   const c = data.captain; if (!c?.id) return;
@@ -2653,7 +2653,7 @@ function captainReply() {
   if (!handoffAt || Date.now() - handoffAt > 20 * 60 * 1000) return;
   handoffAt = 0;
   const plain = String(c.text).replace(/```[\s\S]*?```/g, "（程式碼略）").replace(/[#*`>|_]/g, "").replace(/\s+/g, " ").trim();
-  announce(`隊長回覆：${clip(plain, 90)}`, { auto: true, pop: { html: `<div class="k">CAPTAIN · 回覆</div><div class="ln" style="border:0">${esc(clip(plain, 220))}</div>` } });
+  announce(`秘書回覆：${clip(plain, 90)}`, { auto: true, pop: { html: `<div class="k">CAPTAIN · 回覆</div><div class="ln" style="border:0">${esc(clip(plain, 220))}</div>` } });
 }
 
 /* ---------- v4 C：點衛星展開小卡 ---------- */

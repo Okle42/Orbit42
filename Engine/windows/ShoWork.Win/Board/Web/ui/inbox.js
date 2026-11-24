@@ -1,4 +1,4 @@
-// InboxPanel.swift＋ChatInput.swift 照搬（11-02 P8）：收件匣（等你回答）、權限對話框、選擇題、計畫確認、隊長對話／右側對話窗格、
+// InboxPanel.swift＋ChatInput.swift 照搬（11-02 P8）：收件匣（等你回答）、權限對話框、選擇題、計畫確認、秘書對話／右側對話窗格、
 // 名字下方的進度條（RunBar）、對話輸入框（ChatInput）。
 // Mac 在 3D 視窗（OfficeView）裡：寬視窗（≥1300）固定在右邊；窄的點「等你」才在左邊浮出來（取代樓層清單）。
 // 送出一律交給 office.js 的回呼（→ chrome.webview.postMessage({type:"action", …})，格式見 PROTOCOL.md）。
@@ -257,13 +257,13 @@ function PlanBox({ plan, st, decide }) {
     h("div.caption2.sec", "終端機那邊也能按，先按的算"));
 }
 
-// MARK: - 隊長對話／右側對話窗格
+// MARK: - 秘書對話／右側對話窗格
 
 function CaptainPanel({ captain, busy, thread, tasks, onSend, onFocus, person, onBack, onJump, runs, st, captainModelTitle = "Opus 5.5", paths }) {
-  const name = captain ? firstName(captain.title) || "隊長" : "隊長";
+  const name = captain ? firstName(captain.title) || "秘書" : "秘書";
   const thinking = captain?.column === "active";
   const shown = st.showReports ? thread : thread.filter(l => l.role !== "report" && l.role !== "tool");
-  // 隊長那邊出現了剛送的話：拿掉「送出中」
+  // 秘書那邊出現了剛送的話：拿掉「送出中」
   if (st.pending && (thread.some(l => l.role === "kang" && l.text === st.pending.text) || nowSec() - st.pending.at > 180)) st.pending = null;
   const send = () => {
     const t = Inbox.message(st.text);
@@ -272,17 +272,17 @@ function CaptainPanel({ captain, busy, thread, tasks, onSend, onFocus, person, o
     onSend(t);
   };
   const head = h("div.row.cp-head",
-    person ? h("button.plain", { title: "回到隊長對話", "aria-label": "回到隊長對話", on: { click: onBack } }, Icon("chevron.backward", 14)) : null,
+    person ? h("button.plain", { title: "回到秘書對話", "aria-label": "回到秘書對話", on: { click: onBack } }, Icon("chevron.backward", 14)) : null,
     Icon(person ? "person.crop.circle" : "person.crop.circle.badge.checkmark", 15, "sec"),
-    h("span.subhead.semibold.trunc", person ? name : !captain ? "隊長" : `隊長 ${name}`),
+    h("span.subhead.semibold.trunc", person ? name : "秘書"),
     captain && thinking ? [h("span.spinner.mini"), h("span.caption.sec", "思考中⋯")] : null,
     h("span.spacer"),
     person ? [
       h("button.plain", { title: "跳到它的終端機視窗", "aria-label": "跳到終端機", on: { click: () => onJump(captain.id) } }, Icon("terminal", 15)),
       h("button.plain.sec", { title: st.showReports ? "只看你和它講的話（收起工具與回報）" : "顯示工具與回報", on: { click: () => { st.showReports = !st.showReports; rerender(); } } },
         Icon(st.showReports ? "list.bullet.rectangle" : "list.bullet.rectangle.fill", 15)),
-    ] : !captain ? h("span.caption.sec.trunc", `不在：送出時開 ${captainModelTitle} 隊長`)
-      : h("button.plain.sec", { title: st.showReports ? "隱藏其他 AI 的回報，只看你和隊長的對話" : "顯示其他 AI 的回報", on: { click: () => { st.showReports = !st.showReports; rerender(); } } },
+    ] : !captain ? h("span.caption.sec.trunc", `不在：送出時開 ${captainModelTitle} 秘書`)
+      : h("button.plain.sec", { title: st.showReports ? "隱藏其他 AI 的回報，只看你和秘書的對話" : "顯示其他 AI 的回報", on: { click: () => { st.showReports = !st.showReports; rerender(); } } },
         Icon(st.showReports ? "text.bubble" : "text.bubble.fill", 15)));
   const parts = [h("div.divider"), head];
   if (person && captain) {
@@ -291,8 +291,8 @@ function CaptainPanel({ captain, busy, thread, tasks, onSend, onFocus, person, o
   } else if (captain) parts.push(RunBar(h("div"), captain, name, runs));
   const sc = h("div.scroll.cp-thread");
   if (!shown.length && !st.pending) sc.append(h("div.caption.sec", { style: { padding: "8px 0" } },
-    person ? "讀取對話中⋯（還沒有對話的話，在下面打一句話給它）" : !captain ? "還沒有隊長。在下面打一句話，戰情中心會開一個隊長來接。" : "還沒有對話。在下面打一句話交給隊長。"));
-  for (const l of shown) sc.append(CaptainBubble(l, person ? name : "隊長"));
+    person ? "讀取對話中⋯（還沒有對話的話，在下面打一句話給它）" : !captain ? "還沒有秘書。在下面打一句話，戰情中心會開一個秘書來接。" : "還沒有對話。在下面打一句話交給秘書。"));
+  for (const l of shown) sc.append(CaptainBubble(l, person ? name : "秘書"));
   if (st.pending) sc.append(CaptainBubble({ id: "pending", at: st.pending.at, role: "kang", text: st.pending.text, via: "送出中⋯" }, name));
   requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
   parts.push(sc);
@@ -313,7 +313,7 @@ function CaptainPanel({ captain, busy, thread, tasks, onSend, onFocus, person, o
   const paneH = () => panel?.getBoundingClientRect().height || 400;
   parts.push(h("div.row.bottom.small",
     ChatInput({ st, key: person ? `talk:${captain?.sessionId}` : "talk:captain",
-                placeholder: person ? `跟 ${name} 說⋯` : !captain ? "要做什麼？會開一個隊長來決定給哪個 AI" : "跟隊長說⋯（交辦、追問、拍板都可以）",
+                placeholder: person ? `跟 ${name} 說⋯` : !captain ? "要做什麼？會開一個秘書來決定給哪個 AI" : "跟秘書說⋯（交辦、追問、拍板都可以）",
                 resizable: true, maxHeight: Math.max(80, paneH() / 2), onSubmit: send, onChange: v => { btn.disabled = busy || !v.trim(); }, paths }),
     busy ? h("span.spinner") : null, btn));
   panel = h("div.captain-panel", ...parts);
@@ -330,7 +330,7 @@ function CaptainPanel({ captain, busy, thread, tasks, onSend, onFocus, person, o
   return panel;
 }
 
-function CaptainBubble(line, speaker = "隊長") {
+function CaptainBubble(line, speaker = "秘書") {
   const time = line.at != null ? h("span.num", timeShort(line.at)) : null;
   switch (line.role) {
     case "tool":

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ShoWorkCore
 
-@Suite("使用者已答：轉隊長、清掉隊長卡片的同一題")
+@Suite("使用者已答：轉秘書、清掉秘書卡片的同一題")
 struct AnsweredTests {
     @Test func relay() {
         #expect(Answered.relay(name: "小明", question: "要 push 嗎？", answer: "好，push").hasPrefix("【使用者已答】小明：要 push 嗎？→好，push"))

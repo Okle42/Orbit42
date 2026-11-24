@@ -8,7 +8,7 @@ namespace ShoWork;
 /// 角色頭上的英文名＋任務（Mac Nickname.swift：卡片標題＝「英文名-任務」）
 public static class OfficeNames
 {
-    public static readonly string[] Pool = { "Alex", "Bella", "Chris", "Dora", "Ethan", "Fiona", "Gavin", "Hana", "Ivan", "Jade", "Kyle", "Luna", "Milo",
+    public static readonly string[] Pool = { "Alex", "Bella", "Chris", "Dora", "Fiona", "Gavin", "Hana", "Ivan", "Jade", "Kyle", "Luna", "Milo",
                                              "Nina", "Oscar", "Penny", "Quinn", "Ruby", "Sam", "Tina", "Umar", "Vera", "Wade", "Xena", "Yuki", "Zack" };
 
     /// 「Alex」或「Alex-任務」⇒ (Alex, 任務或 null)；不像英文名（大寫字母開頭、英數、≤12 字；you-88 這種自動名不算）就 null

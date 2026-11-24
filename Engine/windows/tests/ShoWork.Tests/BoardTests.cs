@@ -220,7 +220,7 @@ public class BoardTests
         Assert.Equal(@"\\nas\share", BoardPath.Parent(@"\\nas\share\proj"));
     }
 
-    [Fact] // 組看板：每個 session 一張卡＋排隊訊息成待辦，隊員與訊息掛在隊長卡上
+    [Fact] // 組看板：每個 session 一張卡＋排隊訊息成待辦，隊員與訊息掛在秘書卡上
     public void Build()
     {
         var s1 = new SessionRecord { Pid = 1, SessionId = "A", Cwd = "/h", Status = "busy", UpdatedAt = 2 };

@@ -8,13 +8,13 @@ namespace ShoWork.Hooks;
 
 // showork.exe 的 hook 端子指令（W5，Mac 版 Sources/showork/main.swift＋CaptainCLI.swift 的移植）：
 //   showork brief          SessionStart hook：印出給 AI 的戰情中心說明
-//   showork card …         AI 每輪自報（完成度／信心度／要你決定的事）；--kind start 開工卡也進隊長收件匣
+//   showork card …         AI 每輪自報（完成度／信心度／要你決定的事）；--kind start 開工卡也進秘書收件匣
 //   showork title          UserPromptSubmit hook：開工卡提醒；使用者打「放行」／「放行 <單號>」放行被擋的指令
 //   showork guard-push     PreToolUse(Bash) hook：動作預告（擋／告）＋1 樓保全的 push 守門
 //   showork preview-check "<指令>"…   動作預告的分類試算（不擋、不送、不寫檔）
 //   showork names          活著的 session：英文名、session 名、正在做的任務
-//   showork captain [ack <單號｜all>]   把目前這個 session 設成隊長，印出隊長守則與收件匣未處理的單
-//   showork release <單號>  隊長放行被擋下的動作
+//   showork captain [ack <單號｜all>]   把目前這個 session 設成秘書，印出秘書守則與收件匣未處理的單
+//   showork release <單號>  秘書放行被擋下的動作
 //   （以下 11-02 補齊 Mac 有、Windows 沒有的）
 //   showork permit         PermissionRequest hook：等你在戰情中心收件匣按允許／拒絕（讀 stdin、最久等 1 小時；Permit.cs）
 //   showork ctx-wrapup     Stop hook：ctx 到門檻就請它收尾（Mac 的 hook_ctx_wrapup.py；CtxWrapup.cs）
@@ -22,7 +22,7 @@ namespace ShoWork.Hooks;
 //   showork roster [--json]  名冊：每個 session 的名字、專案、在做什麼、重工警告（名冊由 ShoWorkAgent 每 3 秒寫）
 //   showork task add --to <英文名> --text "…" [--then-to <下一棒> --then "…"]｜showork task cancel <單號>｜showork tasks [--all]
 //   showork b1 read [--n 20｜--all]｜showork b1 post --text "…" [--re <編號>]｜showork b1 hint
-//   showork tick [--fresh] 看板的背景工作（ShoWorkAgent 每 5 秒叫一次）：工作卡片轉隊長、合併預告、交接提醒、巡檢（派工回報在看板的 TaskRouter）
+//   showork tick [--fresh] 看板的背景工作（ShoWorkAgent 每 5 秒叫一次）：工作卡片轉秘書、合併預告、交接提醒、巡檢（派工回報在看板的 TaskRouter）
 // hook（brief／title／guard-push）的合約：永遠 exit 0、出錯安靜略過；stdin 是 Claude Code 給的 hook JSON。
 // 輸出一律 UTF-8 位元組直接寫 stdout（Windows 主控台的字碼頁會把中文弄壞）。
 // 邏輯都在可測的函式裡（輸入字串、回傳輸出字串），Run 只負責讀 stdin／環境變數、寫 stdout。
@@ -151,7 +151,7 @@ static class HookCli
         if (!HookJson.WriteAtomic(path, HookJson.Text(r.ToJson()))) return (1, "", $"showork card：寫不進 {Path.GetDirectoryName(path)}\n");
         var err = "";
         if (r.Task is { } id && !CaptainStore.ApplyTask(id, r)) err += $"showork card：找不到派工單 {id}（自報已存）\n";
-        if (r.IsStart)       // 開工卡也進隊長收件匣（看板轉送成功才標已送；新隊長 showork captain 會看到沒送到的）
+        if (r.IsStart)       // 開工卡也進秘書收件匣（看板轉送成功才標已送；新秘書 showork captain 會看到沒送到的）
             CaptainInbox.Save(new InboxItem
             {
                 Id = CaptainInbox.NewID("start"), Kind = "start", At = r.At, Sid = sid, Name = NicknameStore.Ensure(sid, now).Name,
@@ -169,7 +169,7 @@ static class HookCli
 
     // MARK: title
 
-    /// UserPromptSubmit：開工卡提醒（使用者直接下的指令；隊長自己不用；local.json 的 noKickoffRepos 不發）。
+    /// UserPromptSubmit：開工卡提醒（使用者直接下的指令；秘書自己不用；local.json 的 noKickoffRepos 不發）。
     ///   距上一道使用者指令超過 10 分鐘＝完整提醒；10 分鐘內＝只在換了任務時才發。
     ///   使用者打「放行」／「放行 <單號>」＝放行這個 session 被擋下的指令（寫 board\permits\releases.jsonl）。
     /// Mac 的 Ghostty 標題（terminalSequence、做完時補寫 OSC 0）Windows 不做，只輸出 hookSpecificOutput
@@ -212,6 +212,7 @@ static class HookCli
         if (sid == null) return "";
         var ctx = string.Join("\n", new[] { typed, nag, handoverNote }.Where(x => x != null));
         var n = NicknameStore.Get(sid);
+        if (n != null && CaptainStore.Captain() == sid) n.Name = Nicknames.CaptainTitle;      // 秘書的收件地址只叫「秘書」
         if (n != null) NicknameStore.Touch(sid, now);
         var outp = Nicknames.HookOutput(n, ev, ctx.Length == 0 ? null : ctx);
         return outp.Length == 0 ? "" : outp + "\n";
@@ -239,7 +240,7 @@ static class HookCli
         var sid = o.Str("session_id");
         var cwd = o.Str("cwd") ?? Directory.GetCurrentDirectory();
         var captain = CaptainStore.Captain();
-        if (!IsReviewer && sid != null && captain != sid)     // 隊長自己不擋不預告（隊長只審不做）
+        if (!IsReviewer && sid != null && captain != sid)     // 秘書自己不擋不預告（秘書只審不做）
         {
             var hs = CaptainLink.Hits(cmd, CaptainLink.LoadRules());
             var ghWhy = GhExempt(hs, cmd, cwd, git, view);
@@ -261,7 +262,7 @@ static class HookCli
                 Preapproval? pre = blocks.Count > 0 && !released ? CaptainInbox.UsePreapproval(sid, blocks.Select(r => r.Name).ToList(), now) : null;
                 if (pre != null)
                 {
-                    // 戰情中心回答已點名這個動作＝事先放行：記成已放行＋已用、通知隊長，照常往下跑
+                    // 戰情中心回答已點名這個動作＝事先放行：記成已放行＋已用、通知秘書，照常往下跑
                     var item = CaptainInbox.ReleaseByAnswer(CaptainInbox.Waiting(sid, fp, now) ?? NewBlock(CaptainLink.HitSummary(cmd, hs)), pre, now);
                     if (captain != null && Peer.Find(captain) is { } to
                         && Peer.Send(to, $"【已放行 {item.Id}】{CaptainLink.Label(name, project)}：使用者在戰情中心回答「{pre.Answer}」已點名這個動作・{item.Text}", "AI工作戰情中心（動作預告）").Id != null)
@@ -269,9 +270,9 @@ static class HookCli
                 }
                 else if (blocks.Count > 0 && !released)
                 {
-                    // 擋下等放行：同一個指令重試不再開新單；第一次立即送隊長（不在線就留在收件匣）
+                    // 擋下等放行：同一個指令重試不再開新單；第一次立即送秘書（不在線就留在收件匣）
                     var item = CaptainInbox.Waiting(sid, fp, now) ?? NewBlock(CaptainLink.HitSummary(cmd, hs) + (ghWhy != null ? $"（{ghWhy}）" : ""));
-                    if (!item.Delivered && captain != null && Peer.Find(captain) is { } to
+                    if (CaptainLink.PushNow(item) && captain != null && Peer.Find(captain) is { } to
                         && Peer.Send(to, CaptainLink.BlockText(item), "AI工作戰情中心（動作預告）").Id != null) item.Delivered = true;
                     CaptainInbox.Save(item);
                     return HookJson.Text(new JsonObject
@@ -357,16 +358,16 @@ static class HookCli
     public static (int Code, string Out, string Err) Captain(List<string> a, string? sid, DateTime now, string showork)
     {
         if (sid == null) return (1, "", "showork captain：要在 Claude Code 裡跑（找不到 CLAUDE_CODE_SESSION_ID）\n");
-        if (a.FirstOrDefault() == "ack")       // 隊長處理過的收件匣單標已讀
+        if (a.FirstOrDefault() == "ack")       // 秘書處理過的收件匣單標已讀
         {
-            if (CaptainStore.Captain() != sid) return (1, "", "只有現任隊長能 ack 收件匣\n");
+            if (CaptainStore.Captain() != sid) return (1, "", "只有現任秘書能 ack 收件匣\n");
             if (a.Count < 2) return (1, "", "用法：showork captain ack <單號｜all>\n");
             var n = a.Skip(1).Sum(id => CaptainInbox.Ack(id, now));
             return (0, n == 0 ? "沒有符合的未處理單\n" : $"已標 {n} 筆為已處理\n", "");
         }
         CaptainStore.SetCaptain(sid, CaptainStore.SessionName(sid), now);
         var sb = new StringBuilder(CaptainStore.Manual(showork)).Append('\n');
-        // 收件匣裡還沒送到隊長的、還在等放行的：先印，印完標成已送
+        // 收件匣裡還沒送到秘書的、還在等放行的：先印，印完標成已送
         var pend = CaptainInbox.Pending(now);
         if (pend.Count > 0)
         {
@@ -380,16 +381,16 @@ static class HookCli
         return (0, sb.ToString(), "");
     }
 
-    /// 隊長放行被擋下的動作：只能用在使用者已經明說同意的事；每次都記在 board\permits\releases.jsonl
+    /// 秘書放行被擋下的動作：只能用在使用者已經明說同意的事；每次都記在 board\permits\releases.jsonl
     public static (int Code, string Out, string Err) Release(List<string> a, string? sid, DateTime now)
     {
         if (a.FirstOrDefault() is not { } id) return (1, "", "用法：showork release <單號>（單號在【動作預告・擋下】那則訊息裡）\n");
         if (sid == null || CaptainStore.Captain() != sid)
-            return (1, "", "只有現任隊長能放行。使用者要放行，請在被擋的那個 session 直接打「放行」。\n");
-        if (CaptainInbox.Release(id, null, sid, CaptainStore.SessionName(sid) ?? "隊長", "release 指令", now) is not { } i)
+            return (1, "", "只有現任秘書能放行。使用者要放行，請在被擋的那個 session 直接打「放行」。\n");
+        if (CaptainInbox.Release(id, null, sid, Nicknames.CaptainTitle, "release 指令", now) is not { } i)
             return (1, "", $"找不到等放行的單號 {id}（打錯、已放行過、或超過 24 小時）\n");
         if (Peer.Find(i.Sid) is { } r)
-            Peer.Send(r, $"【已放行 {i.Id}】隊長轉述使用者的決定放行了：{i.Text}。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內、只能用一次）。", "AI工作戰情中心（動作預告）");
+            Peer.Send(r, $"【已放行 {i.Id}】秘書轉述使用者的決定放行了：{i.Text}。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內、只能用一次）。", "AI工作戰情中心（動作預告）");
         return (0, $"已放行 {i.Id}：{CaptainLink.Label(i.Name, i.Project)}・{i.Text}（30 分鐘內、限一次）\n", "");
     }
 
@@ -429,7 +430,7 @@ static class HookCli
         var open = CaptainStore.Tasks().Where(t => t.IsOpen).ToList();
         foreach (var e in r.Entries.OrderBy(e => e.Captain ? 0 : 1).ThenBy(e => e.Project, StringComparer.Ordinal))
         {
-            var head = $"■ {e.Name}{(e.Captain ? "（隊長）" : "")}｜{e.Project}｜{RosterEntry.ColumnTitle(e.Column)}：{e.Reason}";
+            var head = $"■ {(e.Captain ? Nicknames.CaptainTitle : e.Name)}｜{e.Project}｜{RosterEntry.ColumnTitle(e.Column)}：{e.Reason}";
             if (e.CtxTokens is { } tk) head += $"｜ctx {tk / 1000}k"; else if (e.Ctx is { } c) head += $"｜ctx {c}%";
             if (e.Kind == "bg") head += "｜背景";
             if (e.LastActivity is { } la) head += $"｜{Relative(la, now)}";
@@ -471,7 +472,7 @@ static class HookCli
             case "cancel":
                 if (rest.FirstOrDefault() is not { } id || CaptainStore.Task(id) is not { } t) return (1, "", "showork task cancel <單號>：找不到這張單\n");
                 t.State = "cancelled"; t.UpdatedAt = now; CaptainStore.Save(t);
-                var note = $"【隊長取消 {id}】這張派工不用做了：{SwiftText.Prefix(t.Text.Replace("\n", " "), 60)}。已經做到一半的就停在安全的地方，回報目前狀態即可。";
+                var note = $"【秘書取消 {id}】這張派工不用做了：{SwiftText.Prefix(t.Text.Replace("\n", " "), 60)}。已經做到一半的就停在安全的地方，回報目前狀態即可。";
                 bool ok = Peer.Find(t.ToSession ?? t.To) is { } to && Peer.Send(to, note, "AI工作戰情中心").Id != null;
                 return (0, ok ? $"已取消 {id}，也通知 {t.To} 不用做了\n" : $"已取消 {id}；通知 {t.To} 失敗，請用 SendMessage 告訴它不用做了\n", "");
             default:
@@ -499,12 +500,12 @@ static class HookCli
         if (to == null || text == null || text.Trim().Length == 0)
             return (1, "", "用法：showork task add --to <英文名，例如 Chris> --text \"…\" [--then-to <下一棒> --then \"…\"]\n");
         if ((thenTo == null) != (thenText == null)) return (1, "", "--then-to 和 --then 要一起給\n");
-        if (from == null) return (1, "", "要在隊長的 Claude Code session 裡跑\n");
+        if (from == null) return (1, "", "要在秘書的 Claude Code session 裡跑\n");
         var roster = FreshRoster(now);
         // 短名（Chris）或全名都可以；名冊只有活著的 session，回收重用的名字自然指向現在那一個
         var nick = NicknameStore.All().ToDictionary(kv => kv.Key, kv => kv.Value.Name);
         List<RosterEntry> Entries(string n) => roster == null ? new()
-            : ShortName.Match(n, roster.Entries.Select(e => (e.SessionId, (string?)e.Name)).ToList(), nick).Select(s => roster.Entries.First(e => e.SessionId == s)).ToList();
+            : ShortName.Match(n, roster.Entries.Select(e => (e.SessionId, (string?)e.Name)).ToList(), nick, CaptainStore.Captain()).Select(s => roster.Entries.First(e => e.SessionId == s)).ToList();
         RosterEntry? Entry(string n) => Entries(n) is [var one] ? one : null;
         foreach (var n in new[] { to }.Concat(thenTo != null ? new[] { thenTo } : Array.Empty<string>()))
             if (Entries(n) is { Count: > 1 } many)
@@ -523,7 +524,7 @@ static class HookCli
         var err = "";
         if (target is { SameProject.Count: > 0 } w) err += $"⚠ {w.Project} 還有別的 session：{string.Join("、", w.SameProject)}\n";
         if (target?.CtxTokens is { } tk && tk >= ContextGuard.TokenLimit) err += $"⚠ {to} 的 context 已用 {tk / 1000}k（門檻 {ContextGuard.TokenLimit / 1000}k），可能做不完\n";
-        var (saved, e2) = Dispatch.Send(task, showork, CaptainStore.SessionName(from) ?? "隊長");
+        var (saved, e2) = Dispatch.Send(task, showork, Nicknames.CaptainTitle);
         if (e2 == null)
             return (0, $"單號 {id}：已送進 {saved.To} 的收件匣" + (saved.ThenTo != null ? $"；它做完會自動接力給 {saved.ThenTo}" : "") + "。回報會由看板自動傳給你。\n", err);
         return (0, $"單號 {id} 已建，但直送失敗（{e2}）。請改用 SendMessage（to: \"{saved.To}\"）送出以下全文：\n-----\n{Dispatch.Message(saved, showork)}\n", err);
@@ -553,11 +554,11 @@ static class HookCli
                 int? re = int.TryParse(Value("--re")?.Trim('#'), out var r) ? r : null;
                 if (B1Board.Post(sid, name, project, text, re, now) is not { } post) return (1, "", "沒有留成（內容是空的，或寫檔失敗）\n");
                 var o = $"已留言 #{post.Id}" + (SwiftText.Count(B1Board.Clean(text)) > B1Talk.MaxChars ? $"（超過 {B1Talk.MaxChars} 字，下次精簡一點）" : "") + "\n";
-                // 轉給現任隊長（自己就是隊長、或隊長不在線就不送；留言本身已經在板上）
+                // 轉給現任秘書（自己就是秘書、或秘書不在線就不送；留言本身已經在板上）
                 if (CaptainStore.Captain() is { } cap && cap != sid && Peer.Find(cap) is { } to)
                 {
                     var (ok, e) = Peer.Send(to, post.CaptainText, "AI工作戰情中心（Agent交流互動板）");
-                    o += ok != null ? $"已轉給隊長 {to.Name ?? ""}\n" : $"轉給隊長失敗（{e}）；留言在板上，隊長用 showork b1 read 看得到\n";
+                    o += ok != null ? $"已轉給秘書 {to.Name ?? ""}\n" : $"轉給秘書失敗（{e}）；留言在板上，秘書用 showork b1 read 看得到\n";
                 }
                 return (0, o, "");
             case "hint":
@@ -581,13 +582,12 @@ static class HookCli
         var roster = CaptainStore.Roster();
         void Try(Action f) { try { f(); } catch (Exception e) { TickLog("error " + e.Message, now); } }
         Try(() => RelayCards(fresh, captain, roster, now));
-        Try(() => FlushNotices(captain, now));
         // 派工回報與接力（Mac 的 TaskRouter）由看板那邊的 ShoWork.Win\Board\BoardActions.cs TaskRouter 做，這裡不重複送
         Try(() => NotifyInterrupted(captain, now));
         Try(() => CaptainAlarm(fresh, captain, roster != null && now - roster.At < TimeSpan.FromSeconds(30) ? roster : null, now));
     }
 
-    /// 工作卡片自動轉送隊長（CardRelay.cs）
+    /// 工作卡片自動轉送秘書（CardRelay.cs）
     static void RelayCards(bool fresh, string? captain, Roster? roster, DateTime now)
     {
         if (Prefs.Flag(CardRelay.SettingKey) == false) return;
@@ -603,27 +603,10 @@ static class HookCli
         {
             var (id, err) = Peer.Send(to, o.Text, "AI工作戰情中心");
             TickLog($"RELAY card {o.SessionId[..Math.Min(8, o.SessionId.Length)]} → {to.Name ?? captain} {id ?? err}", now);
-            // 開工卡送到了 ⇒ 收件匣那張標成已送
-            if (id != null && reports.GetValueOrDefault(o.SessionId)?.IsStart == true)
-                foreach (var i in CaptainInbox.All().Where(i => i.Kind == "start" && i.Sid == o.SessionId && !i.Delivered)) { i.Delivered = true; CaptainInbox.Save(i); }
         }
     }
 
-    /// 收件匣裡還沒送的預告：同一 session 安靜 5 秒（最多等 30 秒）合成一則送隊長
-    static void FlushNotices(string? captain, DateTime now)
-    {
-        if (captain == null) return;
-        var due = CaptainLink.DueNotices(CaptainInbox.All(), now);
-        if (due.Count == 0 || Peer.Find(captain) is not { } to) return;
-        foreach (var g in due)
-        {
-            var (id, err) = Peer.Send(to, CaptainLink.NoticeText(g), "AI工作戰情中心（動作預告）");
-            TickLog($"PREVIEW {g[0].Name} ×{g.Count} → {to.Name ?? captain} {id ?? err}", now);
-            if (id != null) foreach (var i in g) { i.Delivered = true; CaptainInbox.Save(i); }
-        }
-    }
-
-    /// 派工單做完／要你決定／卡住 ⇒ 傳【派工回報】給隊長；做完又有下一棒 ⇒ 自動派給下一棒（Mac 的 TaskRouter）
+    /// 派工單做完／要你決定／卡住 ⇒ 傳【派工回報】給秘書；做完又有下一棒 ⇒ 自動派給下一棒（Mac 的 TaskRouter）
     static void RouteTasks(DateTime now, string showork)
     {
         foreach (var t in CaptainStore.Tasks().Where(t => Dispatch.ShouldNotify(t) || (t.State == "done" && t.ThenTo != null && t.FollowUp == null)))
@@ -638,10 +621,10 @@ static class HookCli
             string? notified = null;
             if (Dispatch.ShouldNotify(t))
             {
-                // 隊長不在（或從看板直接派的）：Mac 發系統通知；Windows 的 showork 沒有通知管道，記 log、卡片上看得到
+                // 秘書不在（或從看板直接派的）：Mac 發系統通知；Windows 的 showork 沒有通知管道，記 log、卡片上看得到
                 if (Peer.Find(t.From) is { } cap && cap.SessionId != t.ToSession)
                     TickLog($"ROUTER notify {t.Id} {t.State} → {cap.Name ?? cap.SessionId} {Peer.Send(cap, Dispatch.ReportText(t, follow), "AI工作戰情中心").Error ?? "ok"}", now);
-                else TickLog($"ROUTER notify {t.Id} {t.State}：隊長不在線", now);
+                else TickLog($"ROUTER notify {t.Id} {t.State}：秘書不在線", now);
                 notified = t.State;
             }
             // 寫回前再讀一次：對方可能剛好又回報了，只動我們自己的欄位
@@ -652,7 +635,7 @@ static class HookCli
         }
     }
 
-    /// 收尾後使用者又派新工作（interrupted）⇒ 轉隊長一則提醒（Mac HandoverClear 的 .interrupted）
+    /// 收尾後使用者又派新工作（interrupted）⇒ 轉秘書一則提醒（Mac HandoverClear 的 .interrupted）
     static void NotifyInterrupted(string? captain, DateTime now)
     {
         foreach (var r in Handover.All().Where(r => r.State == "interrupted" && !r.Notified))
@@ -666,19 +649,23 @@ static class HookCli
         }
     }
 
-    /// 隊長鬧鐘：每 captain.alarmMinutes 分鐘（預設 30）送【巡檢時間】；名冊跟上次一樣只送「無變化」；沒有隊長不送
+    /// 秘書鬧鐘：每 captain.alarmMinutes 分鐘（預設 30）看一次；只有要秘書處理的事、而且跟上次推的不一樣才送（同 Mac 的安靜巡檢）；沒有秘書不送
+    /// 指紋存 alarm-state.json，常駐程式重開也不重推
     static void CaptainAlarm(bool fresh, string? captain, Roster? roster, DateTime now)
     {
         var st = HookJson.ReadObject(AlarmState);
-        if (fresh || st.Date("at") == null) { HookJson.WriteAtomic(AlarmState, HookJson.Text(new JsonObject { ["at"] = HookJson.Iso(now) })); return; }   // 看板啟動算起，不一開就送
+        void Save(string? sig) { var o = new JsonObject { ["at"] = HookJson.Iso(now) }; o.Put("sig", sig); HookJson.WriteAtomic(AlarmState, HookJson.Text(o)); }
+        if (fresh || st.Date("at") == null) { Save(st.Str("sig")); return; }   // 看板啟動算起，不一開就送
         if (captain == null || roster == null) return;
         var min = Prefs.Number(CaptainLink.AlarmKey) ?? 30;
         if (min <= 0 || now - st.Date("at")!.Value < TimeSpan.FromMinutes(min)) return;
-        var (full, sig) = CaptainLink.Alarm(roster, CaptainInbox.Pending(now).Count, now);
-        var text = sig == st.Str("sig") ? CaptainLink.AlarmUnchanged(roster.Entries.Count(e => !e.Captain)) : full;
-        HookJson.WriteAtomic(AlarmState, HookJson.Text(new JsonObject { ["at"] = HookJson.Iso(now), ["sig"] = sig }));
+        var busy = CaptainStore.Tasks().Where(t => t.IsOpen && t.ToSession != null).Select(t => t.ToSession!).ToHashSet();
+        var (reasons, sig) = CaptainLink.AlarmActions(roster, busy, CaptainInbox.All(), ContextGuard.TokenLimit, now);
+        Save(sig);
         CaptainInbox.Prune(now);
-        if (Peer.Find(captain) is { } to) TickLog($"ALARM → {to.Name ?? captain} {Peer.Send(to, text, "AI工作戰情中心（巡檢）").Error ?? "ok"}", now);
+        if (!CaptainLink.AlarmShouldPush(reasons, sig, st.Str("sig"))) { TickLog("ALARM quiet", now); return; }
+        var (full, _) = CaptainLink.Alarm(roster, CaptainInbox.Pending(now).Count, now);
+        if (Peer.Find(captain) is { } to) TickLog($"ALARM → {to.Name ?? captain} {Peer.Send(to, CaptainLink.AlarmQuietText(reasons, full), "AI工作戰情中心（巡檢）").Error ?? "ok"}", now);
     }
 
     // MARK: 跑 git／gh

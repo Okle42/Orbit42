@@ -69,8 +69,13 @@ sealed class PeerSession
 static class Nicknames
 {
     /// 好念、字首不重複
-    public static readonly string[] Pool = { "Alex", "Bella", "Chris", "Dora", "Ethan", "Fiona", "Gavin", "Hana", "Ivan", "Jade", "Kyle", "Luna", "Milo",
+    public static readonly string[] Pool = { "Alex", "Bella", "Chris", "Dora", "Fiona", "Gavin", "Hana", "Ivan", "Jade", "Kyle", "Luna", "Milo",
                                              "Nina", "Oscar", "Penny", "Quinn", "Ruby", "Sam", "Tina", "Umar", "Vera", "Wade", "Xena", "Yuki", "Zack" };
+
+    /// 11-24 Keng：隊長改稱「秘書」，不再有英文名
+    public const string CaptainTitle = "秘書";
+    /// 收件地址：新稱呼，加上改名前的「隊長」和英文名
+    public static readonly string[] CaptainAliases = { "秘書", "隊長", "Ethan" };
 
     /// transcript 開頭的 custom-title／agent-name（「Bella-在做的事」取「-」前面）；要是英文名的樣子（字母開頭、英數、≤12 字）
     public static string? Inherited(byte[]? head)
@@ -133,7 +138,7 @@ static class Nicknames
 /// 英文短名當收訊地址（Mac 的 ShortName）：只看「現在活著的」；兩個活的同名就全回，讓呼叫端報錯
 static class ShortName
 {
-    public static List<string> Match(string who, IReadOnlyList<(string Sid, string? Name)> sessions, IReadOnlyDictionary<string, string> nick)
+    public static List<string> Match(string who, IReadOnlyList<(string Sid, string? Name)> sessions, IReadOnlyDictionary<string, string> nick, string? captain = null)
     {
         var w = SwiftText.TrimSpaces(who);
         if (w.Length == 0) return new();
@@ -144,6 +149,7 @@ static class ShortName
                 || (s.Name?.ToLowerInvariant().StartsWith(w.ToLowerInvariant() + "-", StringComparison.Ordinal) ?? false))
             .Select(s => s.Sid).ToList();
         if (shortHits.Count > 0) return shortHits;
+        if (captain != null && Nicknames.CaptainAliases.Contains(w, StringComparer.OrdinalIgnoreCase) && sessions.Any(s => s.Sid == captain)) return new() { captain };
         return SwiftText.Count(w) >= 6 ? sessions.Where(s => s.Sid.StartsWith(w, StringComparison.Ordinal)).Select(s => s.Sid).ToList() : new();
     }
 }

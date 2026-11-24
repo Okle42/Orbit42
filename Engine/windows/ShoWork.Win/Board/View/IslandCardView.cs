@@ -214,7 +214,7 @@ sealed class IslandCardView : Control
         var save = g.Clip;
         g.SetClip(r);                                      // 字永遠留在框裡（Mac 10-13：小視窗摘要畫到框外）
         float y = inner.Y;
-        // 標題（隊長前面一頂小皇冠）
+        // 標題（秘書前面一頂小皇冠）
         var titleFont = fonts.Get(13 * k * s, bold: true);
         float tx = inner.X;
         if (p.Card.Captain)

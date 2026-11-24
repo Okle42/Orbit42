@@ -22,7 +22,7 @@
 
 **沒在 Windows 真機驗證過的**（都只在 macOS 上用 `dotnet` 跑過）：
 - 整條 hook 流程（Git Bash 跑 showork.exe、stdin 的 hook JSON、stdout 的中文、`CLAUDE_CODE_SESSION_ID` 在 Bash 工具裡有沒有）。
-- 寄給隊長（`Peer`）：Windows 版 Claude Code 的 `messagingSocketPath` 長什麼樣子沒看過；`\\.\pipe\…` 當 named pipe、其他當 AF_UNIX socket。連不上就單子留在收件匣（delivered=false），新隊長跑 `showork captain` 會看到。
+- 寄給秘書（`Peer`）：Windows 版 Claude Code 的 `messagingSocketPath` 長什麼樣子沒看過；`\\.\pipe\…` 當 named pipe、其他當 AF_UNIX socket。連不上就單子留在收件匣（delivered=false），新秘書跑 `showork captain` 會看到。
 - NativeAOT 版 showork.exe（Mac 上只做到 build 時 AOT 分析器 0 警告、trimmed publish 0 警告）。
 - git／gh 從 PATH 找 `git.exe`／`gh.exe`；`cd /c/Users/…` 這種 Git Bash 路徑換成 `C:/Users/…`。
 
@@ -30,7 +30,7 @@
 `brief` 沒有自動接手、`card --kind wrapup` 只存卡片（沒有自動 /clear）。`showork.exe` 也算 showork 自己的指令（不預告）。
 規則清單照 Mac：Windows 的暫存區（`%TEMP%`、`C:\Users\…\AppData\Local\Temp`）**不算**暫存區，rm 到那裡會被擋；要放寬改 `preview.tsv`。
 
-**還沒做**：事先放行的「回答」UI（Windows 看板還不寫 `preapprovals.json`，只會讀與用掉）、預告合併送隊長（`notice` 只進收件匣）、roster／task／b1、自動交接。
+**還沒做**：事先放行的「回答」UI（Windows 看板還不寫 `preapprovals.json`，只會讀與用掉）、預告合併送秘書（`notice` 只進收件匣）、roster／task／b1、自動交接。
 
 ## 做法（對照 macOS 版）
 
@@ -83,7 +83,7 @@ powershell -ExecutionPolicy Bypass -File ..\tests\w1_e2e.ps1
 
 戰情中心（唯讀版，`ShoWork.Win\Board\View\`）：部門島卡片格、Kubo、影分身、右側對話框、工具列 5 小時／7 天流量表。
 每 1.5 秒重讀，沒變不重畫；島的動畫 8 fps，只 Invalidate 島本身，地板／桌子／島身先畫成點陣圖快取；縮小、被完全蓋住（自己算 z-order 遮擋）、
-別的虛擬桌面、「在 Windows 中顯示動畫」關掉時都停。新任務、交給隊長、AI 審核、自動收尾、退回、放行、丟待辦都還沒做（會動到別的東西）。
+別的虛擬桌面、「在 Windows 中顯示動畫」關掉時都停。新任務、交給秘書、AI 審核、自動收尾、退回、放行、丟待辦都還沒做（會動到別的東西）。
 測試用：`SHOWORK_BOARD_DEMO=1`（示範卡片）、`SHOWORK_BOARD_THEME=light|dark`、`SHOWORK_REDUCE_MOTION=1`、`SHOWORK_OPEN_BOARD=1`（agent 啟動就開戰情中心），都不改系統設定。
 `--shot a.png` 存兩張：`a.png` 是螢幕實拍（先叫到最上層，拍得到「沒重畫」和系統捲軸的真樣子）、`a.pw.png` 是 PrintWindow 對照，log 記兩張的差異比例。
 `SHOWORK_BOARD_FAULT=paint`（畫島時丟例外，驗不跳對話框、只關戰情中心）、`SHOWORK_EXIT_AFTER=N`（測試 agent N 秒後正常結束，不在系統匣留殘影）。

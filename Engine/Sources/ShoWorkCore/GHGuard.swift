@@ -1,6 +1,6 @@
 import Foundation
 
-// 動作預告「GitHub 公開發言（gh）」的細判（隊長 Penny 10-24：Sam 在公開 repo 用 gh issue comment／gh pr create，開工卡回覆前就送出去了）。
+// 動作預告「GitHub 公開發言（gh）」的細判（秘書 Penny 10-24：Sam 在公開 repo 用 gh issue comment／gh pr create，開工卡回覆前就送出去了）。
 // preview.tsv 的正規表示式先粗篩（gh issue comment／create、gh pr create／comment／review、gh release create、gh api 寫入），
 // 命中後這裡逐段看真正的目標 repo：全部都是 Okle42 自己的私有 repo ⇒ 不擋；其他帳號、公開、判不出來（gh 失敗、路徑用變數）⇒ 照擋等放行。
 // gh api 只算 repos/… 路徑，而且是寫入（-X POST／PATCH／PUT／DELETE，或帶 -f／-F／--input 這類會預設成 POST 的欄位）。

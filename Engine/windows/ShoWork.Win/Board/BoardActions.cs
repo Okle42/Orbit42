@@ -129,7 +129,7 @@ public static class BoardStore
 public static class CaptainTasks
 {
     public static string Title(CaptainTaskInfo.TaskState s) => Hooks.CaptainTask.Title(s.ToString());
-    /// 還沒結束（隊長要繼續追）
+    /// 還沒結束（秘書要繼續追）
     public static bool Open(CaptainTaskInfo.TaskState s) => s is CaptainTaskInfo.TaskState.sent or CaptainTaskInfo.TaskState.working or CaptainTaskInfo.TaskState.blocked;
 
     /// board\tasks 全部（舊的在前）→ 卡片／網頁用的形狀
@@ -232,8 +232,8 @@ static class BoardActions
         finally { TellCaptain(c, line); }
     }
 
-    /// 使用者答了組員卡片的問題 ⇒ 轉隊長一則「【使用者已答】」、清掉隊長卡片上同一題（隊長 Penny 10-25：別再重複問使用者）。
-    /// 答的是隊長自己的卡片就不用轉
+    /// 使用者答了組員卡片的問題 ⇒ 轉秘書一則「【使用者已答】」、清掉秘書卡片上同一題（秘書 Penny 10-25：別再重複問使用者）。
+    /// 答的是秘書自己的卡片就不用轉
     static void TellCaptain(BoardCard c, string answer)
     {
         if (ShoWork.Hooks.CaptainStore.Captain() is not { } cap || cap == c.SessionId) return;
@@ -284,7 +284,7 @@ static class BoardActions
         return (null, all.Trim().Length == 0 ? $"claude --bg 失敗（{r.code}）" : Board.Prefix(all, 300));
     }
 
-    /// 看板上直接派工給某個 session（你按的）；有隊長就由隊長收回報，沒有就發系統通知給你
+    /// 看板上直接派工給某個 session（你按的）；有秘書就由秘書收回報，沒有就發系統通知給你
     public static (string? Id, string? Error) Dispatch(BoardCard c, string text, string? thenTo, string? thenText, string? captain)
     {
         var now = DateTime.UtcNow;
@@ -311,25 +311,25 @@ static class BoardActions
         return (t, err);
     }
 
-    /// 把一件事交給隊長，由它決定給誰
+    /// 把一件事交給秘書，由它決定給誰
     public static (string? Id, string? Error) ToCaptain(string sid, string text)
     {
-        if (FindPeer(sid) is not { } cap) return (null, "隊長的 session 沒開著");
-        var body = $"{CaptainThread.BoardPrefix}{text}\n請照隊長守則處理：先看名冊（showork roster），選人後用 showork task add 派工；小事自己做。";
+        if (FindPeer(sid) is not { } cap) return (null, "秘書的 session 沒開著");
+        var body = $"{CaptainThread.BoardPrefix}{text}\n請照秘書守則處理：先看名冊（showork roster），選人後用 showork task add 派工；小事自己做。";
         return SendPeer(cap, body, CaptainThread.BoardFromName, null);
     }
 
-    // MARK: 收件匣：交給隊長（10-26 Kang：預設 Opus，需要判斷時再升 Fable）
+    // MARK: 收件匣：交給秘書（10-26 Kang：預設 Opus，需要判斷時再升 Fable）
 
     public static string CaptainModel => BoardPrefs.Str(CaptainLaunch.ModelKey) is { Length: > 0 } m ? m : CaptainLaunch.DefaultModel;
-    /// 剛開的背景隊長（短 id、開的時間）：還沒登記好之前不要再開第二個
+    /// 剛開的背景秘書（短 id、開的時間）：還沒登記好之前不要再開第二個
     static (string Id, DateTime At)? launching;
     static readonly object launchLock = new();
 
-    /// 現在的隊長還開著嗎（行程在、有收件匣）
+    /// 現在的秘書還開著嗎（行程在、有收件匣）
     public static PeerSession? LiveCaptain() => ShoWork.Hooks.CaptainStore.Captain() is { } sid ? FindPeer(sid) : null;
 
-    /// 交給隊長：隊長在就直送；不在就開一個背景隊長（claude --bg --model <captainModel>），把這件事當它的第一句話。
+    /// 交給秘書：秘書在就直送；不在就開一個背景秘書（claude --bg --model <captainModel>），把這件事當它的第一句話。
     /// 會等（開 session 最多 30 秒），呼叫端放背景執行緒。
     public static string AskCaptain(string text)
     {
@@ -338,7 +338,7 @@ static class BoardActions
         if (LiveCaptain() is { } cap)
         {
             var (_, err) = ToCaptain(cap.SessionId, line);
-            return err == null ? $"已交給隊長「{cap.Name ?? "隊長"}」" : $"送不到隊長：{err}";
+            return err == null ? "已交給秘書" : $"送不到秘書：{err}";
         }
         lock (launchLock)
         {
@@ -347,36 +347,36 @@ static class BoardActions
                 if (l.Id.Length > 0 && FindPeer(l.Id) is { } r)
                 {
                     ShoWork.Hooks.CaptainStore.SetCaptain(r.SessionId, r.Name, DateTime.UtcNow);
-                    return ToCaptain(r.SessionId, line).Error == null ? $"已交給隊長「{r.Name ?? "隊長"}」" : "送不到隊長";
+                    return ToCaptain(r.SessionId, line).Error == null ? "已交給秘書" : "送不到秘書";
                 }
-                return "隊長剛開，還在暖機；過半分鐘再送一次";
+                return "秘書剛開，還在暖機；過半分鐘再送一次";
             }
             launching = ("", DateTime.UtcNow);
         }
-        if (Tools.Claude() == null) { launching = null; return "找不到 claude 指令，開不了隊長"; }
+        if (Tools.Claude() == null) { launching = null; return "找不到 claude 指令，開不了秘書"; }
         var prompt = CaptainLaunch.Bootstrap(Showork, line);
-        var res = Tools.RunClaude(new[] { "--bg", "--model", CaptainModel, "-n", "隊長", "--permission-mode", "bypassPermissions", prompt }, BoardReader.DefaultHome, timeoutMs: 60_000);
+        var res = Tools.RunClaude(new[] { "--bg", "--model", CaptainModel, "-n", "秘書", "--permission-mode", "bypassPermissions", prompt }, BoardReader.DefaultHome, timeoutMs: 60_000);
         var all = res.@out + res.err;
         var bg = all.Split('\n').FirstOrDefault(x => x.Contains("backgrounded"));
         var id = bg?.Split('·').Skip(1).FirstOrDefault()?.Trim();
         if (id == null || id.Length < 6)
         {
             launching = null;
-            return "開隊長失敗：" + Board.Prefix(all.Trim(), 200);
+            return "開秘書失敗：" + Board.Prefix(all.Trim(), 200);
         }
         launching = (id, DateTime.UtcNow);
         Log.Note($"CAPTAIN launched {id} model={CaptainModel}");
-        // 登記成隊長（它自己跑 showork captain 也會登記；先登記，下一句交辦才找得到它）
+        // 登記成秘書（它自己跑 showork captain 也會登記；先登記，下一句交辦才找得到它）
         for (int i = 0; i < 30; i++)
         {
             if (FindPeer(id) is { } rec)
             {
                 ShoWork.Hooks.CaptainStore.SetCaptain(rec.SessionId, rec.Name, DateTime.UtcNow);
-                return $"已開新隊長（{ModelTitle(CaptainModel)}），這件事是它的第一個任務";
+                return $"已開新秘書（{ModelTitle(CaptainModel)}），這件事是它的第一個任務";
             }
             Thread.Sleep(1000);
         }
-        return $"已開新隊長（{ModelTitle(CaptainModel)}），正在暖機";
+        return $"已開新秘書（{ModelTitle(CaptainModel)}），正在暖機";
     }
 
     public static string ModelTitle(string m) => m switch
@@ -720,9 +720,9 @@ public sealed class CtxGuard
     public void MarkSent(string sid) { Load(); sent[sid] = DateTime.UtcNow; Save(); }
 }
 
-// MARK: - P3 派工：自動回報隊長、自動接力（Kang 10-09）
+// MARK: - P3 派工：自動回報秘書、自動接力（Kang 10-09）
 
-/// 每次刷新看一遍派工單：做完／要你決定／卡住 ⇒ 傳一則【派工回報】給隊長；做完又有下一棒 ⇒ 自動派給下一棒。
+/// 每次刷新看一遍派工單：做完／要你決定／卡住 ⇒ 傳一則【派工回報】給秘書；做完又有下一棒 ⇒ 自動派給下一棒。
 /// 只有正式 agent 會送（測試視窗不動手）；送訊息會等一下，所以放背景，同一張單同時只處理一次。
 /// （hook 端的 `showork tick` 刻意不做這段，見 showork\HookCli.cs 的 Tick）
 public sealed class TaskRouter
@@ -769,7 +769,7 @@ public sealed class TaskRouter
                 Log.Note($"ROUTER notify {id} {t.State} → {cap.Name ?? cap.SessionId} {err ?? "ok"}");
                 if (err != null) SystemNotice(t);
             }
-            else SystemNotice(t);                // 隊長不在（或從看板直接派的），改發系統通知給你
+            else SystemNotice(t);                // 秘書不在（或從看板直接派的），改發系統通知給你
             notified = t.State;
         }
         // 寫回前再讀一次：對方可能剛好又回報了，只動我們自己的欄位

@@ -3,7 +3,7 @@ using Xunit;
 
 namespace ShoWork.Tests;
 
-/// Tests/ShoWorkCoreTests/CardTests.swift 中看板會用到的部分（自報、分欄、新鮮度、存檔格式、流量、ctx、隊長旗標）
+/// Tests/ShoWorkCoreTests/CardTests.swift 中看板會用到的部分（自報、分欄、新鮮度、存檔格式、流量、ctx、秘書旗標）
 public class CardTests
 {
     static readonly DateTime T0 = DateTime.UnixEpoch.AddSeconds(1_791_440_000);
@@ -85,7 +85,7 @@ public class CardTests
         Assert.Null(ContextUse.Parse("""{"x":1}"""));
     }
 
-    [Fact] // 隊長旗標與同專案重工（隊長自己、家目錄、排隊卡都不算）
+    [Fact] // 秘書旗標與同專案重工（秘書自己、家目錄、排隊卡都不算）
     public void CaptainAnnotate()
     {
         BoardCard C(string id, string project, string? name = null) => new() { Id = id, SessionId = id.Split('#')[0], Project = project, Name = name, Title = "t" };

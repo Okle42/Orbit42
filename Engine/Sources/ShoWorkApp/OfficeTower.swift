@@ -253,7 +253,7 @@ enum TowerProps {
             k.b(x, 0, 0, 0, 1.4, 1.2, 0.35, TM.f(TP.FN5))
             for i in 0..<3 { k.b(x, -0.45 + Float(i) * 0.45, 1.2, 0, 0.25, 0.25, 0.25, TM.f(TP.WL1)) }
         }
-        // ── 5 秘書電話室
+        // ── 5 LINE 秘書電話室
         p["phone_booth"] = def(1.1, 1.1, 2.2, .wall) { k, x, a, _ in
             k.b(x, 0, 0, 0, 1.1, 0.06, 1.1, a); k.b(x, 0, 2.12, 0, 1.1, 0.08, 1.1, a)
             for (sx, sz) in [(-0.53, -0.53), (0.53, -0.53), (-0.53, 0.53), (0.53, 0.53)] as [(Float, Float)] { k.b(x, sx, 0, sz, 0.05, 2.12, 0.05, TM.f(TP.FN3)) }
@@ -1516,7 +1516,7 @@ enum TowerCore {
         }
     }
 
-    /// 一次性排好這組門的開關（隊長 10-25：到站開、離站關；不 repeatForever、不每幀檢查）。
+    /// 一次性排好這組門的開關（秘書 10-25：到站開、離站關；不 repeatForever、不每幀檢查）。
     /// stops＝車廂停在這層的時段（絕對時間）；每段到了開、結束前 doorTime 關。回傳最後一個動作結束的時間（給渲染延長）
     @discardableResult
     static func runDoor(_ door: SCNNode, stops: [(from: Date, to: Date)], now: Date, _ g: SlideDoor = SlideDoor.elevator) -> Date {

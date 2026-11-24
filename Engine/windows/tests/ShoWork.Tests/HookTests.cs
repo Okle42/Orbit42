@@ -95,7 +95,7 @@ public sealed class HookTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(Board, "cards")));
     }
 
-    [Fact] // 開工卡：沒寫 --status 當 working，進隊長收件匣（delivered=false，Mac 讀得回去的欄位都在）
+    [Fact] // 開工卡：沒寫 --status 當 working，進秘書收件匣（delivered=false，Mac 讀得回去的欄位都在）
     public void StartCardGoesToInbox()
     {
         var (code, _, _) = HookCli.Card(new List<string> { "--kind", "start", "--doing", "改按鈕", "--summary", "按鈕改藍", "--how", "改 View.cs",
@@ -222,19 +222,19 @@ public sealed class HookTests : IDisposable
         // 不擋的（mv）只進收件匣
         Assert.Null(HookCli.GuardPush(Stdin("S3", "mv a.txt b.txt"), T0, NoGit, NoView));
         Assert.Contains(CaptainInbox.All(), i => i.Kind == "notice" && i.Kinds.SequenceEqual(new[] { "mv 到非暫存區" }));
-        // 隊長自己不擋；審核員不擋
+        // 秘書自己不擋；審核員不擋
         CaptainStore.SetCaptain("S3", null, T0);
         Assert.Null(HookCli.GuardPush(Stdin("S3", cmd), T0.AddSeconds(50), NoGit, NoView));
     }
 
-    [Fact] // 隊長 showork release：只有隊長能放；放了紀錄 source＝release 指令；captain 印未處理的單並標已送
+    [Fact] // 秘書 showork release：只有秘書能放；放了紀錄 source＝release 指令；captain 印未處理的單並標已送
     public void CaptainRelease()
     {
         var id = DenyId(HookCli.GuardPush(Stdin("S4", "firebase deploy"), T0, NoGit, NoView))!;
-        Assert.Equal(1, HookCli.Release(new List<string> { id }, "C1", T0).Code);                       // 還不是隊長
+        Assert.Equal(1, HookCli.Release(new List<string> { id }, "C1", T0).Code);                       // 還不是秘書
         var (code, out_, _) = HookCli.Captain(new List<string>(), "C1", T0.AddSeconds(1), "/x/showork");
         Assert.Equal(0, code);
-        Assert.StartsWith("[AI工作戰情中心] 你現在是隊長。", out_);
+        Assert.StartsWith("[AI工作戰情中心] 你現在是秘書。", out_);
         Assert.Contains($"{id} ", out_);
         Assert.Contains("【收件匣未處理 1 則】", out_);
         Assert.True(CaptainInbox.Item(id)!.Delivered);
@@ -256,14 +256,14 @@ public sealed class HookTests : IDisposable
         Assert.False(CaptainInbox.Consume("a", fp, T0.AddSeconds(10)));
         Assert.Equal("BAAAA", CaptainInbox.Waiting("a", fp, T0.AddSeconds(10))!.Id);
         Assert.Null(CaptainInbox.Release(null, "b", "b", "使用者", "使用者輸入", T0.AddSeconds(20)));
-        Assert.NotNull(CaptainInbox.Release("baaaa", null, "cap", "隊長", "release 指令", T0.AddSeconds(20)));
+        Assert.NotNull(CaptainInbox.Release("baaaa", null, "cap", "秘書", "release 指令", T0.AddSeconds(20)));
         Assert.False(CaptainInbox.Consume("a", CaptainLink.Fingerprint("rm -rf src"), T0.AddSeconds(30)));
         Assert.True(CaptainInbox.Consume("a", fp, T0.AddSeconds(30)));
         Assert.False(CaptainInbox.Consume("a", fp, T0.AddSeconds(40)));
         CaptainInbox.Save(It("BCCCC", "x"));
         Assert.Equal(1, CaptainInbox.Ack("bcccc", T0.AddSeconds(70)));
         Assert.DoesNotContain(CaptainInbox.Pending(T0.AddSeconds(70)), i => i.Id == "BCCCC");
-        Assert.Contains("隊長轉述Demo User的決定", CaptainLink.DenyReason(CaptainInbox.Item("BAAAA")!));
+        Assert.Contains("秘書轉述Demo User的決定", CaptainLink.DenyReason(CaptainInbox.Item("BAAAA")!));
         Assert.Contains("showork release BAAAA", CaptainLink.BlockText(CaptainInbox.Item("BAAAA")!));
     }
 
@@ -316,7 +316,7 @@ public sealed class HookTests : IDisposable
         var line = "python3 ~/demo/line_send.py 對方 '晚上見'";
         Assert.Null(HookCli.GuardPush(Stdin("S5", line), T0.AddSeconds(5), NoGit, NoView));
         var i = Assert.Single(CaptainInbox.All());
-        Assert.True(i.Released == T0.AddSeconds(5) && i.Used == T0.AddSeconds(5) && !i.Delivered);       // 沒有隊長：留在收件匣
+        Assert.True(i.Released == T0.AddSeconds(5) && i.Used == T0.AddSeconds(5) && !i.Delivered);       // 沒有秘書：留在收件匣
         Assert.Equal("戰情中心回答", Assert.Single(CaptainInbox.Releases()).Str("source"));
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S5", line), T0.AddSeconds(6), NoGit, NoView)));
         CaptainInbox.RecordAnswer("S5", "刪掉吧，部署也可以", null, T0.AddSeconds(7));
@@ -355,7 +355,7 @@ public sealed class HookTests : IDisposable
         Assert.Null(Ctx(HookCli.Title(Prompt("S7", "做事", cwd: @"C:\Users\Demo User\ProjectC\src"), null, T0, "/x")));   // noKickoffRepos
         Assert.Equal("", HookCli.Title(Prompt("S8", "<task-notification>完成</task-notification>"), null, T0, "/x"));         // 還沒取名、沒提醒：不輸出
         CaptainStore.SetCaptain("S6", null, T0);
-        Assert.Null(Ctx(HookCli.Title(Prompt("S6", "幫我看一下"), null, T0.AddHours(2), "/x")));                                // 隊長不用發
+        Assert.Null(Ctx(HookCli.Title(Prompt("S6", "幫我看一下"), null, T0.AddHours(2), "/x")));                                // 秘書不用發
         Assert.Contains("[ShoWork42 AI工作戰情中心]", HookCli.Brief("{\"session_id\":\"S6\"}", null, "/x/showork"));
         Assert.Contains($"你在戰情中心的名字是 {NicknameStore.Get("S6")!.Name}", HookCli.Brief("{\"session_id\":\"S6\"}", null, "/x/showork"));
     }
@@ -421,7 +421,7 @@ public sealed class HookTests : IDisposable
         Assert.Empty(PushGuard.Allows());
     }
 
-    // MARK: 寄給隊長（Peer）
+    // MARK: 寄給秘書（Peer）
 
     [Fact] // 訊息格式同 Mac；Unix socket 真的送得到；連不上時單子留 delivered=false
     public void PeerSend()
@@ -435,7 +435,7 @@ public sealed class HookTests : IDisposable
         Assert.Equal("cap", Peer.PipeName("//./pipe/cap"));
         Assert.Null(Peer.PipeName("/tmp/cc-socks/1.sock"));
 
-        // 隊長的 session（行程＝這個測試自己，算活著）；收件 socket 還沒開 ⇒ 擋下的單 delivered=false
+        // 秘書的 session（行程＝這個測試自己，算活著）；收件 socket 還沒開 ⇒ 擋下的單 delivered=false
         var pid = Environment.ProcessId;
         var sock = Path.Combine(Path.GetTempPath(), $"sw{pid % 100000}.sock");
         File.Delete(sock);

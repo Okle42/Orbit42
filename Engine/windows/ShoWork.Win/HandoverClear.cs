@@ -10,14 +10,14 @@ namespace ShoWork;
 // 每 3 秒看一遍 board\handover：
 //   pending      ＋它閒下來 ⇒ 對它的終端機送 /clear（TermSend：斜線指令逐字打）
 //   clearing     ＋sessions\<pid>.json 換了 sid ⇒ 再打一句「開始接手」；20 秒沒換 ⇒ failed
-//   interrupted  ⇒ 轉隊長一則提醒：在 `showork tick` 做（要 Peer）
+//   interrupted  ⇒ 轉秘書一則提醒：在 `showork tick` 做（要 Peer）
 //   failed       ⇒ 卡片 blocked，請使用者手動 /clear
 // 目標一定要閉環驗證（Mac 09-26 搬錯視窗的教訓）：TermSend 只打給「sessions\<pid>.json 的 pid、真的是 claude.exe、不是 pid 重用」的那一個；
 // Mac 還多驗 Ghostty 分頁標題，Windows 主控台沒有每個 session 的標題可驗，TermSend 的 pid＋開始時間就是閉環。每筆紀錄只自動送一次。
 //
 // 同一個迴圈順便做 Mac 看板刷新時做的兩件「沒有畫面也要做」的事：
 //   • 寫 board\roster.json（Mac BoardSource 每次刷新寫；`showork roster`／`task add` 讀，30 秒內的才算數）
-//   • 每 5 秒叫一次 `showork tick`（工作卡片轉隊長、合併預告、交接提醒、巡檢；要 Peer 的都在 showork 那邊）
+//   • 每 5 秒叫一次 `showork tick`（工作卡片轉秘書、合併預告、交接提醒、巡檢；要 Peer 的都在 showork 那邊）
 // 啟動：Program.cs 的 switch 在 agent 模式先叫 HandoverClear.Start()（背景執行緒，跟 UI 執行緒無關）。
 static class HandoverClear
 {

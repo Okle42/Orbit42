@@ -25,7 +25,7 @@ public class IslandsTests
         Assert.Equal(Mood.Asleep, Moods.Of(fresh));                 // 從來沒用過＝睡覺；做完已讀＝休息（喝咖啡）
     }
 
-    [Fact] // 配件：隊長皇冠優先、秘書專案耳機、研究審核標題眼鏡
+    [Fact] // 配件：秘書皇冠優先、LINE 秘書專案耳機、研究審核標題眼鏡
     public void Accessories()
     {
         var h = Islands.DefaultHeadsetProjects;

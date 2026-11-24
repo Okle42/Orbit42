@@ -11,8 +11,8 @@ namespace ShoWork.Hooks;
 //   連上 → 一行 {"type":"auth","token":…} → 一行訊息 JSON，對方不回應。
 // Mac 的 messagingSocketPath 是 Unix socket（/tmp/cc-socks/<pid>.sock）。Windows 版 Claude Code 這欄長什麼樣子還沒在真機看過：
 //   \\.\pipe\… 或 //./pipe/… ⇒ 當 named pipe 連；其他 ⇒ 當 Unix socket 檔（.NET 8 在 Windows 10 1803+ 也支援 AF_UNIX）。
-// ⚠ Windows 這兩條都沒在真機驗證過。連不上就回錯誤：呼叫端不標 delivered，單子留在收件匣，新隊長跑 showork captain 會看到（Mac 也是這個退路）。
-// 收尾中（Handover.ShouldHold）的 session：看板／隊長流程的訊息先暫存，新 context 接手時一起交給它（同 Mac）。
+// ⚠ Windows 這兩條都沒在真機驗證過。連不上就回錯誤：呼叫端不標 delivered，單子留在收件匣，新秘書跑 showork captain 會看到（Mac 也是這個退路）。
+// 收尾中（Handover.ShouldHold）的 session：看板／秘書流程的訊息先暫存，新 context 接手時一起交給它（同 Mac）。
 static class Peer
 {
     /// 開著的 session（行程還在）
@@ -25,7 +25,7 @@ static class Peer
     {
         var all = Sessions();
         var nick = NicknameStore.All().ToDictionary(kv => kv.Key, kv => kv.Value.Name);
-        var hits = ShortName.Match(who, all.Select(r => (r.SessionId, r.Name)).ToList(), nick);
+        var hits = ShortName.Match(who, all.Select(r => (r.SessionId, r.Name)).ToList(), nick, CaptainStore.Captain());
         var rs = hits.Select(sid => all.First(r => r.SessionId == sid)).ToList();
         return rs.Count switch
         {

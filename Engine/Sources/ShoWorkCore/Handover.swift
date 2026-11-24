@@ -6,7 +6,7 @@ import Darwin
 //   ② 收尾完 AI 發 `showork card --kind wrapup --handoff <檔>` ⇒ 這裡記一筆 board/handover/<sid>.json（pending）
 //      看板看到它閒下來（最後一張卡就是 wrapup、不在工作、沒開對話框）⇒ 對它的終端機送 /clear
 //   ③ /clear 後的 SessionStart（showork brief）認領這筆：名字沿用、派工單轉到新 sid、注入接手提示；看板再打一句「開始接手」叫它動起來
-// 收尾後、/clear 前使用者又下新指令 ⇒ interrupted（不自動 /clear，看板轉隊長提醒）；之後 ctx 再多 15% Stop hook 會再收一次。
+// 收尾後、/clear 前使用者又下新指令 ⇒ interrupted（不自動 /clear，看板轉秘書提醒）；之後 ctx 再多 15% Stop hook 會再收一次。
 
 public struct HandoverRecord: Codable, Sendable, Equatable {
     public enum State: String, Codable, Sendable {
@@ -49,7 +49,7 @@ public struct HandoverRecord: Codable, Sendable, Equatable {
 public enum Handover {
     /// 認領期限：收尾後這麼久內的新 session 才算接手（Penny 規格 60 分鐘）
     public static let window: TimeInterval = 3600
-    /// 鍵盤要靜這麼久才送 /clear（免得打進 Kang 正在那個分頁打的草稿；隊長 Penny 10-24 要求 60 秒）
+    /// 鍵盤要靜這麼久才送 /clear（免得打進 Kang 正在那個分頁打的草稿；秘書 Penny 10-24 要求 60 秒）
     /// 10-26 Kang：收尾完就直接 /clear，不等鍵盤（原 60 秒：他一直在別的視窗打字就永遠送不出去）
     public static let keyIdle: TimeInterval = 0
     /// 送 /clear 後這麼久沒換 sid ⇒ 失敗
@@ -157,11 +157,11 @@ extension Handover {
     public static func resumeWithHeld(_ r: HandoverRecord, tasks: [String]) -> String {
         let held = takeHeld(r.sid)
         guard !held.isEmpty else { return resumeContext(r, tasks: tasks) }
-        return resumeContext(r, tasks: tasks) + "\n【收尾期間暫存、現在補交給你的 \(held.count) 則訊息】（讀完交接後照常處理；隊長另跑 showork captain 看未 ack 收件匣）\n"
+        return resumeContext(r, tasks: tasks) + "\n【收尾期間暫存、現在補交給你的 \(held.count) 則訊息】（讀完交接後照常處理；秘書另跑 showork captain 看未 ack 收件匣）\n"
             + held.map { "— 來自 \($0.from)：\($0.text)" }.joined(separator: "\n")
     }
 
-    /// UserPromptSubmit 用：收尾後、/clear 前「使用者本人」又下指令 ⇒ interrupted（看板轉隊長提醒）。
+    /// UserPromptSubmit 用：收尾後、/clear 前「使用者本人」又下指令 ⇒ interrupted（看板轉秘書提醒）。
     /// T1026230337：其他 session 的訊息、巡檢、工作回報／派工回報轉送都不算打斷（10-26 Penny、Tina 被巡檢一叫醒收尾就作廢）；
     /// 沒打斷但還在等 /clear ⇒ 回一段提醒，請它簡短回完就停、有新進度補進交接，不用再發收尾卡
     @discardableResult
@@ -192,7 +192,7 @@ extension Handover {
         return String(p[r.upperBound...].prefix { $0 != "\"" })
     }
 
-    // MARK: 收尾期間暫存（T1026230337 ②）：看板／隊長流程要送給「已收尾等 /clear」的 session 的訊息先存著，新 context 接手時一起交給它
+    // MARK: 收尾期間暫存（T1026230337 ②）：看板／秘書流程要送給「已收尾等 /clear」的 session 的訊息先存著，新 context 接手時一起交給它
 
     /// 收尾中（pending／clearing）而且不是使用者本人的訊息 ⇒ 暫存不送
     public static func shouldHold(sid: String, fromName: String) -> Bool {

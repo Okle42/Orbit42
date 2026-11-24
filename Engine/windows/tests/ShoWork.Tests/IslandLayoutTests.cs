@@ -116,7 +116,7 @@ public class IslandLayoutTests
         Assert.Equal(4, KuboMath.TypingPeriod * KuboMath.Fps);
     }
 
-    [Fact] // 示範卡片：至少 3 座島、五種狀態、隊長、耳機、眼鏡、影分身、一座擠滿 5 人
+    [Fact] // 示範卡片：至少 3 座島、五種狀態、秘書、耳機、眼鏡、影分身、一座擠滿 5 人
     public void DemoCoversEverything()
     {
         var islands = Islands.Build(BoardDemo.Cards(new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc)));

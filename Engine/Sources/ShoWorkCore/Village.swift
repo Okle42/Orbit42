@@ -2,7 +2,7 @@ import Foundation
 
 // 小島村莊（11-12）：3D 戰情中心的新預設場景，大樓保留成可切回的另一種看法。
 //   一個 AI session＝一位島民。依專案歸屬住在／工作在對應地點：自家店屋（本機設定的店名）、公司小屋（Okle42）、
-//   其他（個人）散在島上的小攤；隊長在鎮公所。工作中＝在自己位置忙；做完／閒置＝到廣場晃；離線＝回家（門關、燈暗）。
+//   其他（個人）散在島上的小攤；秘書在鎮公所。工作中＝在自己位置忙；做完／閒置＝到廣場晃；離線＝回家（門關、燈暗）。
 //   主人（看板的使用者）是一隻小狗：有人在等你回答時自己跑過去站在旁邊；點地面它走過去；沒事在廣場附近晃。
 // 這裡只有純資料與規則（歸屬對照表、誰在哪、座標、找路），畫面在 ShoWorkAgent/OfficeVillage.swift。
 // 私人的專案名、店名不寫進原始碼（公開 repo）：放 local.json 的 "village"（LocalConfig）。
@@ -12,7 +12,7 @@ public enum VillageZone: String, Codable, Sendable, CaseIterable {
     case shop       // 自家店屋（本機設定的店名；奶油／橄欖／金、門口停休旅車）
     case company    // 公司小屋（Okle42；黑底金色 42）
     case personal   // 個人：散在島上的小攤
-    case townhall   // 隊長（11-12 第二輪：鎮公所併進中間的店屋，隊長站在店屋門口）
+    case townhall   // 秘書（11-12 第二輪：鎮公所併進中間的店屋，秘書站在店屋門口）
 }
 
 /// 本機設定（local.json 的 "village"）：
@@ -110,7 +110,7 @@ public enum VillageZones {
         return t
     }
 
-    /// 一張卡片住哪一區：隊長＝鎮公所；對照表（不分大小寫）；店屋關鍵字；都沒有＝個人
+    /// 一張卡片住哪一區：秘書＝鎮公所；對照表（不分大小寫）；店屋關鍵字；都沒有＝個人
     public static func zone(project: String, captain: Bool = false, config: VillageConfig?) -> VillageZone {
         if captain { return .townhall }
         let p = project.lowercased()
@@ -226,14 +226,14 @@ public enum Village {
         var workCount: [String: Int] = [:]
         var plazaCount = 0
         for var c in live.sorted(by: { $0.id < $1.id }) {
-            // 隊長的子 agent（背景 Agent）不另外畫成島民、名牌也不掛「子 agent N」（11-12 第二輪：疊在隊長名牌上）
+            // 秘書的子 agent（背景 Agent）不另外畫成島民、名牌也不掛「子 agent N」（11-12 第二輪：疊在秘書名牌上）
             if c.captain { c.subagents = []; if c.activity == .delegating { c.activity = .none } }
             let zone = VillageZones.zone(project: c.project, captain: c.captain, config: config)
             let mood = Mood.of(c)
             var r = VillageResident(id: c.id, name: name(c), project: c.project, zone: zone, card: c, mood: mood, spot: .work, slot: 0)
             r.pet = config?.petName.map { $0.caseInsensitiveCompare(r.name) == .orderedSame } ?? false
             let needs = r.needsAnswer
-            // 隊長一律在鎮公所；工作中／等你／卡住在自己位置；做完／休息／睡著到廣場
+            // 秘書一律在鎮公所；工作中／等你／卡住在自己位置；做完／休息／睡著到廣場
             let atWork = c.captain || needs || mood == .working || mood == .stuck
             if atWork {
                 if zone == .personal { r.stall = stallIndex(c.project) }
@@ -252,7 +252,7 @@ public enum Village {
             let zone = VillageZones.zone(project: e.project, config: config)
             plan.residents.append(VillageResident(id: "home:\(n)", name: n, project: e.project, zone: zone, card: nil, mood: nil, spot: .home, slot: 0))
         }
-        // 家：隊長住店屋不另外蓋；店屋的人住北邊（店屋後面）、公司住東邊、個人住西邊；偏好的位置滿了就挑最近的空位
+        // 家：秘書住店屋不另外蓋；店屋的人住北邊（店屋後面）、公司住東邊、個人住西邊；偏好的位置滿了就挑最近的空位
         let order: [VillageZone] = [.shop, .company, .personal]
         let homeless = plan.residents.filter { $0.zone != .townhall }
             .sorted { (order.firstIndex(of: $0.zone) ?? 9, $0.name) < (order.firstIndex(of: $1.zone) ?? 9, $1.name) }
@@ -335,7 +335,7 @@ public enum VillageLayout {
     /// 可以走的範圍（離海邊留 1.5）
     public static let walkRadius = radius - 1.5
 
-    /// 自家店屋在島中間北邊（11-12 第二輪：原本的鎮公所位置；隊長也在這）
+    /// 自家店屋在島中間北邊（11-12 第二輪：原本的鎮公所位置；秘書也在這）
     public static let shop = VRect(0, -10, 7, 5.5)
     public static var townhall: VRect { shop }
     public static let company = VRect(12, -4, 5.6, 4.6)
@@ -383,7 +383,7 @@ public enum VillageLayout {
     public static func workSpot(zone: VillageZone, stall: Int?, slot: Int) -> (VPoint, Double) {
         switch zone {
         case .townhall:
-            // 店屋正門口（店屋的人站在兩側，中間留給隊長）
+            // 店屋正門口（店屋的人站在兩側，中間留給秘書）
             return (VPoint(shop.cx, shop.cz + shop.d / 2 + 1.25 + Double(slot % 2) * 1.4), 0)
         case .shop:
             let xs = [-2.9, -1.6, 1.6, 2.9], row = (slot / xs.count) % 2

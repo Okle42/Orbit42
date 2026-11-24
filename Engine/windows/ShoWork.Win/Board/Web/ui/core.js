@@ -61,7 +61,7 @@ export const AttentionSummary = {
 // MARK: - TowerTheme.title（TowerTheme.swift）
 
 export const TowerThemeTitle = {
-  monitor: "監控中心", app_studio: "App 開發室", library: "研究書房", print_shop: "3D 列印工坊", call_room: "秘書電話室",
+  monitor: "監控中心", app_studio: "App 開發室", library: "研究書房", print_shop: "3D 列印工坊", call_room: "LINE 秘書電話室",
   trading_desk: "交易室", media_studio: "攝影棚", design_studio: "設計工作室", legal_room: "法務室", ledger_room: "財務帳房",
   game_lab: "遊戲工作室", hw_lab: "硬體實驗室", marketing: "行銷室", dispatch_room: "調度中心", drafting_room: "建築製圖室", general: "通用辦公",
 };

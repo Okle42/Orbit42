@@ -335,7 +335,7 @@ public final class GuardScanner: @unchecked Sendable {
 
 /// 辦公室格局（10-20：兩種都要、可切換）
 public enum OfficeLayout: String, Sendable, CaseIterable {
-    case grid   // A 棋盤分區：部門排兩區，中央走道放咖啡吧／會議桌／隊長台
+    case grid   // A 棋盤分區：部門排兩區，中央走道放咖啡吧／會議桌／秘書台
     case ring   // C 中庭環狀：部門圍一圈朝中央公共區
 
     public var title: String { self == .grid ? "棋盤分區" : "中庭環狀" }

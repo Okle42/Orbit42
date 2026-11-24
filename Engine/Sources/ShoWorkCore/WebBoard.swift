@@ -230,7 +230,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
         public var summary: String?
         public var updatedAt: Date
     }
-    /// 隊長收件匣還沒 ack 的（開工卡／動作預告／擋下等放行）
+    /// 秘書收件匣還沒 ack 的（開工卡／動作預告／擋下等放行）
     public struct InboxEntry: Codable, Sendable, Equatable {
         public var id: String
         public var kind: String
@@ -301,7 +301,7 @@ public enum WebAction: Equatable, Sendable {
     case send(session: String, text: String)       // 傳話給某個 session（BoardActions.answer 同一條送法，前面加 sendPrefix）
     case dispatch(session: String, text: String)   // 開派工單（BoardActions.dispatch，跟看板「派工」同一條；內文加 sendPrefix）
     case cancel(task: String)                      // 取消派工單（Captain.cancel，跟 showork task cancel 同一條）
-    case ack(inbox: String)                        // 隊長收件匣標已處理，一次一張（CaptainInbox.ack；不收 all）
+    case ack(inbox: String)                        // 秘書收件匣標已處理，一次一張（CaptainInbox.ack；不收 all）
 
     public var name: String {
         switch self { case .answer: "answer"; case .send: "send"; case .dispatch: "dispatch"; case .cancel: "cancel"; case .ack: "ack" }
@@ -493,7 +493,7 @@ public enum WebRouter {
     }
 
     // 11-24 Keng：iPhone 動作按鈕／控制中心一按就聽，說完的話送給 Mac 上的智能體（跟在 Mac 上按住智能體講話同一條路：
-    // 簡單的智能體自己答，答不了交給隊長）。POST /api/say {text} → 200；Orbit42 沒開（沒有球體）→ 503。稽核記前 60 字
+    // 簡單的智能體自己答，答不了交給秘書）。POST /api/say {text} → 200；Orbit42 沒開（沒有球體）→ 503。稽核記前 60 字
     public static let sayPath = "/api/say"
     public static let maxSay = 500
     public static func handleSay(_ r: WebRequest, peer: String?, localIP: String?, token: String?, now: Date = Date(),

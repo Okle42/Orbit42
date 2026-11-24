@@ -84,7 +84,7 @@ struct TowerHUDTests {
         let rows = TowerIndex.rows(plan, decor: decor, moods: ["a": [.waiting, .working], "b": [.finished]])
         #expect(rows.map(\.kind) == [.roof, .project, .project, .idle, .lobby])
         #expect(rows[1].title == "B" && rows[2].title == "A" && rows[2].floorNo == "02")
-        #expect(rows[2].subtitle == "秘書電話室" && rows[2].accent == "#8C7BB5")          // 識別色＝主題色（不是 AI 給的）
+        #expect(rows[2].subtitle == "LINE 秘書電話室" && rows[2].accent == "#8C7BB5")          // 識別色＝主題色（不是 AI 給的）
         #expect(rows[2].waiting == 1 && rows[2].working == 1 && rows[1].finished == 1)
         #expect(rows[3].title == "閒置 22" && rows[3].idleNames.count == 22)
     }

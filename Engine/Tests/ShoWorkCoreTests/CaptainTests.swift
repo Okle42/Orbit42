@@ -2,13 +2,13 @@ import Foundation
 import Testing
 @testable import ShoWorkCore
 
-@Suite("隊長派工")
+@Suite("秘書派工")
 struct CaptainTests {
     func card(_ sid: String, _ project: String, name: String? = nil) -> BoardCard {
         BoardCard(id: sid, column: .done, reason: "閒置", project: project, title: "t", pid: 1, sessionId: sid, name: name ?? "s-\(sid)")
     }
 
-    @Test("同專案多開才警告；隊長、家目錄、排隊卡不算")
+    @Test("同專案多開才警告；秘書、家目錄、排隊卡不算")
     func sameProject() {
         let cards = [card("A", "ProjectA"), card("B", "ProjectA"), card("C", "專案A"), card("D", "（家目錄）"), card("E", "（家目錄）"),
                      card("K", "ProjectA"), BoardCard(id: "A#q0", column: .todo, reason: "", project: "ProjectA", title: "q", pid: 1, sessionId: "A")]
@@ -18,7 +18,7 @@ struct CaptainTests {
         #expect(d["C"] == nil && d["D"] == nil && d["K"] == nil)
     }
 
-    @Test("隊長卡列出派出去的單；對方卡只列還沒結束、交給它的")
+    @Test("秘書卡列出派出去的單；對方卡只列還沒結束、交給它的")
     func annotate() {
         let t1 = CaptainTask(id: "T1", from: "K", to: "s-A", toSession: "A", text: "做 X")
         var t2 = CaptainTask(id: "T2", from: "K", to: "s-A", toSession: "A", text: "做 Y"); t2.state = .done
@@ -54,7 +54,7 @@ struct CaptainTests {
     @Test("派工全文：第一行就看得出是什麼事，附回報方式")
     func message() {
         let m = Captain.message(CaptainTask(id: "T9", from: "K", to: "a", text: "修登入\n判準：測試全過"), showork: "/x/showork")
-        #expect(m.hasPrefix("【隊長派工 T9】修登入\n判準：測試全過"))
+        #expect(m.hasPrefix("【秘書派工 T9】修登入\n判準：測試全過"))
         #expect(m.contains("--task T9"))
     }
 }
@@ -98,7 +98,7 @@ struct RelayTests {
         #expect(t.state == .review && Captain.nextLeg(of: { var x = t; x.followUp = nil; return x }(), id: "T3", now: Date()) == nil)
     }
 
-    @Test("同一個狀態只通知隊長一次；做事中不通知")
+    @Test("同一個狀態只通知秘書一次；做事中不通知")
     func notify() {
         var t = CaptainTask(id: "T1", from: "K", to: "a", text: "x")
         #expect(!Captain.shouldNotify(t))

@@ -3,9 +3,9 @@ using System.Text.RegularExpressions;
 
 namespace ShoWork.Hooks;
 
-// 隊長連動（Mac 版 Sources/ShoWorkCore/CaptainLink.swift 的移植；規則、文字、檔案格式都照抄）：
-//   ① 開工卡：使用者直接下指令（UserPromptSubmit）⇒ 提醒組員動手前先發 showork card --kind start；開工卡也進隊長收件匣。
-//   ② 動作預告：PreToolUse(Bash) 比對高風險指令（board\guard\preview.tsv，可改）。擋＝擋下等放行；告＝只通知隊長。
+// 秘書連動（Mac 版 Sources/ShoWorkCore/CaptainLink.swift 的移植；規則、文字、檔案格式都照抄）：
+//   ① 開工卡：使用者直接下指令（UserPromptSubmit）⇒ 提醒組員動手前先發 showork card --kind start；開工卡也進秘書收件匣。
+//   ② 動作預告：PreToolUse(Bash) 比對高風險指令（board\guard\preview.tsv，可改）。擋＝擋下等放行；告＝只通知秘書。
 //      git push 不在這裡（1 樓保全 PushGuard 照舊）。只看 Bash 工具。
 // 正規表示式：Mac 是 NSRegularExpression（ICU），這裡是 .NET Regex。用到的語法（lookahead、\b、\s、反向參照、不分大小寫）兩邊意思相同；
 // 已知的小差異：Swift 把 "\r\n" 當成一個字，所以 CRLF 的指令在 Mac 不會在 \r\n 切段，這裡會（Windows 比較合理）。
@@ -47,7 +47,7 @@ static partial class CaptainLink
 
     /// 注入給組員的提醒（UserPromptSubmit 的 additionalContext）
     public static string StartContext(string showork) => $"""
-        【開工卡】這是使用者直接下的指令。動手（讀檔以外的任何改動、跑會改東西的指令）之前，先用 Bash 發一張開工卡給隊長，發完直接開始做、不用等回覆：
+        【開工卡】這是使用者直接下的指令。動手（讀檔以外的任何改動、跑會改東西的指令）之前，先用 Bash 發一張開工卡給秘書，發完直接開始做、不用等回覆：
         "{showork}" card --kind start --doing "<這件事，10 個字內>" --summary "<要做什麼，一句話>" --how "<打算怎麼做>" --touch "<會動到哪些檔／repo／系統設定；沒有寫「無」>" --outward "<要不要 push、部署、對外傳訊息；沒有寫「無」>"
         只是聊天、回答問題、不動手的回合不用發。不要把使用者的原話整段貼進卡片。
         """;
@@ -107,7 +107,7 @@ static partial class CaptainLink
             var owner = LocalConfig.Current.OwnerName;
             var head = $"# 動作預告（T1024033803 ②，{RulesVersion}）：一行「類別<TAB>擋|告<TAB>正規表示式」，不分大小寫。\n"
                 + "# 比對的是「一段指令」：以 ; && || | 換行切開、去掉 sudo／env／VAR=值 前綴，引號內容換成 Q（ssh 那段保留引號內容），heredoc 內文拿掉 ⇒ ^ 就是指令的第一個詞。\n"
-                + $"# 擋＝先擋下、等隊長轉述{owner}的決定（showork release）或{owner}在那個 session 打「放行」；告＝只通知隊長不擋。# 開頭是註解，刪掉這個檔會重寫預設\n";
+                + $"# 擋＝先擋下、等秘書轉述{owner}的決定（showork release）或{owner}在那個 session 打「放行」；告＝只通知秘書不擋。# 開頭是註解，刪掉這個檔會重寫預設\n";
             var rules = DefaultRules;
             var body = string.Join("\n", rules.Select(r => $"{r.Name}\t{(r.Block ? "擋" : "告")}\t{r.Pattern}")) + "\n";
             HookJson.WriteAtomic(f, head + body);
@@ -284,16 +284,16 @@ static partial class CaptainLink
     public static string DenyReason(InboxItem item)
     {
         var owner = LocalConfig.Current.OwnerName;
-        return $"⛔️ 這個指令需要放行才能跑（{string.Join("、", item.Kinds)}，單號 {item.Id}）。已通知隊長，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
-            + $"要放行請隊長轉述{owner}的決定（隊長跑 showork release {item.Id}），或{owner}在這個 session 直接打「放行」。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
+        return $"⛔️ 這個指令需要放行才能跑（{string.Join("、", item.Kinds)}，單號 {item.Id}）。已通知秘書，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
+            + $"要放行請秘書轉述{owner}的決定（秘書跑 showork release {item.Id}），或{owner}在這個 session 直接打「放行」。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
             + "等的時候用 showork card --status blocked 回報卡在哪；能改用暫存區（scratchpad、/tmp）的就改用。";
     }
 
-    /// 擋下：立即送隊長
+    /// 擋下：立即送秘書
     public static string BlockText(InboxItem item)
     {
         var owner = LocalConfig.Current.OwnerName;
         return $"【動作預告・擋下 {item.Id}】{Label(item.Name, item.Project)}：{string.Join("、", item.Kinds)}・{item.Text}\n"
-            + $"（已擋下等放行。{owner}明說同意這個動作才 showork release {item.Id}；隊長不能自己決定放行對外動作）";
+            + $"（已擋下等放行。{owner}明說同意這個動作才 showork release {item.Id}；秘書不能自己決定放行對外動作）";
     }
 }

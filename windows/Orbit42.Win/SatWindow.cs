@@ -17,6 +17,9 @@ sealed class SatWindow : Control
     public int Seq { get; } = ++seqN;                // 打開的先後（斜對角排的順序）
     public bool WantShown;                           // 收起動畫跑到一半又被打開時用
     public bool YieldingToAsk;                       // 答案卡被蓋到 ⇒ 藏起來讓答案卡在上面
+    /// 現任秘書（Mac TermWindow.secretary）：常駐 3px 框＋小標，深色護眼綠、淺色紅。子視窗畫不到自己外面 ⇒ 光暈畫在框內側
+    bool secretary;
+    public bool Secretary { get => secretary; set { if (secretary == value) return; secretary = value; PerformLayout(); Invalidate(); } }
     public bool Dark { get => dark; set { dark = value; Invalidate(); } }
 
     public const int BarHeight = 34, MinW = 420, MinH = 260, Radius = 12;
@@ -57,7 +60,8 @@ sealed class SatWindow : Control
     protected override void OnLayout(LayoutEventArgs e)
     {
         base.OnLayout(e);
-        Content.Bounds = new Rectangle(2, BarHeight, Math.Max(0, Width - 4), Math.Max(0, Height - BarHeight - 2));
+        int m = secretary ? 8 : 2;
+        Content.Bounds = new Rectangle(m, BarHeight, Math.Max(0, Width - m * 2), Math.Max(0, Height - BarHeight - m));
         using var path = Round(new Rectangle(0, 0, Width, Height), Radius);
         Region = new Region(path);
     }
@@ -76,6 +80,13 @@ sealed class SatWindow : Control
 
     (Color c, float w) Border()
     {
+        if (secretary)        // 只有一層框：閃、呼吸、拖檔都只是變粗
+        {
+            var ft = (DateTime.UtcNow - flashAt).TotalSeconds;
+            if (dropHover || ft < 0.35) return (Accent, 5);
+            if (!breathing) return (Accent, 3);
+            return (Accent, (float)(3 + 0.6 * (Math.Sin((DateTime.UtcNow - breathAt).TotalSeconds / 1.4 * Math.PI - Math.PI / 2) + 1)));
+        }
         if (dropHover) return (Accent, 2.5f);
         var t = (DateTime.UtcNow - flashAt).TotalSeconds;
         if (t < 0.9)
@@ -153,16 +164,37 @@ sealed class SatWindow : Control
         for (int i = 0; i < 3; i++) PaintLight(g, i);
         using (var f = new Font("Segoe UI Semibold", 9f))
         {
-            var r = new Rectangle(80, 0, Math.Max(0, Width - 160), BarHeight);
+            int side = secretary ? 128 : 80;
+            var r = new Rectangle(side, 0, Math.Max(0, Width - side * 2), BarHeight);
             TextRenderer.DrawText(g, title, f, r, dark ? Color.FromArgb(237, 237, 237) : Color.FromArgb(20, 20, 20),
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
         // 右下角拉大小的小斜線
         using (var p = new Pen(dark ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(90, 0, 0, 0)))
-            for (int k = 4; k <= 12; k += 4) g.DrawLine(p, Width - 3 - k, Height - 3, Width - 3, Height - 3 - k);
+            foreach (var (d, half) in new[] { (5f, 2f), (2f, 4f), (-1f, 6f) })      // 收進圓角裡（同 Mac）；可拖的範圍照舊
+            {
+                float cx = Width - 12 + d * 0.7071f, cy = Height - 12 + d * 0.7071f, h = half * 0.7071f;
+                g.DrawLine(p, cx - h, cy + h, cx + h, cy - h);
+            }
+        if (secretary)
+        {
+            var a = Accent;
+            for (int k = 1; k <= 5; k++)
+            {
+                using var gp = new Pen(Color.FromArgb(70 - k * 12, a), 1);
+                using var gpath = Round(new Rectangle(2 + k, 2 + k, Width - 5 - k * 2, Height - 5 - k * 2), Math.Max(4, Radius - 2 - k));
+                g.DrawPath(gp, gpath);
+            }
+            using var badge = Round(new Rectangle(80, 8, 38, 18), 9);
+            using var bb = new SolidBrush(a); g.FillPath(bb, badge);
+            using var bf = new Font("Microsoft JhengHei UI", 8.25f, FontStyle.Bold);
+            TextRenderer.DrawText(g, "秘書", bf, new Rectangle(80, 8, 38, 18), dark ? Color.FromArgb(13, 13, 13) : Color.White,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
         var (bc, bw) = Border();
         using var pen = new Pen(bc, bw);
-        using var path = Round(new Rectangle(0, 0, Width - 1, Height - 1), Radius);
+        int ins = secretary ? (int)(bw / 2) : 0;
+        using var path = Round(new Rectangle(ins, ins, Width - 1 - ins * 2, Height - 1 - ins * 2), Radius - ins);
         g.DrawPath(pen, path);
     }
 

@@ -801,7 +801,7 @@ export const TowerCore = {
     }
   },
 
-  /** 一次性排好這組門的開關（隊長 10-25：到站開、離站關；不 repeatForever、不每幀檢查）。
+  /** 一次性排好這組門的開關（秘書 10-25：到站開、離站關；不 repeatForever、不每幀檢查）。
    *  stops＝車廂停在這層的時段（[{from: Date, to: Date}]）；每段到了開、結束前 doorTime 關。回傳最後一個動作結束的時間（給渲染延長） */
   runDoor(door, stops, now, g = SlideDoor.elevator) {
     g = slideDoorOf(g);

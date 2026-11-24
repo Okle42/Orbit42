@@ -1,7 +1,7 @@
 import Foundation
 
 // 1 樓保全：push 守門（10-22 Kang：「以後保全要幫忙看一下」）。
-// 10-22 起隊長叫 push 就直接推、不再等 Kang 本人按，保全就是最後一道關。PreToolUse hook（`showork guard-push`）
+// 10-22 起秘書叫 push 就直接推、不再等 Kang 本人按，保全就是最後一道關。PreToolUse hook（`showork guard-push`）
 // 在 AI 跑 `git push` 之前檢查要推出去的東西；擋下就回 deny，AI 看得到原因。每次檢查都記在 board/guard/pushes.jsonl，
 // 前台・保全面板看得到「今天檢查幾次、擋下幾次」。
 //   擋（block）：ghosts（遠端重寫過歷史）、old-history/* 分支、force push 或刪除 main／master、

@@ -100,7 +100,7 @@ struct HandoverTests {
         #expect(Handover.load(sid)?.state == .pending)
         // 回完發了一般卡、停下來 ⇒ 看板照送 /clear
         #expect(Handover.readyToClear(state: .pending, lastKind: nil, working: false, dialog: false, lastActivity: t0 - 30, keyIdle: 0, now: t0))
-        // 看板／隊長流程要送它的訊息：暫存；使用者回答不暫存
+        // 看板／秘書流程要送它的訊息：暫存；使用者回答不暫存
         #expect(Handover.shouldHold(sid: sid, fromName: "AI工作戰情中心（巡檢）"))
         #expect(Handover.shouldHold(sid: sid, fromName: "AI工作戰情中心"))
         #expect(!Handover.shouldHold(sid: sid, fromName: "AI工作戰情中心（使用者）"))

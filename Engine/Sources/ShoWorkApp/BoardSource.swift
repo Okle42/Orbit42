@@ -52,12 +52,12 @@ final class BoardReader: @unchecked Sendable {
         var guardStatus = GuardStatus()              // 前台・保全（10-20）
         var permits: [String: PermitRequest] = [:]   // 等你按允許的（10-21）
         var handovers: [String: HandoverRecord] = [:] // 自動交接（Handover.swift）：舊 sid → 紀錄
-        var captainThread: [CaptainLine] = []        // 隊長對話（10-22 第 3 步）
+        var captainThread: [CaptainLine] = []        // 秘書對話（10-22 第 3 步）
         var sessionThread: [CaptainLine] = []        // 右側對話窗格正在看的那個 AI（10-25）
     }
 
-    /// 隊長對話：只在隊長的對話紀錄變了才重讀尾端（1.5MB，讀圖的行很大）
-    private var threadCache: [Bool: (stamp: String, lines: [CaptainLine])] = [:]   // full → 快取（隊長一份、右側窗格一份）
+    /// 秘書對話：只在秘書的對話紀錄變了才重讀尾端（1.5MB，讀圖的行很大）
+    private var threadCache: [Bool: (stamp: String, lines: [CaptainLine])] = [:]   // full → 快取（秘書一份、右側窗格一份）
     func captainThread(_ cap: CaptainRecord?, sessions: [SessionRecord]) -> [CaptainLine] {
         guard let cap else { threadCache[false] = nil; return [] }
         return thread(cap.sessionId, sessions: sessions, full: false)
@@ -373,9 +373,9 @@ final class BoardModel: ObservableObject {
     @Published private(set) var departments: [OfficeDepartment] = []
     /// 前台・保全看到的 Wi-Fi 狀態（10-20）。內容變了才發布
     @Published private(set) var guardStatus = GuardStatus()
-    @Published private(set) var captainThread: [CaptainLine] = []   // 隊長對話（10-22 第 3 步）
+    @Published private(set) var captainThread: [CaptainLine] = []   // 秘書對話（10-22 第 3 步）
     @Published private(set) var sessionThread: [CaptainLine] = []   // 右側對話窗格（10-25）：watching 那個 session 的對話
-    /// 右側對話窗格開始／停止看某個 session（nil＝回到隊長）；馬上讀一次
+    /// 右側對話窗格開始／停止看某個 session（nil＝回到秘書）；馬上讀一次
     func watch(_ sid: String?) {
         guard reader.watching != sid else { return }
         reader.watching = sid
@@ -451,7 +451,7 @@ final class BoardModel: ObservableObject {
         stat = (0, 0, 0, 0, 0, 0, Date())
     }
     /// 視窗沒人看、而且只有對話紀錄在變時的間隔（10-24：session 多時對話紀錄一直寫，每秒整套重讀是閒置 CPU 的大宗）。
-    /// 卡片、收件匣、派工單、權限、session 進出這些「urgent」變動照樣 minGap 內處理：發光走 socket 不經過這裡，轉隊長要 1 秒內
+    /// 卡片、收件匣、派工單、權限、session 進出這些「urgent」變動照樣 minGap 內處理：發光走 socket 不經過這裡，轉秘書要 1 秒內
     static let idleGap: TimeInterval = 4.0
     private var lastStart = Date.distantPast
     private var dueAt: Date?
@@ -539,7 +539,7 @@ final class BoardModel: ObservableObject {
         if s.guardStatus != guardStatus { guardStatus = s.guardStatus }
         if s.captainThread != captainThread { captainThread = s.captainThread }
         if reader.watching != nil, s.sessionThread != sessionThread { sessionThread = s.sessionThread }
-        // 隊長面板的派工單：還在做的（3 天內有動靜）＋要你看的（24 小時內）；卡住的排最前面
+        // 秘書面板的派工單：還在做的（3 天內有動靜）＋要你看的（24 小時內）；卡住的排最前面
         let now = Date()
         let rank: (CaptainTask.State) -> Int = { $0 == .blocked ? 0 : $0 == .review ? 1 : 2 }
         let open = s.tasks.filter { t in
@@ -552,61 +552,36 @@ final class BoardModel: ObservableObject {
         if !loaded { loaded = true }
     }
 
-    // MARK: 工作卡片自動轉送隊長（派工 T1021174030；規則在 ShoWorkCore/CardRelay.swift）
+    // MARK: 工作卡片自動轉送秘書（派工 T1021174030；規則在 ShoWorkCore/CardRelay.swift）
 
     private var relayState = CardRelay.State()
     private func relayCards(_ s: BoardReader.Snapshot, captain: String?, cards: [BoardCard]) {
         guard Engine.current != nil,                                   // 只有正式 agent 送（測試視窗、截圖不送）
               UserDefaults(suiteName: OfficePrefs.suite)?.object(forKey: CardRelay.settingKey) as? Bool ?? true else { return }
         let project = Dictionary(cards.map { ($0.sessionId, $0.project) }, uniquingKeysWith: { a, _ in a })
-        let policy = CardRelay.Policy.from(UserDefaults(suiteName: OfficePrefs.suite))     // 11-10：只推要隊長動手的卡、開工卡只進收件匣
+        let policy = CardRelay.Policy.from(UserDefaults(suiteName: OfficePrefs.suite))     // 11-10：只推要秘書動手的卡、開工卡只進收件匣
         let out = CardRelay.plan(reports: s.reports, captain: captain, captainLive: captain != nil, state: &relayState, policy: policy) { sid, r in
             CardRelay.text(name: s.nicknames[sid]?.name ?? project[sid] ?? String(sid.prefix(8)), project: project[sid], report: r)
         }
-        let starts = Set(out.filter { s.reports[$0.sessionId]?.isStart == true }.map(\.sessionId))
         if !out.isEmpty, let cap = captain {
             queue.async {                                               // 不阻塞：發卡的 session 不等，看板也不等
                 guard let to = Peer.find(cap) else { return }
                 for o in out {
                     let r = Peer.send(to: to, text: o.text, fromName: "AI工作戰情中心")
                     Log.note("RELAY card \(o.sessionId.prefix(8)) → \(to.name ?? cap) \(r)")
-                    // 開工卡送到了 ⇒ 收件匣那張標成已送（T1024033803 ④）
-                    if case .success = r, starts.contains(o.sessionId) {
-                        for var i in CaptainInbox.all() where i.kind == .start && i.sid == o.sessionId && !i.delivered { i.delivered = true; CaptainInbox.save(i) }
-                    }
                 }
             }
         }
-        flushNotices(captain: captain)
     }
 
-    // MARK: 隊長連動（T1024033803）：不擋的動作預告合併送、隊長鬧鐘
+    // MARK: 秘書連動（T1024033803）：秘書鬧鐘
 
-    /// 收件匣裡還沒送的預告：同一 session 安靜 5 秒（最多等 30 秒）合成一則送隊長
-    /// 收件匣資料夾沒變、上次也沒有等著送的預告 ⇒ 不讀檔（每次刷新都會問）
-    nonisolated(unsafe) private static var inboxSeen: (stamp: String, open: Bool)?
-    private func flushNotices(captain: String?) {
-        guard Engine.current != nil, let cap = captain else { return }
-        queue.async {
-            let stamp = FileStat.lstat(CaptainInbox.dir.path)?.stamp ?? "none"
-            if let s = Self.inboxSeen, s.stamp == stamp, !s.open { return }
-            let items = CaptainInbox.all(), now = Date()
-            Self.inboxSeen = (stamp, items.contains { $0.kind == .notice && !$0.delivered && now.timeIntervalSince($0.at) < CaptainLink.staleAfter })
-            let due = CaptainLink.dueNotices(items, now: now)
-            guard !due.isEmpty, let to = Peer.find(cap) else { return }
-            for g in due {
-                let r = Peer.send(to: to, text: CaptainLink.noticeText(g), fromName: "AI工作戰情中心（動作預告）")
-                Log.note("PREVIEW \(g[0].name) ×\(g.count) → \(to.name ?? cap) \(r)")
-                if case .success = r { for var i in g { i.delivered = true; CaptainInbox.save(i) } }
-            }
-        }
-    }
-
-    /// 隊長鬧鐘：每 captain.alarmMinutes 分鐘（預設 30）看一次【巡檢時間】；沒有隊長不送
-    ///   captain.alarmQuiet（預設 true，11-10）：只有要隊長處理的事、而且跟上次推的不一樣才推；「無變化」不推
+    /// 秘書鬧鐘：每 captain.alarmMinutes 分鐘（預設 30）看一次【巡檢時間】；沒有秘書不送
+    ///   captain.alarmQuiet（預設 true，11-10）：只有要秘書處理的事、而且跟上次推的不一樣才推；「無變化」不推
     ///   false＝舊行為：每次都推，名冊跟上次一樣只送「無變化」
     private var alarmAt = Date()            // 看板啟動算起，不一開就送
-    private var alarmSig: String?
+    private var alarmFile: URL { BoardPaths.dir.appendingPathComponent("captain-alarm.txt") }
+    private lazy var alarmSig: String? = CaptainLink.loadAlarmSig(alarmFile)
     private func captainAlarm(_ roster: Roster, captain: String?, cards: [BoardCard], now: Date) {
         guard Engine.current != nil, let cap = captain else { return }
         let d = UserDefaults(suiteName: OfficePrefs.suite)
@@ -622,8 +597,8 @@ final class BoardModel: ObservableObject {
             let busy = Set(cards.filter { !$0.captain && !$0.tasks.isEmpty }.map(\.sessionId))
             let act = CaptainLink.alarmActions(roster, openTaskSessions: busy, inbox: inbox, ctxLimit: ContextGuard.tokenLimit, now: now)
             let last = alarmSig
-            alarmSig = act.sig
-            guard !act.reasons.isEmpty, act.sig != last else {
+            alarmSig = act.sig; CaptainLink.saveAlarmSig(act.sig, alarmFile)
+            guard CaptainLink.alarmShouldPush(reasons: act.reasons, sig: act.sig, last: last) else {
                 queue.async { CaptainInbox.prune(now: now) }
                 Log.note("ALARM quiet（\(act.reasons.isEmpty ? "沒有要處理的" : "跟上次一樣")）")
                 return
@@ -640,8 +615,8 @@ final class BoardModel: ObservableObject {
         }
     }
 
-    /// 隊長換哨提醒（11-10）：隊長 ctx 過 captain.ctxTokens（預設 750k）送一次【換哨提醒】；不自動 /clear 隊長。
-    /// 送過的隊長 sessionId 記在 board/captain-shift.json（看板重開不重送）
+    /// 秘書換哨提醒（11-10）：秘書 ctx 過 captain.ctxTokens（預設 750k）送一次【換哨提醒】；不自動 /clear 秘書。
+    /// 送過的秘書 sessionId 記在 board/captain-shift.json（看板重開不重送）
     private var shiftFile: URL { BoardPaths.dir.appendingPathComponent("captain-shift.json") }
     private lazy var shiftSent: Set<String> = (try? BoardJSON.decoder.decode(Set<String>.self, from: Data(contentsOf: shiftFile))) ?? []
     private func captainShift(_ roster: Roster, captain cap: String, defaults d: UserDefaults?) {

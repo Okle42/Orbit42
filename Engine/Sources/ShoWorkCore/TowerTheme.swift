@@ -17,7 +17,7 @@ public enum TowerTheme: String, Codable, Sendable, CaseIterable {
         case .app_studio: "App 開發室"
         case .library: "研究書房"
         case .print_shop: "3D 列印工坊"
-        case .call_room: "秘書電話室"
+        case .call_room: "LINE 秘書電話室"
         case .trading_desk: "交易室"
         case .media_studio: "攝影棚"
         case .design_studio: "設計工作室"
@@ -108,7 +108,7 @@ public enum TowerTheme: String, Codable, Sendable, CaseIterable {
         case .app_studio: ["swiftui", "xcode", "ios", "iphone", "ipad", "android", "kotlin", "testflight", "app store", "info.plist", ".xcodeproj", "上架", "送審", "nfc"]
         case .library: ["research", "survey", "paper", "研究", "報告", "調查", "文獻"]
         case .print_shop: ["stl", "3mf", ".step", ".stp", "fusion", "blender", "picogk", "build123d", "cad", "bambu", "列印", "切片", "公仔", "外殼", "浮雕", "模型", "cnc", "雕刻", "sdf"]
-        case .call_room: ["adb", "tablet", "hotline", "gmail", "calendar", "responder", "秘書", "平板", "電話", "訊息", "好友", "提醒", "行事曆", "LINE 群", "LINE 帳號", "接聽"]
+        case .call_room: ["adb", "tablet", "hotline", "gmail", "calendar", "responder", "LINE 秘書", "平板", "電話", "訊息", "好友", "提醒", "行事曆", "LINE 群", "LINE 帳號", "接聽"]
         case .trading_desk: ["stock", "ticker", "backtest", "trade", "k線", "股票", "回測", "交易", "期貨", "盤後", "投資"]
         case .media_studio: ["video", "ffmpeg", "mp4", "mov", "higgsfield", "kling", "veo", "tts", "剪輯", "影片", "分鏡", "配音", "字幕", "reels", "宣傳片"]
         case .design_studio: ["design", "figma", "hig", "ui/ux", "css", "font", "logo", "設計", "配色", "品牌", "名片", "版型", "排版", "字型", "介面", "guidelines"]

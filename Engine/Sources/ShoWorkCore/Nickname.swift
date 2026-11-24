@@ -8,14 +8,22 @@ public struct Nickname: Codable, Sendable, Equatable {
     public var doing: String?
     public var at: Date?
     public var handoverFrom: String? = nil   // 自動交接（Handover.swift）：接手的是哪個舊 sessionId
-    public var role: String? = nil           // 11-22 職稱（showork role 隊長）：有就顯示職稱，沒有就「專案 · 任務」
+    public var role: String? = nil           // 11-22 職稱（showork role 秘書）：有就顯示職稱，沒有就「專案 · 任務」
     public init(name: String, doing: String? = nil, at: Date? = nil) { self.name = name; self.doing = doing; self.at = at }
 }
 
 public enum Nicknames {
     /// 好念、字首不重複；避開使用者身邊真人的名字（可自行調整），免得跟同事搞混
-    public static let pool = ["Alex", "Bella", "Chris", "Dora", "Ethan", "Fiona", "Gavin", "Hana", "Ivan", "Jade", "Kyle", "Luna", "Milo",
+    public static let pool = ["Alex", "Bella", "Chris", "Dora", "Fiona", "Gavin", "Hana", "Ivan", "Jade", "Kyle", "Luna", "Milo",
                               "Nina", "Oscar", "Penny", "Quinn", "Ruby", "Sam", "Tina", "Umar", "Vera", "Wade", "Xena", "Yuki", "Zack"]
+
+    /// 11-24 Keng：戰情中心的隊長改稱「秘書」，不再有英文名（Ethan 從名單拿掉；舊對話標題還認得）
+    public static let captainTitle = "秘書"
+    public static let retired = ["Ethan"]
+    /// 收件地址：新稱呼，加上改名前的「隊長」和英文名
+    public static let captainAliases = ["秘書", "隊長", "Ethan"]
+    /// 舊職稱照新稱呼顯示（names/*.json 不改）
+    static func roleTitle(_ r: String) -> String { r == "隊長" ? captainTitle : r }
 
     /// 挑一個還沒被活著的 session 用掉的名字；26 個都用完就加數字（Alex2⋯）
     /// transcript 開頭的 custom-title／agent-name（舊版標題是「Bella-在做的事」⇒ 取「-」前面）；要是英文名的樣子（字母開頭、英數、≤12 字）
@@ -27,7 +35,7 @@ public enum Nicknames {
             guard let t = v?.split(separator: "-", maxSplits: 1).first.map(String.init) else { continue }
             // 11-22：Claude 自動取的標題（clear-conversation）也長這樣 ⇒ 只認名單裡的英文名（可帶數字：Alex2）
             let base = String(t.prefix { $0.isLetter })
-            if pool.contains(base), t.dropFirst(base.count).allSatisfy(\.isNumber) { return t }
+            if pool.contains(base) || retired.contains(base), t.dropFirst(base.count).allSatisfy(\.isNumber) { return t }
         }
         return nil
     }
@@ -64,7 +72,7 @@ public enum Nicknames {
 
     /// 11-22 Keng：畫面上不再顯示英文人名（英文名只當收件地址）⇒ 顯示名＝職稱，沒有職稱就用專案（家目錄不算專案）
     public static func label(_ n: Nickname?, project: String) -> String? {
-        if let r = n?.role?.trimmingCharacters(in: .whitespaces), !r.isEmpty { return r }
+        if let r = n?.role?.trimmingCharacters(in: .whitespaces), !r.isEmpty { return roleTitle(r) }
         if project == "（家目錄）" || project.isEmpty { return nil }
         return project.hasPrefix("_wt-") ? String(project.dropFirst(4)) : project      // worktree 資料夾 _wt-ShoWork42-sphere → ShoWork42-sphere
     }
@@ -86,7 +94,7 @@ public enum Nicknames {
 /// 名字回收重用（昨天另一個 session 也叫 Chris）時只看「現在活著的」；兩個活的同名就全回，讓呼叫端報錯。
 public enum ShortName {
     /// sessions＝活著的 (sessionId, session 名)；nick＝sessionId → 英文名。回傳符合的 sessionId（依序：全名／sessionId ⇒ 英文名 ⇒ sessionId 開頭）
-    public static func match(_ who: String, among sessions: [(String, String?)], nick: [String: String]) -> [String] {
+    public static func match(_ who: String, among sessions: [(String, String?)], nick: [String: String], captain: String? = nil) -> [String] {
         let w = who.trimmingCharacters(in: .whitespaces)
         guard !w.isEmpty else { return [] }
         let exact = sessions.filter { $0.1 == w || $0.0 == w }.map(\.0)
@@ -97,6 +105,8 @@ public enum ShortName {
                 || (name.map { $0.lowercased().hasPrefix(w.lowercased() + "-") } ?? false)
         }.map(\.0)
         if !short.isEmpty { return short }
+        if let captain, Nicknames.captainAliases.contains(where: { $0.caseInsensitiveCompare(w) == .orderedSame }),
+           sessions.contains(where: { $0.0 == captain }) { return [captain] }
         return w.count >= 6 ? sessions.filter { $0.0.hasPrefix(w) }.map(\.0) : []
     }
 }
@@ -215,7 +225,7 @@ extension Nicknames {
         var o: [String: Any] = [:]
         if let n { o["terminalSequence"] = "\u{1B}]0;" + terminalTitle(n, done: done) + "\u{07}" }
         if event == "UserPromptSubmit" {
-            // session 名＝收訊地址，只放英文名（10-22 T1022020414：帶 doing 的話每次自報地址就變，隊長插話一直被退回）
+            // session 名＝收訊地址，只放英文名（10-22 T1022020414：帶 doing 的話每次自報地址就變，秘書插話一直被退回）
             var h: [String: Any] = ["hookEventName": "UserPromptSubmit"]
             if let n { h["sessionTitle"] = n.name }
             if let context { h["additionalContext"] = context }

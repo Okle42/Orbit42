@@ -52,7 +52,7 @@ public struct WeatherSite: Codable, Hashable, Sendable {
     /// 預設只看台北（10-25 Kang）
     public static let defaults: [WeatherSite] = [.taipei]
 
-    /// 最多幾個地點（每個地點每 10 分鐘一次請求，常駐程式不無限長；隊長 Penny 10-25）
+    /// 最多幾個地點（每個地點每 10 分鐘一次請求，常駐程式不無限長；秘書 Penny 10-25）
     public static let limit = 5
 
     /// 讀存的清單；新格式沒有就看舊格式（ff3526e 存的預設地點名，例如 ["guishan","taipei"]）轉過來；都沒有、壞掉、空的 ⇒ 預設

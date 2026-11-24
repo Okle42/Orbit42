@@ -16,11 +16,11 @@ struct CardRelayTests {
         #expect(try BoardJSON.decoder.decode(SelfReport.self, from: Data(old.utf8)).how == nil)
     }
 
-    @Test("啟動時現有的卡不送；新卡轉給隊長；隊長自己的卡不轉")
+    @Test("啟動時現有的卡不送；新卡轉給秘書；秘書自己的卡不轉")
     func relay() {
         var st = CardRelay.State()
         #expect(CardRelay.plan(reports: ["a": r("舊", at: t0)], captain: "cap", captainLive: true, state: &st, now: t0, policy: .legacy, text: txt).isEmpty)
-        let out = CardRelay.plan(reports: ["a": r("新", at: t0), "cap": r("隊長的", at: t0)], captain: "cap", captainLive: true, state: &st, now: t0, policy: .legacy, text: txt)
+        let out = CardRelay.plan(reports: ["a": r("新", at: t0), "cap": r("秘書的", at: t0)], captain: "cap", captainLive: true, state: &st, now: t0, policy: .legacy, text: txt)
         #expect(out == [CardRelay.Outgoing(sessionId: "a", text: "a:新")])
     }
 
@@ -35,7 +35,7 @@ struct CardRelayTests {
         #expect(CardRelay.plan(reports: ["a": r("3", at: t0 + 20)], captain: "c", captainLive: true, state: &st, now: t0 + 200, policy: .legacy, text: txt).isEmpty)
     }
 
-    @Test("隊長不在：不送也不堆積（回來後不補送那段期間的卡）")
+    @Test("秘書不在：不送也不堆積（回來後不補送那段期間的卡）")
     func noCaptain() {
         var st = CardRelay.State(); st.seeded = true
         #expect(CardRelay.plan(reports: ["a": r("x", at: t0)], captain: nil, captainLive: false, state: &st, now: t0, policy: .legacy, text: txt).isEmpty)

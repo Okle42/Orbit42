@@ -3,7 +3,7 @@ namespace ShoWork;
 // Mac 版 Sources/ShoWorkAgent/GraphSource.swift 的資料端（11-02 P8）：大樓上每個專案樓層 → Graphify 的 graph.json → 精簡合併成一張 NeuralGraph。
 // 跟 Mac 不同（照實記）：
 //   · 找不到 graphify（PATH 上的 graphify.exe、~/.local/bin/graphify.exe）就回空的圖（Mac 回 NeuralGraph.demo()；網頁自己決定空的時候畫什麼）。
-//   · 有 graphify 也**不在 Windows 上跑它**：Mac 是包在「禁止網路」的 sandbox-exec 裡跑（10-22 隊長 Chris 審查：確保程式碼不會對外送），
+//   · 有 graphify 也**不在 Windows 上跑它**：Mac 是包在「禁止網路」的 sandbox-exec 裡跑（10-22 秘書 Chris 審查：確保程式碼不會對外送），
 //     Windows 沒有對應的一行沙盒 ⇒ 只讀已經產出的 %LOCALAPPDATA%\ShoWork42\graphs\<專案>\graphify-out\graph.json（例如自己手動跑過、或從 Mac 帶過來）。
 //   · 互動圖譜 graph.html、3D 星雲頁、輸出大小上限（GraphPrune）都沒轉寫（跟產生圖譜綁在一起）。
 public static class GraphPaths

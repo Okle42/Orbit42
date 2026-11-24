@@ -5,7 +5,7 @@ import Foundation
 //   ~/.claude/sessions/<pid>.<hash>.key      {"peerToken": "…"}（0600，只有自己讀得到）
 //   連上 socket → 一行 {"type":"auth","token":…} → 一行訊息 JSON，對方不回應。
 // 訊息會排進對方收件匣，下一次用工具時才讀進去，不會打進輸入框。這是內部格式，Claude Code 改版可能失效：
-// 失效時回傳錯誤，看板改提示用隊長 AI 的 SendMessage。
+// 失效時回傳錯誤，看板改提示用秘書 AI 的 SendMessage。
 public enum Peer {
     public static var claudeDir: String {
         ProcessInfo.processInfo.environment["SHOWORK_CLAUDE_DIR"] ?? FileManager.default.homeDirectoryForCurrentUser.path + "/.claude"
@@ -29,7 +29,7 @@ public enum Peer {
     public static func resolve(_ who: String, nicknames: [String: Nickname]? = nil) -> Result<SessionRecord, CardError> {
         let all = sessions()
         let nick = (nicknames ?? NicknameStore.all()).mapValues(\.name)
-        let hits = ShortName.match(who, among: all.map { ($0.sessionId, $0.name) }, nick: nick)
+        let hits = ShortName.match(who, among: all.map { ($0.sessionId, $0.name) }, nick: nick, captain: CaptainStore.captain()?.sessionId)
         let rs = hits.compactMap { sid in all.first { $0.sessionId == sid } }
         switch rs.count {
         case 1: return .success(rs[0])

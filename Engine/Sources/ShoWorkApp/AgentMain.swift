@@ -386,7 +386,7 @@ if argv.count == 2, argv[1] == "--board-window" {
 // Test: ShoWorkAgent --board-act <approve|park|sendback|review> <sessionId> [文字]
 //       ShoWorkAgent --board-act answer <sessionId> <文字>   3D 辦公室直接回答（tmux→直送→拷貝）
 //       ShoWorkAgent --board-act newtask <資料夾> <提示>      e2e 驗收用，跟按鈕走同一條路
-//       ShoWorkAgent --board-act captain <文字>              交給隊長（隊長不在就開背景隊長），跟收件匣同一條路
+//       ShoWorkAgent --board-act captain <文字>              交給秘書（秘書不在就開背景秘書），跟收件匣同一條路
 if argv.count >= 4, argv[1] == "--board-act", argv[2] == "captain" {
     print(BoardActions.askCaptain(argv[3]))
     exit(0)

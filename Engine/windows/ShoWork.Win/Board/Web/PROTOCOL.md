@@ -34,8 +34,8 @@
 | `sessionThread` | 右側對話窗格那個 AI 的對話（`watch` 指定的那個），格式同 `captainThread` | 空 |
 | `runs` | `RunProgress[]`：`{name?, label, done?, total?, eta?, updatedAt, fraction}` | 空 |
 | `reviewing` | 正在 AI 審核的 sessionId 陣列（右鍵「重新審核」要不要反灰） | 空 |
-| `captainBusy` | 隊長正在開（askCaptain 跑的時候） | false |
-| `captainModelTitle` | 「不在：送出時開 ___ 隊長」 | `"Opus 5.5"` |
+| `captainBusy` | 秘書正在開（askCaptain 跑的時候） | false |
+| `captainModelTitle` | 「不在：送出時開 ___ 秘書」 | `"Opus 5.5"` |
 | `b1Posts` | B1 交流互動板 `[{id, at, name, project, text, re?}]`（舊的在前） | 空 |
 | `weatherSites` | `[{ site, report: {now, at} \| null, failed }]`（天氣列每個地點） | 只有主地點 |
 | `weatherMenuStatus` | 燈光選單裡那行天氣狀態 | 網頁自己組 |
@@ -45,7 +45,7 @@
 |---|---|---|
 | `heat` | `paused: bool` | HeatGate：機器熱 ⇒ 持續動畫全停，路上的人直接落地 |
 | `visible` | `visible: bool` | 視窗被蓋住或縮小時（WebView2 的 visibilityState 抓不到的情況）⇒ 暫停整個場景 |
-| `toast` | `text`, `captainDone?` | 顯示一行提示（BoardActions 回傳的那句話）；`captainDone` 會清掉「隊長開啟中」 |
+| `toast` | `text`, `captainDone?` | 顯示一行提示（BoardActions 回傳的那句話）；`captainDone` 會清掉「秘書開啟中」 |
 | `captainBusy` | `busy` | 同上，只改狀態 |
 | `b1Posts` | `posts` | 交流互動板內容（回應 `b1Refresh`） |
 | `weatherResults` | `results: WeatherSite[]`, `note?` | 地點搜尋結果（回應 `weatherSearch`） |
@@ -65,7 +65,7 @@
 |---|---|---|---|
 | `answer` | `id, sessionId, text` | `BoardActions.answer(card, text)` | 回答卡、收件匣選項／打字、右側對話窗格 |
 | `permit` | `id, sessionId, permitId, decision: "allow"\|"always"\|"deny", message?, answers?` | `BoardActions.permit(card, PermitAnswer)`；`answers` 是 `{題目: [選的]}`（AskUserQuestion） | 收件匣：權限、選擇題、計畫確認 |
-| `askCaptain` | `text` | `BoardActions.askCaptain(text)`（隊長不在就開一個）。做完回 `toast` 並帶 `captainDone:true` | 收件匣下方「交給隊長」 |
+| `askCaptain` | `text` | `BoardActions.askCaptain(text)`（秘書不在就開一個）。做完回 `toast` 並帶 `captainDone:true` | 收件匣下方「交給秘書」 |
 | `focus` | `id, sessionId, pid, kind` | `BoardActions.focus(pid:)`：跳到終端機視窗。找不到時回 toast：`kind == "bg"` 回「這是背景 session，沒有視窗；用 claude attach 打開」，其他回「找不到這個 session 的視窗」 | 回答卡、收件匣、右鍵「跳到這個視窗」、對話窗格終端機鈕 |
 | `approve` | `id, sessionId` | `BoardActions.approve`（放行） | 右鍵「放行」（只有 review 欄） |
 | `dispatch` | `id, sessionId` | `onDispatch(card)`：開「派工給它⋯」對話框（BoardWindow 的 sheet；C# 端在 `Board\View\BoardSheets.cs`） | 右鍵 |
@@ -75,7 +75,7 @@
 | `redecorate` | `project` | `BoardModel.redecorate(project)`，回 toast | 右上「重新裝潢」、右鍵 |
 | `guardScan` | | `BoardModel.guardScan()`，回 toast「開始掃描 Wi-Fi（約數十秒）」或「已經在掃描了」 | 保全面板、保全右鍵 |
 | `pushAllow` | `dir, head, repo` | `PushGuard.allow(event)` | 保全面板「放行一次」 |
-| `watch` | `sessionId \| null`, `id?` | `BoardModel.watch(sid)`：右側對話窗格改讀這個 AI 的對話（推到 `sessionThread`）；null＝隊長。`id`＝點的那個角色的卡片 id（點角色才帶；C# 用它開左下角細節卡，取代舊的 `{type:"select"}`），返回鈕不帶 | 點角色、對話窗格返回 |
+| `watch` | `sessionId \| null`, `id?` | `BoardModel.watch(sid)`：右側對話窗格改讀這個 AI 的對話（推到 `sessionThread`）；null＝秘書。`id`＝點的那個角色的卡片 id（點角色才帶；C# 用它開左下角細節卡，取代舊的 `{type:"select"}`），返回鈕不帶 | 點角色、對話窗格返回 |
 | `openGraph` | `project` | `GraphSource.openBuilding(clicked:)`：用預設瀏覽器開整棟大樓的知識星雲，回 toast | 點 B1 神經網路 |
 | `b1Refresh` | | 讀 `board/b1-board.jsonl`，回 `{type:"b1Posts"}` | 點 B1 留言板、重新整理 |
 | `weatherSearch` | `query` | `OfficeWeather.search`（Open-Meteo 地名搜尋），回 `weatherResults` | 天氣地點面板 |

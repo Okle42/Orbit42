@@ -194,6 +194,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let dir = NSHomeDirectory() + "/.claude/sessions", fm = FileManager.default
             let recs = ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".json") }
                 .compactMap { fm.contents(atPath: dir + "/" + $0).flatMap(SessionRecord.decode) }
+            let cap = CaptainStore.captain()?.sessionId
             let list: [[String: Any]] = MainActor.assumeIsolated {
                 guard let h = self else { return [] }
                 return h.order.compactMap { id -> [String: Any]? in
@@ -202,6 +203,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     o["moons"] = OrbitWindow.shared.moonList(id)
                     if let j = s.attachedJob, let r = recs.first(where: { $0.jobId == j }) { o["sessionId"] = r.sessionId }        // 背景 session：用 job id 對
                     else if let p = s.pty, let r = recs.first(where: { $0.pid == p.pid || Host.parent(of: $0.pid) == p.pid }) { o["sessionId"] = r.sessionId }
+                    if let c = cap, o["sessionId"] as? String == c { o["captain"] = true }
                     return o
                 }
             }
@@ -677,6 +679,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         host.onOpen = { [weak self] id in self?.showSat(id) }
         host.onHide = { [weak self] id in guard let self, let w = self.satWins[id] else { return }; self.animate(w, on: false) }
         host.onRemoved = { [weak self] id in self?.closeSat(id) }
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.markSecretary() } }
         host.onBusy = { [weak self] id, busy in guard let w = self?.satWins[id], !w.isHidden else { return }; w.setBreathing(busy) }
         host.startTimers()
         host.registerRemote()                 // 11-23 iPhone App：衛星清單與畫面（ShoWork 網頁伺服器唯讀端點）
@@ -1291,6 +1294,18 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         }
     }
 
+    /// 現任秘書的衛星：紅框＋光暈＋小標，標題改成它當下在做的事（換人就跟著換）
+    private func markSecretary() {
+        guard !satWins.isEmpty else { return }
+        let cap = CaptainStore.captain()?.sessionId, test = ProcessInfo.processInfo.environment["ORBIT_TEST_SECRETARY"] != nil
+        for (id, w) in satWins where !id.hasPrefix("3d-") {
+            let sid = host.sessionId(id), on = test || (cap != nil && sid == cap)
+            if on { w.titleLabel.stringValue = sid.flatMap { NicknameStore.get($0)?.doing } ?? "待命中" }
+            else if w.secretary { w.titleLabel.stringValue = host.title(id) }
+            w.secretary = on
+        }
+    }
+
     /// 打開（或叫回）一顆衛星的小視窗；新開的從上一個位置往右下錯開一點，像 macOS 開新視窗
     func showSat(_ id: String) {
         guard let root = window.contentView else { return }
@@ -1321,6 +1336,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             satWins[id] = w
         }
         raise(w)
+        markSecretary()
         if w.isHidden || !w.wantShown { animate(w, on: true); autoArrange() } else { w.flash() }
         window.makeFirstResponder(w.content)
     }

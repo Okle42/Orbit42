@@ -3,7 +3,7 @@ import Foundation
 // 網頁版戰情中心的頁面：一個檔、CSS／JS 全內嵌、不連任何 CDN。
 // 要在 macOS 13 Safari 16、iPadOS／iOS Safari 跑：只用 fetch＋Promise，不用 ?. ?? 等較新語法；所有文字一律 textContent（不拼 HTML）。
 // token 從網址 ?t= 讀（網址留著方便加書籤），之後每個請求放在 X-ShoWork-Token 標頭；每個動作前跳確認框（按下去＝本人決定）。
-// 動作：按選項、傳話、開派工單、取消派工單、隊長收件匣一張張標已處理（伺服器端規則在 WebBoard.swift WebAction）。
+// 動作：按選項、傳話、開派工單、取消派工單、秘書收件匣一張張標已處理（伺服器端規則在 WebBoard.swift WebAction）。
 
 public enum WebPage {
     public static let html = #"""
@@ -62,7 +62,7 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 <div class="grid" id="sessions"></div>
 <h2>還沒結的派工單</h2>
 <div id="tasks"></div>
-<h2>隊長收件匣（還沒處理）</h2>
+<h2>秘書收件匣（還沒處理）</h2>
 <div id="inbox"></div>
 </main>
 <div id="toast"></div>

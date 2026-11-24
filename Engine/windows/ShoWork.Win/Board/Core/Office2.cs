@@ -212,7 +212,7 @@ public static class OfficeDemo
                     make("Demo-等你", "Done-做完", BoardColumn.Review, "做完了，你還沒看");
                     foreach (var n in new[] { "Coffee-休息", "Latte-休息", "Mocha-休息" }) make("Demo-休息", n, BoardColumn.Done, "閒置");
                     make("Demo-休息", "Sleepy-沒交代", BoardColumn.Done, "閒置", c => c.Unused = true);
-                    make("Demo-隊長", "Captain-派工", BoardColumn.Active, "工作中", c => { c.Captain = true; c.Activity = AIActivity.Thinking; });
+                    make("Demo-統籌秘書", "Captain-派工", BoardColumn.Active, "工作中", c => { c.Captain = true; c.Activity = AIActivity.Thinking; });
                     // 影分身：人住 Demo-休息、cd 去 Demo-動作逛（那層前帶畫半透明分身，驗證站位不穿家具）
                     foreach (var n in new[] { "Visitor-逛", "Guest-逛" }) make("Demo-休息", n, BoardColumn.Active, "工作中", c => c.Visiting = "Demo-動作");
                     return out_;
@@ -231,7 +231,7 @@ public static class OfficeDemo
     public static readonly Dictionary<string, TowerTheme> themes = new()
     {
         ["demo-動作"] = TowerTheme.app_studio, ["demo-卡住"] = TowerTheme.print_shop, ["demo-等你"] = TowerTheme.call_room,
-        ["demo-休息"] = TowerTheme.library, ["demo-隊長"] = TowerTheme.monitor,
+        ["demo-休息"] = TowerTheme.library, ["demo-統籌秘書"] = TowerTheme.monitor,
     };
 
     /// 示範資料的大樓（Mac TowerCache）：用一份記憶體裡的名冊（不碰你的 board\tower.json），示範專案依序配不同主題；閒晃延續上一次

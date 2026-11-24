@@ -7,7 +7,7 @@ using Xunit;
 namespace ShoWork.Tests;
 
 /// 11-02 P8 第二輪：戰情中心的動作（BoardActions、Reviewer、CtxGuard、TaskRouter、GuardScanner）與對話紀錄多算的四件事
-/// （activity、blockedReason、subagents、tokens）、隊長對話、進度條。對照 Mac Tests/ShoWorkCoreTests 的 ActivityTests、CaptainThreadTests、
+/// （activity、blockedReason、subagents、tokens）、秘書對話、進度條。對照 Mac Tests/ShoWorkCoreTests 的 ActivityTests、CaptainThreadTests、
 /// RunProgressTests、AnsweredTests 與 BoardActions 的行為。假名、假 session；資料一律寫在暫存資料夾（SHOWORK_HOME、SHOWORK_CLAUDE_DIR）。
 /// 真的打字進終端機（TermSend）換成假的委派；Windows 桌面上的實測另外做。
 public sealed class BoardActionTests : IDisposable
@@ -104,7 +104,7 @@ public sealed class BoardActionTests : IDisposable
     public void AnswerRecordsAPreapprovalAndTellsTheCaptain()
     {
         Hooks.CaptainStore.SetCaptain("sid-cap", "Penny", DateTime.UtcNow);
-        // 隊長卡片掛著同一題 ⇒ 清掉
+        // 秘書卡片掛著同一題 ⇒ 清掉
         Directory.CreateDirectory(Path.Combine(BoardDir, "cards"));
         File.WriteAllText(Path.Combine(BoardDir, "cards", "sid-cap.json"), """{"status":"review","ask":"要不要合併？","options":["好","不要"],"at":"2026-11-02T01:00:00.000Z","how":"留著"}""");
         BoardActions.Answer(Card(), "好，合併並 push");
@@ -115,7 +115,7 @@ public sealed class BoardActionTests : IDisposable
         Assert.False(cap.ContainsKey("ask"));
         Assert.False(cap.ContainsKey("options"));
         Assert.Equal("留著", cap["how"]!.GetValue<string>());          // 其他欄位不動
-        // 轉隊長是背景送的
+        // 轉秘書是背景送的
         for (int i = 0; i < 50 && !peered.Any(p => p.To == "sid-cap"); i++) Thread.Sleep(20);
         var relay = peered.Single(p => p.To == "sid-cap");
         Assert.StartsWith(Answered.Prefix, relay.Text);
@@ -171,7 +171,7 @@ public sealed class BoardActionTests : IDisposable
         Assert.Equal(new[] { "藍" }, Hooks.Permit.ReadAnswer("sid-a-2")!.Answers!["要用哪個色？"]);
     }
 
-    // MARK: 放行、丟待辦、派工、交給隊長
+    // MARK: 放行、丟待辦、派工、交給秘書
 
     [Fact]
     public void ApproveAndParkWriteDecisions()
@@ -202,7 +202,7 @@ public sealed class BoardActionTests : IDisposable
         Assert.Equal("Alex", t.To);                                      // 照 Peer 找到的名字
         Assert.Equal("sid-c", t.ThenTo);
         Assert.Equal("檢查報表", t.ThenText);
-        Assert.StartsWith($"【隊長派工 {id}】整理十月報表\n交 CSV\n", peered.Single().Text);
+        Assert.StartsWith($"【秘書派工 {id}】整理十月報表\n交 CSV\n", peered.Single().Text);
         Assert.Equal("AI工作戰情中心（你從看板派的）", peered.Single().From);
         // 卡片上看得到（Captain.Annotate 帶派工單）
         var cards = Captain.Annotate(new[] { c }, null, CaptainTasks.All());
@@ -238,9 +238,9 @@ public sealed class BoardActionTests : IDisposable
     {
         var (_, err) = BoardActions.ToCaptain("sid-cap", "把十月報表做完");
         Assert.Null(err);
-        Assert.StartsWith(CaptainThread.BoardPrefix + "把十月報表做完\n請照隊長守則處理", peered.Single().Text);
+        Assert.StartsWith(CaptainThread.BoardPrefix + "把十月報表做完\n請照秘書守則處理", peered.Single().Text);
         Assert.Equal(CaptainThread.BoardFromName, peered.Single().From);
-        // 隊長的對話紀錄裡讀回來是你說的那句（戰情中心）
+        // 秘書的對話紀錄裡讀回來是你說的那句（戰情中心）
         var line = $$$"""{"type":"user","uuid":"u1","timestamp":"2026-11-02T01:00:00.000Z","origin":{"kind":"peer","name":"{{{CaptainThread.BoardFromName}}}"},"message":{"role":"user","content":"<cross-session-message from=\"uds:\" from-name=\"x\">\n{{{peered.Single().Text.Replace("\n", "\\n")}}}\n</cross-session-message>"}}""";
         var th = CaptainThread.Parse(Lines(line));
         Assert.Equal(CaptainLine.RoleKind.kang, th.Single().Role);
@@ -252,7 +252,7 @@ public sealed class BoardActionTests : IDisposable
     public void AskCaptainWithALiveCaptainSendsDirectly()
     {
         Hooks.CaptainStore.SetCaptain("sid-cap", "Penny", DateTime.UtcNow);
-        Assert.Equal("已交給隊長「Alex」", BoardActions.AskCaptain("  幫我\n看一下  "));
+        Assert.Equal("已交給秘書", BoardActions.AskCaptain("  幫我\n看一下  "));
         Assert.StartsWith(CaptainThread.BoardPrefix + "幫我 看一下", peered.Single().Text);
         Assert.Equal("沒有內容", BoardActions.AskCaptain("   "));
     }
@@ -510,7 +510,7 @@ public sealed class BoardActionTests : IDisposable
         Assert.Equal(new[] { "x", "x", "x", "y" }, reader.Read().SessionThread.Select(l => l.Text).ToArray());   // full：每一則 AI 的話都收
     }
 
-    // MARK: 隊長對話、進度條
+    // MARK: 秘書對話、進度條
 
     [Fact]
     public void CaptainThreadKeepsWhatTheUserShouldSee()
@@ -557,7 +557,7 @@ public sealed class BoardActionTests : IDisposable
         Assert.True(Answered.Same("要 push 嗎？", "要push嗎?"));
         Assert.False(Answered.Same("要 push 嗎？", "要部署嗎？"));
         Assert.False(Answered.Same(null, "x"));
-        Assert.Equal("【使用者已答】Ruby：（卡片上沒有問題文字）→好。這題不用再問使用者；隊長卡片上同一題已自動清掉。", Answered.Relay("Ruby", " ", "好"));
+        Assert.Equal("【使用者已答】Ruby：（卡片上沒有問題文字）→好。這題不用再問使用者；秘書卡片上同一題已自動清掉。", Answered.Relay("Ruby", " ", "好"));
     }
 
     [Fact]

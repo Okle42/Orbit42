@@ -26,7 +26,7 @@ export const demo = {
         P("b2", "Grace", "README 英文版", "idle"),
       ] },
     { kind: "project", id: "p:projectc", floorNo: "04", project: "ProjectC", number: 4, active: true, seats: 3, queued: 0,
-      theme: "call_room", themeTitle: "秘書電話室", accent: "#8C7BB5",
+      theme: "call_room", themeTitle: "LINE 秘書電話室", accent: "#8C7BB5",
       people: [
         P("c1", "Heidi", "自動回覆草稿", "waiting", { accessory: "headset" }),
         P("c2", "Ivan", "平板連線檢查", "working", { accessory: "headset" }),

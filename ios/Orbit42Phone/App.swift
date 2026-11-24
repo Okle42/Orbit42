@@ -155,7 +155,8 @@ struct MainView: View {
                             HStack {
                                 Circle().fill(s.state == "busy" ? Color.okAccent : s.state == "exited" ? .gray : Color.okGreen).frame(width: 8, height: 8)
                                 VStack(alignment: .leading) {
-                                    Text(s.name).font(.headline)
+                                    if s.captain { Text("秘書").font(.headline).foregroundStyle(secretaryInk).padding(.horizontal, 8).background(Capsule().fill(secretaryColor)) }
+                                    else { Text(s.name).font(.headline) }
                                     Text("\(s.brainLabel) · \(stateText(s.state))" + (s.moons.isEmpty ? "" : " · " + s.moons.map { $0 == "web" ? "網頁" : "3D" }.joined(separator: "、"))).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
@@ -249,7 +250,10 @@ struct TermScreen: View {
             }
         }
         .background(model.light ? Color(uiColor: TermModel.lightBG) : Color.black)
-        .navigationTitle(model.sat.name).navigationBarTitleDisplayMode(.inline)
+        .overlay { if model.sat.captain {       // 跟 Mac 同款：秘書的衛星外框＋光暈
+            RoundedRectangle(cornerRadius: 12).strokeBorder(secretaryColor, lineWidth: 3).shadow(color: secretaryColor.opacity(0.75), radius: 8).allowsHitTesting(false)
+        } }
+        .navigationTitle(model.sat.captain ? "秘書" : model.sat.name).navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
             if tab == "term" { Button { composing.toggle() } label: { Image(systemName: composing ? "keyboard.chevron.compact.down" : "keyboard") }
                 .accessibilityLabel(composing ? "收起鍵盤" : "打字") }
@@ -365,3 +369,7 @@ extension Color {
     static let okPaper = pick(.black, UIColor(red: 0xfb / 255, green: 0xfb / 255, blue: 0xf9 / 255, alpha: 1))
     static let okGreen = Color(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255)
 }
+
+// 秘書：深色護眼綠 #4fc36a、淺色紅 #d7261b，跟 Mac 同款；綠底用深字
+let secretaryColor = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1) : UIColor(red: 0.843, green: 0.149, blue: 0.106, alpha: 1) })
+let secretaryInk = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.05, alpha: 1) : .white })

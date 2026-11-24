@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ShoWorkCore
 
-// 隊長連動（T1024033803）：假名、假指令（10-22 規矩）
+// 秘書連動（T1024033803）：假名、假指令（10-22 規矩）
 @Suite("CaptainLink", .serialized)
 struct CaptainLinkTests {
     let t0 = Date(timeIntervalSince1970: 1_792_650_000)
@@ -18,20 +18,12 @@ struct CaptainLinkTests {
         #expect(c.hasPrefix("【開工卡】") && c.contains("\"/x/showork\" card --kind start") && c.contains("--touch") && c.contains("--outward"))
     }
 
-    @Test("① 開工卡：不寫 --status 當 working；轉隊長前綴【開工】；不受 60 秒節流")
+    @Test("① 開工卡：不寫 --status 當 working；欄位解析")
     func startCard() throws {
         let s = try SelfReport.parse(args: ["--kind", "start", "--doing", "改按鈕", "--summary", "按鈕改藍", "--how", "改 View.swift",
                                             "--touch", "專案A/View.swift", "--outward", "無"], now: t0).get()
         #expect(s.status == .working && s.isStart && s.touch == "專案A/View.swift" && s.outward == "無")
         if case .success = SelfReport.parse(args: ["--kind", "nope", "--status", "done"]) { Issue.record("--kind 只收 start") }
-        let t = CardRelay.text(name: "小明", project: "專案A", report: s)
-        #expect(t.hasPrefix("【開工】小明（專案A）：改按鈕") && t.contains("會動到：專案A/View.swift") && t.contains("對外動作：無"))
-        var st = CardRelay.State(); st.seeded = true
-        let work = SelfReport(status: .working, summary: "前一張", at: t0)
-        #expect(CardRelay.plan(reports: ["a": work], captain: "c", captainLive: true, state: &st, now: t0, policy: .legacy) { _, r in r.summary ?? "" }.count == 1)
-        var start = s; start.at = t0 + 5
-        let out = CardRelay.plan(reports: ["a": start], captain: "c", captainLive: true, state: &st, now: t0 + 5, policy: .legacy) { _, r in CardRelay.text(name: "小明", project: nil, report: r) }
-        #expect(out.count == 1 && out[0].text.hasPrefix("【開工】"))
     }
 
     @Test("① hook 輸出：有名字帶 sessionTitle＋提醒；沒名字只帶提醒")
@@ -65,7 +57,7 @@ struct CaptainLinkTests {
         #expect(names("xcodebuild -scheme App archive -archivePath /tmp/a") == ["告:App 封裝（xcodebuild archive）"])
         #expect(names("xcodebuild -scheme App -configuration Release archive -archivePath build/A.xcarchive") == ["告:App 封裝（xcodebuild archive）"])
         #expect(names("xcrun altool --upload-app -f a.ipa") == ["擋:App 上傳 App Store Connect"])
-        // 10-24 隊長：Sam 的上傳漏擋（BM7NC 之後）
+        // 10-24 秘書：Sam 的上傳漏擋（BM7NC 之後）
         for c in ["xcodebuild -exportArchive -archivePath /tmp/A.xcarchive -exportOptionsPlist opts.plist -exportPath /tmp/out",
                   "cd 專案A && xcodebuild -exportArchive -archivePath build/A.xcarchive -exportOptionsPlist ExportOptions.plist",
                   "xcrun altool --upload-package a.pkg --apple-id 1",
@@ -113,7 +105,7 @@ struct CaptainLinkTests {
         #expect(sum.hasPrefix("python3 ~/demo/line_send.py ‹訊息內容略›") && !sum.contains("showork") && !sum.contains("晚上見"))
     }
 
-    @Test("② 隊長收集的誤擋樣本（10-24）：都不算")
+    @Test("② 秘書收集的誤擋樣本（10-24）：都不算")
     func falsePositives() {
         // 1. 讀收件匣 json 的指令：印出的內容裡有 defaults write／~/.claude/scripts／ssh winbox 字樣
         let inboxRead = #"D="/Users/demo/Library/Application Support/ShoWork42/board/captain-inbox"; for f in "$D"/*.json; do python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d['id'],d['kind'],d['delivered'],d['text'][:50])" "$f"; done; B="/Users/demo/Library/Application Support/ShoWork42/bin/showork"; SID=demo; for c in "defaults write ai.okle42.demo key -bool true" "cp /tmp/demo.py ~/.claude/scripts/demo.py" "ssh winbox 'Remove-Item C:\demo\x.txt'"; do printf '%s' "{"session_id":"$SID","tool_input":{"command":$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$c")}}" | "$B" guard-push; echo "rc=$?"; done"#
@@ -139,18 +131,11 @@ struct CaptainLinkTests {
         CaptainInboxItem(id: id, kind: kind, at: at, sid: sid, name: "小明", project: "專案A", kinds: ["rm 刪除（暫存區以外）"], text: "rm -rf build", fingerprint: fp)
     }
 
-    @Test("③ 預告合併：同一 session 安靜 5 秒或等滿 30 秒才送；已送、太舊的不送")
-    func merge() {
-        let a1 = item("N1", .notice, sid: "a", at: t0), a2 = item("N2", .notice, sid: "a", at: t0 + 3), b1 = item("N3", .notice, sid: "b", at: t0 + 1)
-        #expect(CaptainLink.dueNotices([a1, a2, b1], now: t0 + 4).isEmpty)
-        let due = CaptainLink.dueNotices([a1, a2, b1], now: t0 + 8.5)
-        #expect(due.map { $0.map(\.id) } == [["N1", "N2"]] || due.map { $0.map(\.id) } == [["N1", "N2"], ["N3"]])
-        let chatty = (0..<16).map { item("C\($0)", .notice, sid: "c", at: t0 + Double($0) * 2) }
-        #expect(CaptainLink.dueNotices(chatty, now: t0 + 31).first?.count == 16)           // 一直有新的：滿 30 秒也送
-        var sent = a1; sent.delivered = true
-        #expect(CaptainLink.dueNotices([sent, item("N9", .notice, sid: "a", at: t0 - 700)], now: t0 + 10).isEmpty)
-        let t = CaptainLink.noticeText([a1, a2])
-        #expect(t.hasPrefix("【動作預告】小明（專案A）：2 個動作") && t.components(separatedBy: "・rm").count == 3)
+    @Test("③ 只有擋下等放行的立刻推；預告、開工卡、已送的不推")
+    func pushNow() {
+        #expect(CaptainLink.pushNow(item("B1", .block, sid: "a", at: t0)))
+        var sent = item("B2", .block, sid: "a", at: t0); sent.delivered = true
+        #expect(!CaptainLink.pushNow(sent) && !CaptainLink.pushNow(item("N1", .notice, sid: "a", at: t0)) && !CaptainLink.pushNow(item("S1", .start, sid: "a", at: t0)))
     }
 
     @Test("④ 收件匣：擋下 → 放行（寫稽核紀錄）→ 同一個指令用一次")
@@ -165,9 +150,9 @@ struct CaptainLinkTests {
         #expect(!CaptainInbox.consume(sid: "a", fingerprint: fp, now: t0 + 10))                     // 還沒放行
         #expect(CaptainInbox.waiting(sid: "a", fingerprint: fp, now: t0 + 10)?.id == "BAAAA")
         #expect(CaptainInbox.pending(now: t0 + 10).map(\.id) == ["BAAAA"])
-        #expect(CaptainInbox.release(id: "bzzzz", target: nil, by: "cap", byName: "隊長", source: "release 指令", now: t0 + 20) == nil)
+        #expect(CaptainInbox.release(id: "bzzzz", target: nil, by: "cap", byName: "秘書", source: "release 指令", now: t0 + 20) == nil)
         #expect(CaptainInbox.release(id: nil, target: "b", by: "b", byName: "使用者", source: "使用者輸入", now: t0 + 20) == nil)   // 別人的單不能放
-        let r = try #require(CaptainInbox.release(id: "baaaa", target: nil, by: "cap", byName: "隊長", source: "release 指令", now: t0 + 20))
+        let r = try #require(CaptainInbox.release(id: "baaaa", target: nil, by: "cap", byName: "秘書", source: "release 指令", now: t0 + 20))
         #expect(r.released == t0 + 20)
         #expect(!CaptainInbox.consume(sid: "a", fingerprint: CaptainLink.fingerprint("rm -rf src"), now: t0 + 30))   // 換指令不算
         #expect(CaptainInbox.consume(sid: "a", fingerprint: fp, now: t0 + 30))
@@ -182,7 +167,7 @@ struct CaptainLinkTests {
         #expect(CaptainInbox.ack("bcccc", now: t0 + 70) == 1 && !CaptainInbox.pending(now: t0 + 70).contains { $0.id == "BCCCC" })
         CaptainInbox.save(item("BDDDD", .block, sid: "a", at: t0 + 60, fp: "y"))
         #expect(CaptainInbox.ack("all", now: t0 + 80) >= 1 && CaptainInbox.pending(now: t0 + 80).isEmpty)
-        #expect(CaptainLink.denyReason(r).contains("隊長轉述小明的決定") && CaptainLink.blockText(r).contains("showork release BAAAA"))
+        #expect(CaptainLink.denyReason(r).contains("秘書轉述小明的決定") && CaptainLink.blockText(r).contains("showork release BAAAA"))
     }
 
     @Test("④c 超過一天沒放行的舊單不沿用：重試開新單，打「放行」放得到新單（11-07 Surface 的 BCU9J）")
@@ -259,20 +244,10 @@ struct CaptainLinkTests {
             RosterEntry(name: n, sessionId: n, pid: 1, kind: nil, project: "專案A", root: nil, column: .done, reason: "", title: "", summary: nil,
                         ctx: ctx, lastActivity: t0 - idle, captain: cap, sameProject: [])
         }
-        let r = Roster(at: t0, captain: "隊長", entries: [e("小明", ctx: 62, idle: 60), e("ACME", ctx: nil, idle: 3600), e("隊長", ctx: 10, idle: 0, cap: true)])
+        let r = Roster(at: t0, captain: "秘書", entries: [e("小明", ctx: 62, idle: 60), e("ACME", ctx: nil, idle: 3600), e("秘書", ctx: 10, idle: 0, cap: true)])
         let a = CaptainLink.alarm(r, pending: 2, now: t0)
-        #expect(a.text.hasPrefix("【巡檢時間】在線 2 人（不含隊長）；ctx：ACME –、小明 62%；閒置超過 30 分鐘：ACME；收件匣未處理 2 則"))
+        #expect(a.text.hasPrefix("【巡檢時間】在線 2 人（不含秘書）；ctx：ACME –、小明 62%；閒置超過 30 分鐘：ACME；收件匣未處理 2 則"))
         #expect(CaptainLink.alarm(r, pending: 2, now: t0 + 5).sig == a.sig)
         #expect(CaptainLink.alarm(r, pending: 3, now: t0).sig != a.sig)
-    }
-
-    @Test("② 開工卡轉送：同一個任務 10 分鐘內不重送")
-    func startDedupe() {
-        var st = CardRelay.State(); st.seeded = true
-        func start(_ d: String, _ s: String, _ at: Date) -> SelfReport { SelfReport(status: .working, summary: s, doing: d, kind: "start", at: at) }
-        let txt: (String, SelfReport) -> String = { _, r in r.summary ?? "" }
-        #expect(CardRelay.plan(reports: ["a": start("改按鈕", "1", t0)], captain: "c", captainLive: true, state: &st, now: t0, policy: .legacy, text: txt).count == 1)
-        #expect(CardRelay.plan(reports: ["a": start("改按鈕", "2", t0 + 60)], captain: "c", captainLive: true, state: &st, now: t0 + 60, policy: .legacy, text: txt).isEmpty)
-        #expect(CardRelay.plan(reports: ["a": start("換新任務", "3", t0 + 70)], captain: "c", captainLive: true, state: &st, now: t0 + 70, policy: .legacy, text: txt).count == 1)
     }
 }

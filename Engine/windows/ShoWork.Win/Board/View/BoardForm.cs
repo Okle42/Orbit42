@@ -7,8 +7,8 @@ using static ShoWork.Native;
 
 namespace ShoWork;
 
-/// 戰情中心視窗：部門島卡片格＋工具列（新任務⋯、交給隊長⋯、AI 審核、ctx 門檻＋自動收尾、帳號流量）。Mac 版 BoardWindow.swift／IslandView.swift 的移植。
-/// 11-02 P8 第二輪：大樓網頁的按鈕（收件匣回答、權限、選擇題、隊長、派工、退回、丟待辦、放行、重新審核、重新裝潢、天氣地點⋯，見 Web\PROTOCOL.md）
+/// 戰情中心視窗：部門島卡片格＋工具列（新任務⋯、交給秘書⋯、AI 審核、ctx 門檻＋自動收尾、帳號流量）。Mac 版 BoardWindow.swift／IslandView.swift 的移植。
+/// 11-02 P8 第二輪：大樓網頁的按鈕（收件匣回答、權限、選擇題、秘書、派工、退回、丟待辦、放行、重新審核、重新裝潢、天氣地點⋯，見 Web\PROTOCOL.md）
 /// 都在這裡接（OnOfficeAction）；對話框在 BoardSheets.cs。只有正式 agent（系統匣開的）會自動審核、自動回報派工、自動收尾（Mac：Engine.current != nil）。
 /// 每 1.5 秒重讀一次看板（同 Mac），沒變就不重畫；島的動畫 8 fps，只在有人在動、視窗看得到、沒開「減少動態效果」時跑。
 /// W6：左上「卡片／大樓」切換；大樓＝WebView2＋three.js（OfficeHost），WebView2 Runtime 不在或壞掉就退回卡片、切換鈕變灰。
@@ -61,7 +61,7 @@ sealed class BoardForm : Form
     IslandCardView? detailView;
     string? detailId;
     static string ViewPrefPath => Path.Combine(Wire.SupportDir, "board", "board-view.txt");
-    // 11-02 P8 第二輪：收件匣、隊長對話、進度條（BoardModel 的 @Published）
+    // 11-02 P8 第二輪：收件匣、秘書對話、進度條（BoardModel 的 @Published）
     List<CaptainLine> captainThread = new(), sessionThread = new();
     List<CaptainTaskInfo> captainTasks = new();
     List<RunProgress> runs = new();
@@ -407,7 +407,7 @@ sealed class BoardForm : Form
     /// 門檻改了：卡片上 ctx 的顏色跟著變（資料沒變，只重畫）
     public void Repaint() { foreach (var v in views) v.Invalidate(true); }
 
-    /// 收件匣、隊長對話、派工單、進度條（Mac BoardModel.apply 的後半）＋自動審核、ctx 收尾、派工回報、保全巡邏
+    /// 收件匣、秘書對話、派工單、進度條（Mac BoardModel.apply 的後半）＋自動審核、ctx 收尾、派工回報、保全巡邏
     void ApplySnapshot(BoardReader.Snapshot? s, List<BoardCard> cards)
     {
         if (s == null) return;
@@ -415,7 +415,7 @@ sealed class BoardForm : Form
         sessionThread = reader.Watching != null ? s.SessionThread : new();
         runs = s.Runs;
         reviews = s.Reviews;
-        // 隊長面板的派工單：還在做的（3 天內有動靜）＋要你看的（24 小時內）；卡住的排最前面
+        // 秘書面板的派工單：還在做的（3 天內有動靜）＋要你看的（24 小時內）；卡住的排最前面
         var now = DateTime.UtcNow;
         int Rank(CaptainTaskInfo.TaskState st) => st == CaptainTaskInfo.TaskState.blocked ? 0 : st == CaptainTaskInfo.TaskState.review ? 1 : 2;
         captainTasks = s.Tasks.Where(t => (CaptainTasks.Open(t.State) && now - t.UpdatedAt < TimeSpan.FromDays(3))
@@ -665,21 +665,21 @@ sealed class BoardForm : Form
             {
                 var text = (Str(m, "text") ?? "").Trim();
                 if (text.Length == 0) return;
-                if (BoardWindowTestMode) { Say($"測試：不交給隊長「{text}」"); return; }
-                if (opt.Demo) { Say("示範資料：不交給隊長"); return; }
+                if (BoardWindowTestMode) { Say($"測試：不交給秘書「{text}」"); return; }
+                if (opt.Demo) { Say("示範資料：不交給秘書"); return; }
                 captainBusy = true;
                 Run(() => BoardActions.AskCaptain(text), msg =>
                 {
                     captainBusy = false;
                     BoardHistory.Append(new Dictionary<string, string> { ["ev"] = "tocaptain", ["text"] = text });
-                    Say(msg ?? "送不到隊長");
+                    Say(msg ?? "送不到秘書");
                     Refresh_();
                 });
                 return;
             }
             case "ask":
-                // 球直接回答問題：Mac 那邊才有；Windows 版先請他交給隊長
-                Say("Windows 版的球還不會直接回答，請交給隊長");
+                // 球直接回答問題：Mac 那邊才有；Windows 版先請他交給秘書
+                Say("Windows 版的球還不會直接回答，請交給秘書");
                 return;
             case "sessionInfo":
             {
@@ -698,7 +698,7 @@ sealed class BoardForm : Form
         Log.Note($"SPHERE action unknown {action}");
     }
 
-    // MARK: 大樓網頁的選填欄位（PROTOCOL.md 的選填表：收件匣、隊長對話、派工單、進度條、天氣列）
+    // MARK: 大樓網頁的選填欄位（PROTOCOL.md 的選填表：收件匣、秘書對話、派工單、進度條、天氣列）
 
     System.Text.Json.Nodes.JsonObject Extras()
     {
@@ -797,14 +797,14 @@ sealed class BoardForm : Form
             case "askCaptain":
             {
                 var text = Str(m, "text") ?? "";
-                if (BoardWindowTestMode) { PostToast("測試：不交給隊長", captainDone: true); return; }
+                if (BoardWindowTestMode) { PostToast("測試：不交給秘書", captainDone: true); return; }
                 captainBusy = true;
                 Post(new System.Text.Json.Nodes.JsonObject { ["type"] = "captainBusy", ["busy"] = true });
                 Run(() => BoardActions.AskCaptain(text), msg =>
                 {
                     captainBusy = false;
                     BoardHistory.Append(new Dictionary<string, string> { ["ev"] = "tocaptain", ["text"] = text });
-                    PostToast(msg ?? "送不到隊長", captainDone: true);
+                    PostToast(msg ?? "送不到秘書", captainDone: true);
                     Refresh_();
                 });
                 return;

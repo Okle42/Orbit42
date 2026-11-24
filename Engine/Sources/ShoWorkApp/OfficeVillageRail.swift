@@ -20,7 +20,7 @@ struct VillageRail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     header("地點")
-                    place("place:shop", "house", plan.shopName, sub: count(.shop) == "沒有人" ? "隊長" : "隊長＋" + count(.shop))
+                    place("place:shop", "house", plan.shopName, sub: count(.shop) == "沒有人" ? "秘書" : "秘書＋" + count(.shop))
                     place("place:company", "building", "Okle42 小屋", sub: count(.company))
                     ForEach(Array(plan.stalls.enumerated()), id: \.offset) { i, s in
                         place("place:stall:\(i)", "storefront", s, sub: "小攤")
@@ -80,7 +80,7 @@ struct VillageRail: View {
 
     private func where_(_ r: VillageResident) -> String {
         guard r.online else { return "回家了（離線）" }
-        if r.zone == .townhall { return "在\(plan.shopName)門口（隊長）" }
+        if r.zone == .townhall { return "在\(plan.shopName)門口（秘書）" }
         let at: String = switch r.zone {
         case .shop: plan.shopName
         case .company: "Okle42 小屋"

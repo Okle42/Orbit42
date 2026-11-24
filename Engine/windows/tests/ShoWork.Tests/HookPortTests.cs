@@ -252,7 +252,7 @@ public sealed class HookPortTests : IDisposable
         Assert.DoesNotContain("自動接手", HookCli.Brief(new JsonObject { ["session_id"] = "新S2", ["source"] = "clear" }.ToJsonString(), null, "/sw", T0.AddMinutes(2)));
     }
 
-    [Fact] // 收尾後：巡檢／組員訊息不算打斷（回「交接中」）；使用者打字才 interrupted；tick 轉隊長提醒一次
+    [Fact] // 收尾後：巡檢／組員訊息不算打斷（回「交接中」）；使用者打字才 interrupted；tick 轉秘書提醒一次
     public void HandoverInterruptedByUserOnly()
     {
         Assert.True(Handover.Save(Rec("假A")));
@@ -359,12 +359,12 @@ public sealed class HookPortTests : IDisposable
             new RosterEntry { Name = "Jade", SessionId = "S9", Project = "專案B", Column = "done", CtxTokens = 900_000 } } });
         var (c1, o1, e1) = HookCli.TaskCli(new() { "add", "--to", "Ivy", "--text", "做按鈕\n判準：能按", "--then-to", "Jade", "--then", "寫測試" }, "CAP", T0, "/sw");
         Assert.Equal(0, c1);
-        Assert.Contains("已建，但直送失敗", o1);                                    // 對方沒開著：印全文給隊長改用 SendMessage
+        Assert.Contains("已建，但直送失敗", o1);                                    // 對方沒開著：印全文給秘書改用 SendMessage
         Assert.Contains("回報方式：這件事每一輪的 showork card 都加上 --task", o1);
         var t = CaptainStore.Tasks().Single();
         Assert.Equal(("Ivy", "S8", "專案A", "Jade", "sent"), (t.To, t.ToSession, t.Project, t.ThenTo, t.State));
         Assert.Matches(@"^T\d{10}$", t.Id);
-        Assert.Equal("CAP", CaptainStore.Captain());                              // 派工的人自動成為隊長
+        Assert.Equal("CAP", CaptainStore.Captain());                              // 派工的人自動成為秘書
         var j = Obj(File.ReadAllText(Path.Combine(Board, "tasks", t.Id + ".json")));
         Assert.Equal(new[] { "createdAt", "from", "id", "project", "sendError", "state", "text", "thenText", "thenTo", "to", "toSession", "updatedAt" }, j.Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal));
         Assert.Contains("context 已用 900k", HookCli.TaskCli(new() { "add", "--to", "Jade", "--text", "x" }, "CAP", T0, "/sw").Err);
@@ -408,40 +408,66 @@ public sealed class HookPortTests : IDisposable
     public void CardRelayPlan()
     {
         var st = new CardRelay.State();
-        var reports = new Dictionary<string, CardReport> { ["A"] = new() { Status = "working", Summary = "一", At = T0 } };
+        var reports = new Dictionary<string, CardReport> { ["A"] = new() { Status = "blocked", Summary = "一", At = T0 } };
         string Text(string sid, CardReport r) => CardRelay.Text(sid, "專案A", r);
-        Assert.Empty(CardRelay.Plan(reports, "CAP", true, st, T0, Text));                     // 第一次只播種
-        reports["A"] = new() { Status = "working", Summary = "二", How = "讀檔", At = T0 };
-        var o = CardRelay.Plan(reports, "CAP", true, st, T0, Text);
-        Assert.Equal("【工作回報】A（專案A）\n狀態 working\n摘要：二\n方法與工具：讀檔\n（看板自動轉送，對方不等你回覆；有疑慮再 SendMessage 給它）", o.Single().Text);
-        reports["A"] = new() { Status = "working", Summary = "三", At = T0 };
-        Assert.Empty(CardRelay.Plan(reports, "CAP", true, st, T0.AddSeconds(10), Text));    // 60 秒內不再送
-        Assert.Single(CardRelay.Plan(reports, "CAP", true, st, T0.AddSeconds(61), Text));
-        reports["CAP"] = new() { Status = "done", Summary = "隊長的", At = T0 };
-        Assert.Empty(CardRelay.Plan(reports, "CAP", true, st, T0.AddSeconds(200), Text));   // 隊長自己的不轉
-        reports["B"] = new() { Status = "working", Kind = "start", Doing = "修 bug", At = T0.AddSeconds(200) };
-        Assert.StartsWith("【開工】B（專案A）：修 bug", CardRelay.Plan(reports, "CAP", true, st, T0.AddSeconds(201), Text).Single().Text);
-        // 狀態存檔讀回
-        var back = CardRelay.State.From(JsonNode.Parse(HookJson.Text(st.ToJson())));
-        Assert.True(back.Seeded); Assert.Equal(st.SentKey, back.SentKey); Assert.Equal("修 bug", back.LastStart["B"].Doing);
+        List<CardRelay.Outgoing> Plan(double s) => CardRelay.Plan(reports, "CAP", true, st, T0.AddSeconds(s), Text);
+        Assert.Empty(Plan(0));                                          // 第一次只播種
+        reports["A"] = new() { Status = "blocked", Summary = "二", How = "讀檔", At = T0 };
+        Assert.Equal("【工作回報】A（專案A）\n狀態 blocked\n摘要：二\n方法與工具：讀檔\n（看板自動轉送，對方不等你回覆；有疑慮再 SendMessage 給它）", Plan(0).Single().Text);
+        reports["A"] = new() { Status = "blocked", Summary = "三", At = T0 };
+        Assert.Empty(Plan(10));                                         // 60 秒內不再送
+        Assert.Single(Plan(61));
+        reports["A"] = new() { Status = "blocked", Summary = "三", How = "換了寫法", Progress = 90, At = T0 };
+        Assert.Empty(Plan(130));                                        // 同一張卡：重複不推
+        reports["A"] = new() { Status = "blocked", Summary = "三", Ask = "要 push 嗎", At = T0 };
+        Assert.Single(Plan(200));                                       // 問題從無到有：推
+        reports["A"] = new() { Status = "blocked", Summary = "三", At = T0 };
+        Assert.Empty(Plan(270));                                        // 拿掉問題：不推
+        reports["A"] = new() { Status = "blocked", Summary = "三", Ask = "要 push 嗎", At = T0 };
+        Assert.Empty(Plan(340));                                        // 同一題重發：不推
+        reports["A"] = new() { Status = "blocked", Summary = "三", Ask = "要 push 嗎", Options = new() { "好" }, At = T0 };
+        Assert.Single(Plan(410));                                       // 選項改了：推
+        reports["CAP"] = new() { Status = "review", Summary = "秘書的", At = T0 };
+        reports["B"] = new() { Status = "working", Kind = "start", Doing = "修 bug", At = T0.AddSeconds(400) };
+        reports["C"] = new() { Status = "done", Summary = "做完", At = T0.AddSeconds(400) };
+        Assert.Empty(Plan(480));                                        // 秘書自己的、開工卡、做完的都不推
+        var back = CardRelay.State.From(JsonNode.Parse(HookJson.Text(st.ToJson())));     // 狀態存檔讀回
+        Assert.True(back.Seeded); Assert.Equal(st.SentKey, back.SentKey); Assert.Equal(st.SentAsk, back.SentAsk);
     }
 
     [Fact]
     public void NoticesAndAlarm()
     {
-        InboxItem N(string sid, double ago) => new() { Id = CaptainInbox.NewID("notice"), Kind = "notice", At = T0.AddSeconds(-ago), Sid = sid, Name = sid, Kinds = new() { "mv" }, Text = "mv a b" };
-        var due = CaptainLink.DueNotices(new() { N("A", 10), N("A", 6), N("B", 2), N("C", 700) }, T0);
-        Assert.Equal("A", due.Single()[0].Sid);                                    // B 還沒安靜 5 秒、C 太舊
-        Assert.Equal(2, due[0].Count);
-        Assert.StartsWith("【動作預告】A：2 個動作（不擋，已在跑）\n・mv：mv a b", CaptainLink.NoticeText(due[0]));
+        InboxItem It(string kind, bool delivered = false) => new() { Id = CaptainInbox.NewID(kind), Kind = kind, At = T0.AddSeconds(-10), Sid = "x", Name = "x", Kinds = new() { "mv" }, Text = "mv a b", Delivered = delivered };
+        Assert.True(CaptainLink.PushNow(It("block")));                  // 擋單一定推
+        Assert.False(CaptainLink.PushNow(It("block", true)) || CaptainLink.PushNow(It("notice")) || CaptainLink.PushNow(It("start")));
         var r = new Roster { At = T0, Entries = new() { new() { Name = "小明", SessionId = "a", Project = "專案A", Column = "done", Ctx = 72, LastActivity = T0 } } };
-        var plain = CaptainLink.Alarm(r, 0, T0);
-        Assert.StartsWith("【巡檢時間】在線 1 人（不含隊長）；ctx：小明 72%；閒置超過 30 分鐘：沒有", plain.Text);
+        var none = new HashSet<string>();
+        Assert.Empty(CaptainLink.AlarmActions(r, none, new() { It("notice"), It("start") }, 250_000, T0).Reasons);   // 預告、開工卡不叫醒
+        var b = It("block", true);
+        var x = CaptainLink.AlarmActions(r, none, new() { b }, 250_000, T0);
+        Assert.Contains(b.Id, x.Reasons.Single());                      // 擋下沒 ack 一定算
+        Assert.True(CaptainLink.AlarmShouldPush(x.Reasons, x.Sig, null));
+        r.Entries[0].Ctx = 90; r.Entries[0].LastActivity = T0.AddSeconds(-5);
+        var y = CaptainLink.AlarmActions(r, none, new() { b }, 250_000, T0.AddMinutes(30));
+        Assert.False(CaptainLink.AlarmShouldPush(y.Reasons, y.Sig, x.Sig));      // 時間、ctx 變了不算變化
+        r.Entries[0].Column = "stuck";
+        var z = CaptainLink.AlarmActions(r, none, new() { b }, 250_000, T0);
+        Assert.True(CaptainLink.AlarmShouldPush(z.Reasons, z.Sig, x.Sig));
         r.Entries[0].Handover = "已收尾待 /clear";
         var a = CaptainLink.Alarm(r, 2, T0);
-        Assert.Contains("已收尾、還沒 /clear：小明（已收尾待 /clear）", a.Text);
+        Assert.StartsWith("【巡檢時間】在線 1 人（不含秘書）", a.Text);
         Assert.Contains("收件匣未處理 2 則", a.Text);
-        Assert.NotEqual(plain.Sig, a.Sig);
+    }
+
+    [Fact]
+    public void SecretaryAddress()
+    {
+        var ss = new List<(string, string?)> { ("cap-1", "Ethan"), ("b-2", "Bella") };
+        var nick = new Dictionary<string, string> { ["cap-1"] = "Zack", ["b-2"] = "Bella" };
+        foreach (var who in new[] { "秘書", "隊長", "Ethan" }) Assert.Equal("cap-1", ShortName.Match(who, ss, nick, "cap-1").Single());
+        Assert.Empty(ShortName.Match("LINE 秘書", ss, nick, "cap-1"));
+        Assert.Empty(ShortName.Match("秘書", ss, nick, "gone"));
     }
 
     // MARK: statusline／ctx-wrapup

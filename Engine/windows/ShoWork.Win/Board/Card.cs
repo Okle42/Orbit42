@@ -20,7 +20,7 @@ public sealed record SelfReport
     public string? Summary { get; init; }
     public string? Ask { get; init; }            // 要你決定／回答的事
     public string? Report { get; init; }         // 報告檔路徑
-    public string? Task { get; init; }           // 隊長派工單號（--task）
+    public string? Task { get; init; }           // 秘書派工單號（--task）
     // 11-02 P8：showork card（W5，showork\Core\CardReport.cs）也會寫的欄位，Mac SelfReport 同名；看板讀、收件匣用 options
     public string? Doing { get; init; }          // 正在做的任務（--doing）
     public List<string>? Options { get; init; }  // --ask 的快速選項（--options "A|B|C"）
@@ -223,14 +223,14 @@ public sealed record ContextUse
     }
 }
 
-/// 隊長旗標與同專案重工警告（Mac 版 Captain.swift 的 annotate；派工單不搬，Windows 唯讀看板沒有派工）。
-/// 誰是隊長存在 board\captain.json（`showork captain` 寫，Mac 與 Windows W5 起都有）。
+/// 秘書旗標與同專案重工警告（Mac 版 Captain.swift 的 annotate；派工單不搬，Windows 唯讀看板沒有派工）。
+/// 誰是秘書存在 board\captain.json（`showork captain` 寫，Mac 與 Windows W5 起都有）。
 public static class Captain
 {
     /// 不算「專案」的歸屬（家目錄、看不出來的），不做重工比對
     public static bool IsRealProject(string p) => !p.StartsWith('（');
 
-    /// 同專案多開：sessionId → 同專案的其他 session 名。隊長自己不算（它本來就會到處看）。
+    /// 同專案多開：sessionId → 同專案的其他 session 名。秘書自己不算（它本來就會到處看）。
     public static Dictionary<string, List<string>> SameProject(IEnumerable<BoardCard> cards, string? captain)
     {
         var live = cards.Where(c => !c.IsQueued && c.SessionId != captain && IsRealProject(c.Project)).ToList();
@@ -244,7 +244,7 @@ public static class Captain
         return out_;
     }
 
-    /// 看板卡片＋派工單 → 標上隊長、重工、派工（Mac Captain.annotate；11-02 P8 起帶派工單）
+    /// 看板卡片＋派工單 → 標上秘書、重工、派工（Mac Captain.annotate；11-02 P8 起帶派工單）
     public static List<BoardCard> Annotate(IEnumerable<BoardCard> cards, string? captain, IReadOnlyList<CaptainTaskInfo>? tasks = null)
     {
         var list = cards.ToList();

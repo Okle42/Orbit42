@@ -325,7 +325,7 @@ final class SphereListener: @unchecked Sendable {
     static func join(_ a: String, _ b: String) -> String {
         let a = a.trimmingCharacters(in: .whitespaces), b = b.trimmingCharacters(in: .whitespaces)
         if a.isEmpty { return b }; if b.isEmpty { return a }
-        // 段落之間是你停頓的地方 ⇒ 補一個「，」（上一段已經有標點就不補），隊長讀得出斷句
+        // 段落之間是你停頓的地方 ⇒ 補一個「，」（上一段已經有標點就不補），秘書讀得出斷句
         let l = a.unicodeScalars.last!
         return a + (CharacterSet.punctuationCharacters.contains(l) ? "" : "，") + b
     }

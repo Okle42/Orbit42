@@ -114,7 +114,7 @@ struct AskQueueTests {
         #expect(AskQueue.withdraw(sid: "S", id: q[0].id.lowercased()) == 1)
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("asks/S.json").path))
         AskQueue.record(sid: "S", report: r, now: now)
-        #expect(AskQueue.resolve(sid: "S", question: "要不要寄"))        // 隊長卡片同一題（Answered）
+        #expect(AskQueue.resolve(sid: "S", question: "要不要寄"))        // 秘書卡片同一題（Answered）
         AskQueue.record(sid: "S", report: r, now: now)
         #expect(AskQueue.withdraw(sid: "S", id: "all") == 1 && AskQueue.load("S").isEmpty)
 
@@ -135,7 +135,7 @@ struct AskQueueTests {
         let r = SelfReport(status: .review, summary: "等你", ask: "要不要寄？", options: ["寄", "不要"], at: now)
         AskQueue.record(sid: "S", report: r, now: now)
         AskQueue.record(sid: "S", report: SelfReport(status: .blocked, summary: "再等", ask: "第二題？", at: now + 5), now: now + 5)
-        AskQueue.record(sid: "CAP", report: r, now: now)                 // 隊長也掛著同一題
+        AskQueue.record(sid: "CAP", report: r, now: now)                 // 秘書也掛著同一題
         try BoardJSON.encoder.encode(r).write(to: cards.appendingPathComponent("S.json"))
         try BoardJSON.encoder.encode(r).write(to: cards.appendingPathComponent("CAP.json"))
 
@@ -147,7 +147,7 @@ struct AskQueueTests {
         }
         #expect(AskQueue.load("S").count == 2)
 
-        // 本人在終端機打字：兩題都清、卡片 --ask 清、隊長同一題也清
+        // 本人在終端機打字：兩題都清、卡片 --ask 清、秘書同一題也清
         let gone = AskQueue.answeredInTerminal(sid: "S", prompt: "寄吧", captain: "CAP", cardsDir: cards)
         #expect(gone.map(\.ask) == ["要不要寄？", "第二題？"])
         #expect(AskQueue.load("S").isEmpty && AskQueue.load("CAP").isEmpty)

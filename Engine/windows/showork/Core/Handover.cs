@@ -8,7 +8,7 @@ namespace ShoWork.Hooks;
 //   ② 收尾完 AI 發 `showork card --kind wrapup --handoff <檔>` ⇒ 這裡記一筆 board\handover\<sid>.json（pending）
 //      看板（ShoWork.Win\HandoverClear.cs）看到它閒下來（最後一張卡就是 wrapup、不在工作、沒開對話框）⇒ 對它的終端機送 /clear
 //   ③ /clear 後的 SessionStart（showork brief）認領這筆：名字沿用、派工單轉到新 sid、注入接手提示；看板再打一句「開始接手」叫它動起來
-// 收尾後、/clear 前使用者又下新指令 ⇒ interrupted（不自動 /clear，`showork tick` 轉隊長提醒）；之後 ctx 再多 150k Stop hook 會再收一次。
+// 收尾後、/clear 前使用者又下新指令 ⇒ interrupted（不自動 /clear，`showork tick` 轉秘書提醒）；之後 ctx 再多 150k Stop hook 會再收一次。
 
 sealed class HandoverRecord
 {
@@ -161,11 +161,11 @@ static class Handover
     {
         var held = TakeHeld(r.Sid);
         if (held.Count == 0) return ResumeContext(r, tasks);
-        return ResumeContext(r, tasks) + $"\n【收尾期間暫存、現在補交給你的 {held.Count} 則訊息】（讀完交接後照常處理；隊長另跑 showork captain 看未 ack 收件匣）\n"
+        return ResumeContext(r, tasks) + $"\n【收尾期間暫存、現在補交給你的 {held.Count} 則訊息】（讀完交接後照常處理；秘書另跑 showork captain 看未 ack 收件匣）\n"
             + string.Join("\n", held.Select(h => $"— 來自 {h.From}：{h.Text}"));
     }
 
-    /// UserPromptSubmit 用：收尾後、/clear 前「使用者本人」又下指令 ⇒ interrupted（看板轉隊長提醒）。
+    /// UserPromptSubmit 用：收尾後、/clear 前「使用者本人」又下指令 ⇒ interrupted（看板轉秘書提醒）。
     /// 其他 session 的訊息、巡檢、工作回報／派工回報轉送都不算打斷；沒打斷但還在等 /clear ⇒ 回一段提醒
     public static string? NoteNewPrompt(string sid, string? prompt, DateTime now)
     {
@@ -207,7 +207,7 @@ static class Handover
 
     static string Short(string sid) => sid[..Math.Min(8, sid.Length)];
 
-    // MARK: 收尾期間暫存：看板／隊長流程要送給「已收尾等 /clear」的 session 的訊息先存著，新 context 接手時一起交給它
+    // MARK: 收尾期間暫存：看板／秘書流程要送給「已收尾等 /clear」的 session 的訊息先存著，新 context 接手時一起交給它
 
     /// 收尾中（pending／clearing）而且不是使用者本人的訊息 ⇒ 暫存不送
     public static bool ShouldHold(string sid, string fromName)

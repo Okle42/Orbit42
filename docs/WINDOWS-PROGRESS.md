@@ -24,7 +24,7 @@
 ## 跟 Mac 不同（做不到或 Windows 本來就沒有）
 - 毛玻璃半透明：Windows 子視窗疊在網頁上不能透明，終端機底色是實色
 - 外環卡的溫度／風扇／時脈／吃 CPU 的程式：Mac 靠 cool42（只有 Mac 版），Windows 筆電讀溫度要管理員權限
-- 隊長這類「戰情中心持有的 session」：Windows 版 ShoWork 本來就沒有這種 session，不會出現
+- 秘書這類「戰情中心持有的 session」：Windows 版 ShoWork 本來就沒有這種 session，不會出現
 
 ## 修過的坑
 - ConPTY：父程式的 stdout 被導向時子程式輸出不進虛擬主控台 ⇒ STARTF_USESTDHANDLES 給空控制代碼

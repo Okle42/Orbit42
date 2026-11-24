@@ -1,5 +1,6 @@
 import WebKit
 import AppKit
+import ShoWorkCore
 
 /// A satellite's terminal as a small window inside Orbit42: title bar you can drag, macOS-style
 /// traffic lights in Okle42 colors (red = end, gray = tuck away, white = fill the screen),
@@ -18,6 +19,7 @@ final class TermWindowView: NSView {
     var yieldingToAsk = false
     override func hitTest(_ p: NSPoint) -> NSView? { yieldingToAsk ? nil : super.hitTest(p) }
     private let bar = NSView()
+    private let clip = NSView()
     private let glass = NSVisualEffectView()
     private let lights: [TrafficLight]
     private var zoomedFrom: NSRect?
@@ -37,7 +39,7 @@ final class TermWindowView: NSView {
         layer?.shadowRadius = 24
         layer?.shadowOffset = CGSize(width: 0, height: -8)
 
-        let clip = NSView()                         // rounded clip for the bar + terminal
+        // rounded clip for the bar + terminal
         clip.wantsLayer = true
         clip.layer?.cornerRadius = 12
         clip.layer?.masksToBounds = true
@@ -74,6 +76,7 @@ final class TermWindowView: NSView {
         grip.autoresizingMask = [.minXMargin, .maxYMargin]
         addSubview(grip)
         self.grip = grip
+        buildSecretary()
         applyColors()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -101,7 +104,7 @@ final class TermWindowView: NSView {
     func setPane(_ v: NSView?) {
         pane?.removeFromSuperview(); splitter.removeFromSuperview()
         pane = v
-        if let v, let clip = subviews.first {
+        if let v {
             clip.addSubview(v); clip.addSubview(splitter)
             splitter.onDrag = { [weak self] p in
                 guard let self else { return }
@@ -126,7 +129,11 @@ final class TermWindowView: NSView {
 
     /// 11-23 Keng：打開時邊框亮一下紅光（跟 ShoWork 光暈同一個感覺），0.9 秒淡掉
     func flash() {
-        guard let clip = subviews.first?.layer, let me = layer else { return }
+        guard let clip = clip.layer, let me = layer else { return }
+        if secretary {
+            let w = CAKeyframeAnimation(keyPath: "lineWidth"); w.values = [5, 5, 3]; w.keyTimes = [0, 0.35, 1]; w.duration = 0.9
+            stroke.add(w, forKey: "flashW"); return
+        }
         let red = accent()   // 深色＝護眼綠、淺色＝紅
         let base = clip.borderColor
         let border = CAKeyframeAnimation(keyPath: "borderColor")
@@ -145,8 +152,16 @@ final class TermWindowView: NSView {
     /// 11-23 Keng：衛星在工作（有輸出）時邊框紅色呼吸光，停下來熄掉
     private var breathing = false
     func setBreathing(_ on: Bool) {
-        guard on != breathing, let clip = subviews.first?.layer else { return }
+        guard on != breathing, let clip = clip.layer else { return }
         breathing = on
+        if secretary {                        // 秘書：只有一層框，呼吸就是框變粗，不疊白／灰邊
+            if on {
+                let w = CABasicAnimation(keyPath: "lineWidth"); w.fromValue = 3; w.toValue = 4.2
+                w.duration = 1.4; w.autoreverses = true; w.repeatCount = .infinity; w.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                stroke.add(w, forKey: "breathW")
+            } else { stroke.removeAnimation(forKey: "breathW") }
+            return
+        }
         if on {
             // 11-23 Keng 第四輪「陰影跟黑光打架，陰影立體感比較好」：不再動陰影（維持原本柔和的下方陰影），
             // 呼吸只在邊框：深灰邊線變深變淡、稍微變粗
@@ -166,6 +181,67 @@ final class TermWindowView: NSView {
         }
     }
 
+    // MARK: 秘書（11-24 Keng 選 B：3px 框＋光暈＋「秘書」小標；深色護眼綠 #4fc36a、淺色紅 #d7261b，跟著深淺即時換）
+    static func secretaryColor(_ dark: Bool) -> NSColor {
+        dark ? NSColor(srgbRed: 0x4f / 255.0, green: 0xc3 / 255.0, blue: 0x6a / 255.0, alpha: 1) : NSColor(srgbRed: 0.843, green: 0.149, blue: 0.106, alpha: 1)
+    }
+    private let stroke = CAShapeLayer()
+    private let badgeText = NSTextField(labelWithString: Nicknames.captainTitle)
+    private func paintSecretary(_ dark: Bool) {
+        let c = Self.secretaryColor(dark)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        stroke.strokeColor = c.cgColor; badge.layer?.backgroundColor = c.cgColor
+        glow.layer?.contents = dark ? Self.glowDark : Self.glowLight
+        CATransaction.commit()
+        badgeText.textColor = dark ? NSColor(white: 0.05, alpha: 1) : .white       // 綠底白字對比只有 2.2，用深字
+    }
+    static let glowPad: CGFloat = 40
+    private let ring = PassView(), glow = PassView(), badge = PassView()
+    var secretary = false {
+        didSet {
+            guard secretary != oldValue else { return }
+            let was = breathing
+            if was { secretary.toggle(); setBreathing(false); secretary.toggle() }      // 先停掉原本那種呼吸
+            clip.layer?.borderWidth = secretary ? 0 : 1
+            if secretary { clip.layer?.removeAnimation(forKey: "flashBorder"); clip.layer?.removeAnimation(forKey: "flashWidth") }
+            for v in [ring, glow, badge] { v.isHidden = !secretary }
+            needsLayout = true
+            if was { setBreathing(true) }
+        }
+    }
+    private func buildSecretary() {
+        ring.wantsLayer = true
+        stroke.fillColor = nil; stroke.lineWidth = 3; ring.layer?.addSublayer(stroke)     // 向量描邊：圓角內外緣都有反鋸齒（layer 邊框的內緣會有階梯）
+        ring.autoresizingMask = [.width, .height]
+        addSubview(ring)                                              // 蓋在內容上面，點擊穿過
+        glow.wantsLayer = true
+        glow.layer?.contentsScale = 2
+        glow.layer?.contentsCenter = CGRect(x: 0.495, y: 0.495, width: 0.01, height: 0.01)      // 九宮格：改大小不用重畫
+        glow.autoresizingMask = [.width, .height]
+        addSubview(glow, positioned: .below, relativeTo: clip)
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 9
+        let t = badgeText
+        t.font = .systemFont(ofSize: 11, weight: .semibold); t.alignment = .center
+        t.frame = NSRect(x: 0, y: 1, width: 38, height: 15)
+        badge.addSubview(t); bar.addSubview(badge)
+        for v in [ring, glow, badge] { v.isHidden = true }
+    }
+    /// 光暈：只畫框外（不把毛玻璃內部染紅）
+    private static let glowDark = glowImage(secretaryColor(true)), glowLight = glowImage(secretaryColor(false))
+    private static func glowImage(_ color: NSColor) -> CGImage? {
+        let side: CGFloat = 200, k: CGFloat = 2
+        guard let c = CGContext(data: nil, width: Int(side * k), height: Int(side * k), bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        c.scaleBy(x: k, y: k)
+        let all = CGRect(x: 0, y: 0, width: side, height: side)
+        let path = CGPath(roundedRect: all.insetBy(dx: glowPad, dy: glowPad), cornerWidth: 12, cornerHeight: 12, transform: nil)
+        c.addRect(all); c.addPath(path); c.clip(using: .evenOdd)
+        c.setShadow(offset: .zero, blur: 26, color: color.withAlphaComponent(0.75).cgColor)      // blur 用底圖像素算：預覽也是 2 倍圖
+        c.addPath(path); c.setFillColor(color.cgColor); c.fillPath()
+        return c.makeImage()
+    }
+
     // MARK: 拖檔案／截圖進來（11-23 Keng）：像 Ghostty 一樣把路徑貼進終端機（空白等特殊字元加反斜線），Claude Code 會把圖片當附件
     var onDropPaths: ([String]) -> Void = { _ in }
     func acceptFileDrops() {
@@ -175,17 +251,20 @@ final class TermWindowView: NSView {
         if let w = content as? DropWebView {
             w.onFiles = { [weak self] urls in self?.onDropPaths(urls.map { Self.shellEscape($0.path) }) }
             w.onHover = { [weak self] on in
-                self?.layer?.borderWidth = on ? 2 : 0
-                self?.layer?.borderColor = self?.accent(alpha: 0.9)
+                self?.dropHover(on)
             }
         }
     }
-    override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation {
-        layer?.borderWidth = 2; layer?.borderColor = self.accent(alpha: 0.9); return .copy
+    private func dropHover(_ on: Bool) {
+        if secretary { stroke.lineWidth = on ? 5 : 3; return }
+        layer?.borderWidth = on ? 2 : 0; layer?.borderColor = accent(alpha: 0.9)
     }
-    override func draggingExited(_ s: NSDraggingInfo?) { layer?.borderWidth = 0 }
+    override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation {
+        dropHover(true); return .copy
+    }
+    override func draggingExited(_ s: NSDraggingInfo?) { dropHover(false) }
     override func performDragOperation(_ s: NSDraggingInfo) -> Bool {
-        layer?.borderWidth = 0
+        dropHover(false)
         let urls = s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         guard !urls.isEmpty else { return false }
         onDropPaths(urls.map { Self.shellEscape($0.path) })
@@ -199,12 +278,17 @@ final class TermWindowView: NSView {
 
     override func layout() {
         super.layout()
-        guard let clip = subviews.first else { return }
         clip.frame = bounds
         bar.frame = NSRect(x: 0, y: bounds.height - Self.barHeight, width: bounds.width, height: Self.barHeight)
         let tw = tools.arrangedSubviews.isEmpty ? 0 : tools.fittingSize.width
         tools.frame = NSRect(x: bounds.width - tw - 12, y: 7, width: tw, height: 20)
-        let side = max(80, tw + 20)
+        let side = max(secretary ? 128 : 80, tw + 20)
+        badge.frame = NSRect(x: 80, y: 8, width: 38, height: 18)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        stroke.frame = bounds
+        if bounds.width > 24, bounds.height > 24 { stroke.path = CGPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), cornerWidth: 10.5, cornerHeight: 10.5, transform: nil) }
+        CATransaction.commit()
+        ring.frame = bounds; glow.frame = bounds.insetBy(dx: -Self.glowPad, dy: -Self.glowPad)
         titleLabel.frame = NSRect(x: side, y: 9, width: max(0, bounds.width - side * 2), height: 16)
         let area = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - Self.barHeight)
         if let pane {
@@ -233,9 +317,10 @@ final class TermWindowView: NSView {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         glass.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         bar.layer?.backgroundColor = (dark ? NSColor(white: 0.09, alpha: 0.12) : NSColor(white: 0.97, alpha: 0.12)).cgColor   // 11-23 Keng：再透一點
-        subviews.first?.layer?.borderColor = (dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)).cgColor
+        clip.layer?.borderColor = (dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)).cgColor
         titleLabel.textColor = dark ? NSColor(srgbRed: 0x4f / 255.0, green: 0xc3 / 255.0, blue: 0x6a / 255.0, alpha: 1) : NSColor(white: 0.08, alpha: 1)      // 11-24 深色綠白對調：標題字原本白 ⇒ 綠
         lights.forEach { $0.needsDisplay = true }
+        paintSecretary(dark)
     }
 
     // MARK: drag the title bar to move
@@ -355,6 +440,9 @@ final class TrafficLight: NSButton {
     }
 }
 
+/// 只顯示、不吃點擊
+final class PassView: NSView { override func hitTest(_ p: NSPoint) -> NSView? { nil } }
+
 /// 終端機和檢視面板中間的線
 final class SplitBar: NSView {
     var onDrag: (NSPoint) -> Void = { _ in }
@@ -381,9 +469,11 @@ final class ResizeGrip: NSView {
     override func mouseUp(with e: NSEvent) { last = nil; (superview as? TermWindowView)?.save() }
     override func draw(_ r: NSRect) {
         NSColor(white: 0.5, alpha: 0.6).setStroke()
-        for k in [4.0, 8.0, 12.0] {
+        // 11-24 Keng：斜線收進圓角（半徑 12，圓心在左上 (4,12)）裡面，離秘書外框內緣也留一點；可拖的範圍照舊 16×16
+        for (d, half) in [(5.0, 2.0), (2.0, 4.0), (-1.0, 6.0)] {
             let p = NSBezierPath(); p.lineWidth = 1
-            p.move(to: NSPoint(x: bounds.maxX - k, y: 2)); p.line(to: NSPoint(x: bounds.maxX - 2, y: k)); p.stroke()
+            let c = NSPoint(x: bounds.maxX - 12 + d * 0.7071, y: 12 - d * 0.7071)
+            p.move(to: NSPoint(x: c.x - half * 0.7071, y: c.y - half * 0.7071)); p.line(to: NSPoint(x: c.x + half * 0.7071, y: c.y + half * 0.7071)); p.stroke()
         }
     }
 }

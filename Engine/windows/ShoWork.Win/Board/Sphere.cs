@@ -5,7 +5,7 @@ namespace ShoWork;
 /// 戰情中心第三個檢視「球體」的資料（Mac Sources/ShoWorkAgent/SphereWebScene.swift 的 payload()／info() 轉寫；純函式，不碰 WinForms，測試直接連原始檔）。
 /// 網頁（Board\Web\sphere.html）收 window.karaUpdate(這份)；欄位跟 Mac 一樣：
 ///   sessions、five_hour、seven_day、five_reset、seven_reset、ctx、doneToday、team[{name,status,sessionId,progress,doing,summary,ask,options,permit}]、
-///   runs[{label,name,fraction,eta}]、heat（Windows 沒有 cool42 ⇒ null）、paused（Windows 沒有過熱暫停 ⇒ false）、captain（隊長最後一句）。
+///   runs[{label,name,fraction,eta}]、heat（Windows 沒有 cool42 ⇒ null）、paused（Windows 沒有過熱暫停 ⇒ false）、captain（秘書最後一句）。
 /// 跟 Mac 不同：Mac 的「需要你」看排隊中還沒回答的 --ask（PendingAsk）；Windows 的卡片沒有那個佇列，用這一輪自報的 ask（Report.Ask＋Options）。
 public static class SpherePayload
 {
@@ -53,7 +53,7 @@ public static class SpherePayload
         o["heat"] = null;
         o["paused"] = false;
         o["disks"] = SphereDisks.Read(now);          // 11-23 Orbit42 Windows：球右半邊的硬碟空間刻度環（Mac SphereDisks）
-        // 隊長最後一句（網頁判斷是不是回覆剛交辦的事；Mac v4 A）
+        // 秘書最後一句（網頁判斷是不是回覆剛交辦的事；Mac v4 A）
         if (captainThread?.LastOrDefault(t => t.Role == CaptainLine.RoleKind.captain) is { } cl)
             o["captain"] = new JsonObject { ["id"] = cl.Id, ["text"] = Board.Prefix(cl.Text, 400), ["at"] = cl.At is { } at ? Iso(at) : "" };
         return o;

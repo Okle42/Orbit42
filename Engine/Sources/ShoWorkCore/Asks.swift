@@ -98,7 +98,7 @@ public enum AskQueue {
         return q
     }
 
-    /// 同一題（文字相同）拿掉：隊長卡片掛著組員已經被回答的題（Answered）
+    /// 同一題（文字相同）拿掉：秘書卡片掛著組員已經被回答的題（Answered）
     @discardableResult
     public static func resolve(sid: String, question: String?) -> Bool {
         let xs = load(sid)
@@ -123,7 +123,7 @@ public enum AskQueue {
     }
 
     /// 使用者在這個 session 的終端機打字回答 ⇒ 這個 session 的待答題全部拿掉、卡片上的 --ask 清掉；
-    /// 隊長卡片／佇列掛著同一題的也清掉（不轉【使用者已答】：答案在組員那邊，隊長巡檢看得到，不為這個叫醒隊長）。回傳拿掉的題
+    /// 秘書卡片／佇列掛著同一題的也清掉（不轉【使用者已答】：答案在組員那邊，秘書巡檢看得到，不為這個叫醒秘書）。回傳拿掉的題
     @discardableResult
     public static func answeredInTerminal(sid: String, prompt: String?, captain: String? = nil,
                                           cardsDir: URL = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true)) -> [PendingAsk] {

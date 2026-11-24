@@ -99,7 +99,7 @@ final class OfficeWeather: ObservableObject {
     @Published private(set) var searchNote: String?
     private var searchTask: Task<Void, Never>?
 
-    /// 打字就呼叫：停 300 毫秒才真的查（隊長 Penny 10-25），新的一筆取消舊的；測試視窗不連網
+    /// 打字就呼叫：停 300 毫秒才真的查（秘書 Penny 10-25），新的一筆取消舊的；測試視窗不連網
     func search(_ q: String) {
         searchTask?.cancel()
         guard let url = Geocode.url(q) else { results = []; searchNote = q.trimmingCharacters(in: .whitespaces).isEmpty ? nil : "至少打 2 個字"; return }

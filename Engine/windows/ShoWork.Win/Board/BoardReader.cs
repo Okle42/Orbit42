@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace ShoWork;
 
 // 戰情中心的資料層（Mac 版 BoardSource.swift 的 BoardReader）：讀一次本機的 Claude Code 狀態，組成看板。
-// 不寫 ~/.claude。11-02 P8 第二輪起也讀權限請求（board\permits）、派工單（board\tasks）、隊長對話與右側對話窗格（對話紀錄尾端 1.5MB）、
+// 不寫 ~/.claude。11-02 P8 第二輪起也讀權限請求（board\permits）、派工單（board\tasks）、秘書對話與右側對話窗格（對話紀錄尾端 1.5MB）、
 // 背景工作進度（~/.claude/run/progress）、自動交接狀態（board\handover，只讀），並照 Mac 從對話紀錄算 activity／blockedReason／subagents／tokens。
 //
 // 各資料來源在 Windows 的狀況（10-15 Surface 實測）：
@@ -15,7 +15,7 @@ namespace ShoWork;
 //                            （[{Pid,Created,Agent,State}]），一樣讀得到，key 是 claude.exe 的 pid。
 //   teams\、inboxes\         Claude Code 的功能，Windows 應該一樣；Surface 上還沒有，讀不到就空。
 //   board\cards 等           自報：W5 起 showork card 會寫（showork\Core\CardReport.cs）；審核／決定 Windows 還沒有寫的人 ⇒ 空。
-//   board\captain.json       隊長：W5 起由 `showork captain` 寫。
+//   board\captain.json       秘書：W5 起由 `showork captain` 寫。
 //   cache\rate_limits.json   流量、cache\ctx\<sid>.json：由 statusLine 腳本存，Surface 沒有 ⇒ 空（流量表、🧠 不顯示）。
 public sealed class BoardReader
 {
@@ -31,13 +31,13 @@ public sealed class BoardReader
         public Dictionary<string, Decision> Decisions = new();
         public Dictionary<string, ContextUse> Contexts = new();
         public RateLimits? RateLimits;
-        public string? Captain;                  // 隊長的 sessionId（還開著才算）
+        public string? Captain;                  // 秘書的 sessionId（還開著才算）
         // 11-02 P8 第二輪（Mac BoardReader.Snapshot）
         public Dictionary<string, PermitRequest> Permits = new();   // 等你按允許的
         public List<CaptainTaskInfo> Tasks = new();                 // 派工單
         public Dictionary<string, string> Handovers = new();        // 自動交接：舊 sid → 卡片上的標記
         public List<RunProgress> Runs = new();                      // 背景長工作的即時進度
-        public List<CaptainLine> CaptainThread = new();             // 隊長對話
+        public List<CaptainLine> CaptainThread = new();             // 秘書對話
         public List<CaptainLine> SessionThread = new();             // 右側對話窗格正在看的那個 AI
     }
 
@@ -161,13 +161,13 @@ public sealed class BoardReader
         try { foreach (var h in ShoWork.Hooks.Handover.All()) if (h.Label is { } l) s.Handovers[h.Sid] = l; } catch { }
         s.Runs = RunProgress.Load(Environment.GetEnvironmentVariable("SHOWORK_RUN_PROGRESS") is { Length: > 0 } rp ? rp : Path.Combine(ClaudeDir, "run", "progress"));
         try { s.Tasks = CaptainTasks.All(); } catch { }
-        // 隊長對話：隊長登記過就讀（Mac：CaptainStore.captain() 不管還開不開著）
+        // 秘書對話：秘書登記過就讀（Mac：CaptainStore.captain() 不管還開不開著）
         s.CaptainThread = capSid != null ? Thread(capSid, s.Sessions, full: false) : DropThread(false);
         s.SessionThread = Watching is { } w ? Thread(w, s.Sessions, full: true) : DropThread(true);
         return s;
     }
 
-    /// 讀一次＋組成卡片（標上隊長、同專案重工、派工單；掛上權限對話框、交接狀態）
+    /// 讀一次＋組成卡片（標上秘書、同專案重工、派工單；掛上權限對話框、交接狀態）
     public List<BoardCard> Cards(Snapshot s, DateTime now)
     {
         var cards = Board.Build(s.Sessions, s.Transcripts, s.Glows, s.Teams, s.Inbox, now, Home, IsRepo, s.Reports, s.Reviews, s.Decisions, s.Contexts);
@@ -179,7 +179,7 @@ public sealed class BoardReader
         return Captain.Annotate(cards, s.Captain, s.Tasks);
     }
 
-    // MARK: 隊長對話、右側對話窗格（Mac BoardReader.thread）
+    // MARK: 秘書對話、右側對話窗格（Mac BoardReader.thread）
 
     readonly object watchLock = new();
     string? watching;
@@ -190,7 +190,7 @@ public sealed class BoardReader
         set { lock (watchLock) watching = value; }
     }
 
-    readonly Dictionary<bool, (string Stamp, List<CaptainLine> Lines)> threadCache = new();   // full → 快取（隊長一份、右側窗格一份）
+    readonly Dictionary<bool, (string Stamp, List<CaptainLine> Lines)> threadCache = new();   // full → 快取（秘書一份、右側窗格一份）
     List<CaptainLine> DropThread(bool full) { threadCache.Remove(full); return new(); }
 
     /// 某個 session 的對話（jsonl 尾端 1.5MB）；檔案沒變就用快取

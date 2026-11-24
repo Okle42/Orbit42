@@ -96,7 +96,7 @@ struct BoardTests {
         #expect(Board.projectName(cwd: nil, home: "/h", isRepo: f) == "（不明）")
     }
 
-    @Test("組看板：每個 session 一張卡＋排隊訊息成待辦，隊員與訊息掛在隊長卡上")
+    @Test("組看板：每個 session 一張卡＋排隊訊息成待辦，隊員與訊息掛在秘書卡上")
     func build() {
         let s1 = SessionRecord(pid: 1, sessionId: "A", cwd: "/h", status: "busy", updatedAt: 2)
         let s2 = SessionRecord(pid: 2, sessionId: "B", cwd: "/h", status: "idle", updatedAt: 1)

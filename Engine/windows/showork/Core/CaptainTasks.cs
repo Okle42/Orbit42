@@ -3,8 +3,8 @@ using System.Text.Json.Nodes;
 
 namespace ShoWork.Hooks;
 
-// 隊長派工（Mac 版 Sources/ShoWorkCore/Captain.swift 的 CaptainTask／Roster／Captain，以及 CaptainLink.swift 的合併預告、巡檢）。
-//   board\captain.json        誰是隊長
+// 秘書派工（Mac 版 Sources/ShoWorkCore/Captain.swift 的 CaptainTask／Roster／Captain，以及 CaptainLink.swift 的合併預告、巡檢）。
+//   board\captain.json        誰是秘書
 //   board\roster.json         名冊快照（Windows：ShoWork.Win 的 HandoverClear 迴圈每 3 秒寫；showork roster 讀）
 //   board\tasks\<id>.json     派工單（showork task add 建；對方 showork card --task 回報時更新）
 
@@ -14,7 +14,7 @@ sealed class CaptainTask
     public static readonly string[] States = { "sent", "working", "review", "done", "blocked", "cancelled" };
 
     public string Id = "";
-    public string From = "";             // 隊長的 sessionId
+    public string From = "";             // 秘書的 sessionId
     public string To = "";               // 對方的 session 名（SendMessage 的地址）
     public string? ToSession;            // 派出當下對方的 sessionId
     public string? Project;
@@ -28,14 +28,14 @@ sealed class CaptainTask
     public string? ThenText;             // 交給下一棒的任務
     public string? FollowUp;             // 已經開出的下一棒單號
     public string? After;                // 這張是哪張單的下一棒
-    public string? Notified;             // 已經通知隊長到哪個狀態（同一個狀態只通知一次）
+    public string? Notified;             // 已經通知秘書到哪個狀態（同一個狀態只通知一次）
     public string? SendError;            // 直送失敗的原因
 
     public static string Title(string state) => state switch
     {
         "sent" => "已派出", "working" => "做事中", "review" => "要你看", "done" => "完成", "blocked" => "卡住", "cancelled" => "已取消", var s => s,
     };
-    /// 還沒結束（隊長要繼續追）
+    /// 還沒結束（秘書要繼續追）
     public bool IsOpen => State is "sent" or "working" or "blocked";
 
     public JsonObject ToJson()
@@ -117,7 +117,7 @@ sealed class RosterEntry
 sealed class Roster
 {
     public DateTime At;
-    public string? Captain;              // 隊長的 sessionId
+    public string? Captain;              // 秘書的 sessionId
     public List<RosterEntry> Entries = new();
 
     public JsonObject ToJson()
@@ -143,22 +143,22 @@ static class Dispatch
         for (int i = 2; ; i++) if (!existing.Contains($"{b}-{i}")) return $"{b}-{i}";
     }
 
-    /// 隊長要用 SendMessage 送給對方的全文（附上回報方式）
+    /// 秘書要用 SendMessage 送給對方的全文（附上回報方式）
     public static string Message(CaptainTask t, string showork)
     {
         var lines = t.Text.Trim().Split('\n');
         var rest = string.Join("\n", lines.Skip(1));
-        return $"【隊長派工 {t.Id}】{lines.FirstOrDefault() ?? ""}\n"
+        return $"【秘書派工 {t.Id}】{lines.FirstOrDefault() ?? ""}\n"
             + (rest.Length == 0 ? "" : rest + "\n")
             + $"\n回報方式：這件事每一輪的 showork card 都加上 --task {t.Id}（例如 \"{showork}\" card --task {t.Id} --status done --progress 100 --confidence 80 --summary \"…\"）。要使用者決定的用 --ask；卡住用 --status blocked 並說原因。同一個 repo 的規則（不准 push、客戶案要審）照舊遵守。";
     }
 
-    /// 隊長要知道的狀態：做完、要使用者決定、卡住（做事中不吵）
+    /// 秘書要知道的狀態：做完、要使用者決定、卡住（做事中不吵）
     public static bool ShouldNotify(CaptainTask t) => t.State is "done" or "review" or "blocked" && t.Notified != t.State;
 
     static string OneLine(string s, int n) => SwiftText.Prefix(s.Replace("\n", " "), n);
 
-    /// 傳給隊長的回報
+    /// 傳給秘書的回報
     public static string ReportText(CaptainTask t, CaptainTask? followUp = null)
     {
         var s = $"【派工回報 {t.Id}】{t.To}：{CaptainTask.Title(t.State)}" + (t.Summary != null ? $"——{t.Summary}" : "");
@@ -206,30 +206,10 @@ static partial class CaptainStore
 /// 合併預告、巡檢（Mac CaptainLink.swift 的 noticeText／dueNotices／alarm）
 static partial class CaptainLink
 {
-    /// 不擋的預告：同一 session 的合成一則
-    public static string NoticeText(List<InboxItem> items)
-    {
-        if (items.Count == 0) return "";
-        var f = items[0];
-        var lines = new List<string> { $"【動作預告】{Label(f.Name, f.Project)}：{items.Count} 個動作（不擋，已在跑）" };
-        foreach (var i in items) lines.Add($"・{string.Join("、", i.Kinds)}：{i.Text}");
-        lines.Add("（有疑慮馬上 SendMessage 叫它停）");
-        return string.Join("\n", lines);
-    }
+    /// 要不要立刻推給秘書：只有擋下等放行的；開工卡和不擋的預告只寫收件匣（11-24 Keng）
+    public static bool PushNow(InboxItem i) => i.Kind == "block" && !i.Delivered;
 
-    // 合併預告：同一 session 安靜 quiet 秒（最多等 maxWait）才送
-    public static readonly TimeSpan Quiet = TimeSpan.FromSeconds(5), MaxWait = TimeSpan.FromSeconds(30), StaleAfter = TimeSpan.FromSeconds(600);
-
-    /// 現在該送的預告（依 session 分組）；太舊的（10 分鐘）不送，留給新隊長 showork captain 時印
-    public static List<List<InboxItem>> DueNotices(List<InboxItem> items, DateTime now)
-    {
-        var open = items.Where(i => i.Kind == "notice" && !i.Delivered && now - i.At < StaleAfter);
-        return open.GroupBy(i => i.Sid).Select(g => g.OrderBy(i => i.At).ToList())
-                   .Where(g => now - g[^1].At >= Quiet || now - g[0].At >= MaxWait)
-                   .OrderBy(g => g[0].At).ToList();
-    }
-
-    // ③ 隊長鬧鐘
+    // ③ 秘書鬧鐘
     public const string AlarmKey = "captain.alarmMinutes";
     public static readonly TimeSpan IdleAfter = TimeSpan.FromMinutes(30);
 
@@ -243,7 +223,7 @@ static partial class CaptainLink
         var b = string.Join(",", crew.Select(e => $"{e.Name}:{(e.Ctx ?? -10) / 10}")) + "|" + string.Join(",", idle) + $"|{pending}";
         var wrapped = crew.Where(e => e.Handover != null).Select(e => $"{e.Name}（{e.Handover}）").ToList();
         var sig = b + "|" + string.Join(",", wrapped);
-        var t = $"【巡檢時間】在線 {crew.Count} 人（不含隊長）";
+        var t = $"【巡檢時間】在線 {crew.Count} 人（不含秘書）";
         if (ctx.Count > 0) t += "；ctx：" + string.Join("、", ctx);
         t += "；閒置超過 30 分鐘：" + (idle.Count == 0 ? "沒有" : string.Join("、", idle));
         if (wrapped.Count > 0) t += "；已收尾、還沒 /clear：" + string.Join("、", wrapped);
@@ -252,5 +232,26 @@ static partial class CaptainLink
         return (t, sig);
     }
 
-    public static string AlarmUnchanged(int crew) => $"【巡檢時間】無變化（在線 {crew} 人，跟上次一樣）";
+    /// 要秘書處理的事（每項一句）＋指紋；空的＝不用推。開工卡、不擋的預告不算
+    public static (List<string> Reasons, string Sig) AlarmActions(Roster r, ISet<string> openTaskSessions, List<InboxItem> inbox, int ctxLimit, DateTime now)
+    {
+        var crew = r.Entries.Where(e => !e.Captain).OrderBy(e => e.Name, StringComparer.Ordinal).ToList();
+        var stuck = crew.Where(e => e.Column == "stuck").Select(e => e.Name).ToList();
+        var review = crew.Where(e => e.Column == "review").Select(e => e.Name).ToList();
+        var full = crew.Where(e => e.Handover == null && (e.CtxTokens ?? 0) >= ctxLimit).ToList();
+        var idle = crew.Where(e => openTaskSessions.Contains(e.SessionId) && (e.LastActivity is not { } t || now - t > IdleAfter)).Select(e => e.Name).ToList();
+        var open = inbox.Where(i => i.Kind == "block" && i.Acked == null && i.Released == null && now - i.At < TimeSpan.FromDays(1)).Select(i => i.Id).ToList();
+        var out_ = new List<string>();
+        if (stuck.Count > 0) out_.Add("卡住：" + string.Join("、", stuck));
+        if (review.Count > 0) out_.Add("待審／等回答：" + string.Join("、", review));
+        if (full.Count > 0) out_.Add($"ctx 到門檻 {ctxLimit / 1000}k：" + string.Join("、", full.Select(e => $"{e.Name} {(e.CtxTokens ?? 0) / 1000}k")));
+        if (idle.Count > 0) out_.Add("有派工單卻閒置超過 30 分鐘：" + string.Join("、", idle));
+        if (open.Count > 0) out_.Add($"擋下等放行 {open.Count} 則：" + string.Join("、", open));
+        var sig = string.Join("|", string.Join(",", stuck), string.Join(",", review), string.Join(",", full.Select(e => e.Name)),
+                              string.Join(",", idle), string.Join(",", open.OrderBy(x => x, StringComparer.Ordinal)));
+        return (out_, out_.Count == 0 ? "" : sig);
+    }
+    /// 有要處理的事、而且跟上次推的不一樣才推
+    public static bool AlarmShouldPush(List<string> reasons, string sig, string? last) => reasons.Count > 0 && sig != last;
+    public static string AlarmQuietText(List<string> reasons, string full) => "【巡檢時間】要處理：" + string.Join("；", reasons) + "\n" + full.Replace("【巡檢時間】", "");
 }

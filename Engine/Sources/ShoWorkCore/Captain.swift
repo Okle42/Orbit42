@@ -1,10 +1,10 @@
 import Foundation
 
-// AI工作戰情中心 P3：隊長派工（Kang 10-09）。
-// 你只跟一個「隊長」session 講話；隊長看名冊決定交給哪個 session，用 Claude Code 內建的 SendMessage 傳話
+// AI工作戰情中心 P3：秘書派工（Kang 10-09）。
+// 你只跟一個「秘書」session 講話；秘書看名冊決定交給哪個 session，用 Claude Code 內建的 SendMessage 傳話
 // （跨 session 訊息在對方下一次用工具時才進去，不會打進你正在打字的輸入框；tmux 打字只留給退回／收尾）。
 // 看板這邊負責：名冊（每個 session 在做哪個專案）、同專案多開的重工警告、派工單從派出到回報的追蹤。
-//   board/captain.json        誰是隊長
+//   board/captain.json        誰是秘書
 //   board/roster.json         名冊快照（agent 每次刷新寫；showork roster 讀）
 //   board/tasks/<id>.json     派工單（showork task add 建；對方 showork card --task 回報時更新）
 
@@ -23,12 +23,12 @@ public struct CaptainTask: Codable, Sendable, Equatable, Identifiable {
             case .cancelled: "已取消"
             }
         }
-        /// 還沒結束（隊長要繼續追）
+        /// 還沒結束（秘書要繼續追）
         public var open: Bool { self == .sent || self == .working || self == .blocked }
     }
 
     public var id: String
-    public var from: String              // 隊長的 sessionId
+    public var from: String              // 秘書的 sessionId
     public var to: String                // 對方的 session 名（SendMessage 的地址）
     public var toSession: String?        // 派出當下對方的 sessionId
     public var project: String?
@@ -42,7 +42,7 @@ public struct CaptainTask: Codable, Sendable, Equatable, Identifiable {
     public var thenText: String? = nil     // 交給下一棒的任務
     public var followUp: String? = nil     // 已經開出的下一棒單號
     public var after: String? = nil        // 這張是哪張單的下一棒
-    public var notified: State? = nil      // 已經通知隊長到哪個狀態（同一個狀態只通知一次）
+    public var notified: State? = nil      // 已經通知秘書到哪個狀態（同一個狀態只通知一次）
     public var sendError: String? = nil    // 直送失敗的原因
 
     public init(id: String, from: String, to: String, toSession: String? = nil, project: String? = nil, text: String,
@@ -90,7 +90,7 @@ public struct RosterEntry: Codable, Sendable, Equatable {
 
 public struct Roster: Codable, Sendable, Equatable {
     public var at: Date
-    public var captain: String?          // 隊長的 sessionId
+    public var captain: String?          // 秘書的 sessionId
     public var entries: [RosterEntry]
     public init(at: Date, captain: String?, entries: [RosterEntry]) { self.at = at; self.captain = captain; self.entries = entries }
 }
@@ -111,7 +111,7 @@ public enum Captain {
     /// 不算「專案」的歸屬（家目錄、看不出來的），不做重工比對
     public static func isRealProject(_ p: String) -> Bool { !p.hasPrefix("（") }
 
-    /// 同專案多開：sessionId → 同專案的其他 session 名。隊長自己不算（它本來就會到處看）。
+    /// 同專案多開：sessionId → 同專案的其他 session 名。秘書自己不算（它本來就會到處看）。
     public static func sameProject(_ cards: [BoardCard], captain: String?) -> [String: [String]] {
         let live = cards.filter { !$0.id.contains("#") && $0.sessionId != captain && isRealProject($0.project) }
         var out: [String: [String]] = [:]
@@ -122,13 +122,14 @@ public enum Captain {
         return out
     }
 
-    /// 看板卡片＋派工單 → 標上隊長、重工、派工（純函式，畫面與 roster 共用）
+    /// 看板卡片＋派工單 → 標上秘書、重工、派工（純函式，畫面與 roster 共用）
     public static func annotate(_ cards: [BoardCard], captain: String?, tasks: [CaptainTask]) -> [BoardCard] {
         let dup = sameProject(cards, captain: captain)
         return cards.map { c in
             guard !c.id.contains("#") else { return c }
             var c = c
             c.captain = c.sessionId == captain
+            if c.captain { c.label = Nicknames.captainTitle }
             c.sameProject = dup[c.sessionId] ?? []
             c.tasks = c.captain
                 ? tasks.filter { $0.from == c.sessionId }.sorted { $0.createdAt > $1.createdAt }
@@ -157,22 +158,22 @@ public enum Captain {
         return base
     }
 
-    /// 隊長要用 SendMessage 送給對方的全文（附上回報方式）
+    /// 秘書要用 SendMessage 送給對方的全文（附上回報方式）
     public static func message(_ t: CaptainTask, showork: String) -> String {
         let lines = t.text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
         let rest = lines.dropFirst().joined(separator: "\n")
         return """
-        【隊長派工 \(t.id)】\(lines.first ?? "")
+        【秘書派工 \(t.id)】\(lines.first ?? "")
         \(rest.isEmpty ? "" : rest + "\n")
         回報方式：這件事每一輪的 showork card 都加上 --task \(t.id)（例如 "\(showork)" card --task \(t.id) --status done --progress 100 --confidence 80 --summary "…"）。要使用者決定的用 --ask；卡住用 --status blocked 並說原因。同一個 repo 的規則（不准 push、客戶案要審）照舊遵守。
         """
     }
 
-    /// `showork captain` 印給隊長 AI 的工作守則
+    /// `showork captain` 印給秘書 AI 的工作守則
     public static func manual(showork: String) -> String {
         let owner = LocalConfig.current.ownerName
         return """
-        [AI工作戰情中心] 你現在是隊長。使用者把任務丟給你，你決定交給哪個 session 做，自己不下去做細節（保持 context 乾淨，才能一直當隊長）。
+        [AI工作戰情中心] 你現在是秘書。使用者把任務丟給你，你決定交給哪個 session 做，自己不下去做細節（保持 context 乾淨，才能一直當秘書）。
         1. 先看名冊："\(showork)" roster（每個 session 的名字、專案、在做什麼、閒置或忙、ctx、同專案重工警告）。
         2. 選人：同一個專案只交給一個 session（有人在做那個專案就交給它，不要再開）；名冊上 ctx 已到 token 門檻（showork roster 會標 ctx Nk）的不要再派；沒有合適的就請使用者開新的或用看板「新任務⋯」。
         3. 派工："\(showork)" task add --to <英文名，例如 Chris> --text "<任務：目標、判準、交什麼>" —— 會建單並直接送進對方收件匣。
@@ -185,26 +186,26 @@ public enum Captain {
         7. 流程優化：Agent交流互動板是大家休息時留的工作心得（方法、踩過的坑、流程哪裡可以改），新留言會以「【交流板】」轉給你；
            全部看 "\(showork)" b1 read。把重複出現的坑、好方法整理進派工（任務裡直接附上該注意的事），值得改成規則的提給使用者。
         8. 開工卡：組員收到使用者直接下的新任務時，動手前會發開工卡（打算怎麼做、會動到什麼、有沒有對外動作），只進你的收件匣、不推給你，巡檢時或跑 "\(showork)" captain 看；組員不等你，有問題就 SendMessage 修正，下一輪送達。
-        9. 動作預告：組員要跑高風險指令前會送「【動作預告】」。rm 到暫存區以外、firebase deploy、App 上傳（-exportArchive／altool 等）、line_send.py、gh 對外發言（issue／PR 留言或開單、PR review、release、gh api 寫入；Okle42 私有 repo 除外）會先擋下等放行；
+        9. 動作預告：組員要跑高風險指令前會留一筆「動作預告」。rm 到暫存區以外、firebase deploy、App 上傳（-exportArchive／altool 等）、line_send.py、gh 對外發言（issue／PR 留言或開單、PR review、release、gh api 寫入；Okle42 私有 repo 除外）會先擋下等放行；
            只有\(owner)已經明說同意的動作（例如他說「push」「部署」「傳給學弟」）你才能 "\(showork)" release <單號>，對外動作不能自己決定放行；問句（帶？／?，或「嗎、能幹嘛、是什麼、為什麼、怎麼、可以嗎⋯」）不算同意，看板的自動放行也不收。每次放行都會記在 board/permits/releases.jsonl。
-           其他（mv 到暫存區以外、xcodebuild archive 本機打包、defaults write、寫 ~/.claude/scripts|data、ssh 遠端 Windows 寫入）只預告不擋，同一個組員一小段時間內的會合成一則。
+           其他（mv 到暫存區以外、xcodebuild archive 本機打包、defaults write、寫 ~/.claude/scripts|data、ssh 遠端 Windows 寫入）只記在你的收件匣，不推給你。
            開工卡、預告、擋下都會留在收件匣；處理過的用 "\(showork)" captain ack <單號｜all> 標掉，鬧鐘的「未處理」只算沒 ack 的。
-        10. 巡檢：看板每 30 分鐘看一次，只有要你處理的事（有人卡住／待審、ctx 到門檻、有派工單卻閒太久、收件匣有沒 ack 的動作預告／擋下）而且跟上次推的不一樣，才送「【巡檢時間】要處理：⋯」；沒事不送。收到時順便 "\(showork)" captain 看收件匣（含開工卡）。
+        10. 巡檢：看板每 30 分鐘看一次，只有要你處理的事（有人卡住／待審、ctx 到門檻、有派工單卻閒太久、收件匣有沒 ack 的擋下）而且跟上次推的不一樣，才送「【巡檢時間】要處理：⋯」；沒事不送。收到時順便 "\(showork)" captain 看收件匣（含開工卡）。
         11. ctx 自動交接：組員 ctx 到 token 門檻（board.ctxTokens，250k–1000k）會被 Stop hook 請去收尾，收尾完發 wrapup 卡、看板等它停下自動 /clear，新 context 沿用英文名、派工單自動轉給它，你不用重派。
             名冊／巡檢標「已收尾待 /clear」的人不要派新工作（派了就不會自動 /clear，看板會傳「【交接提醒】」給你）；「自動 /clear 失敗」的請\(owner)手動 /clear。
             你自己 ctx 到 captain.ctxTokens（預設 750k）時，看板會傳一次「【換哨提醒】」：把狀態更新到交接文件，請\(owner)打 /clear 再說「換哨」。看板不會自動 /clear 你。
-        12. 組員卡片已問使用者的事，隊長卡片不再問；隊長只審問題與選項。使用者在組員卡片答了，看板會傳「【使用者已答】名字：問題→答案」給你，你卡片上同一題會自動清掉。
+        12. 組員卡片已問使用者的事，秘書卡片不再問；秘書只審問題與選項。使用者在組員卡片答了，看板會傳「【使用者已答】名字：問題→答案」給你，你卡片上同一題會自動清掉。
             每個人的 --ask 都會排在「等你回答」（不管 status 是 review 還是 blocked、後來又發卡或繼續做事都不會消失），使用者回答才拿掉；已經不用問的請那個人 "\(showork)" asks withdraw all。
         取消："\(showork)" task cancel <單號>。
         """
     }
 
-    /// 隊長要知道的狀態：做完、要使用者決定、卡住（做事中不吵）
+    /// 秘書要知道的狀態：做完、要使用者決定、卡住（做事中不吵）
     public static func shouldNotify(_ t: CaptainTask) -> Bool {
         [.done, .review, .blocked].contains(t.state) && t.notified != t.state
     }
 
-    /// 傳給隊長的回報
+    /// 傳給秘書的回報
     public static func reportText(_ t: CaptainTask, followUp: CaptainTask? = nil) -> String {
         var s = "【派工回報 \(t.id)】\(t.to)：\(t.state.title)" + (t.summary.map { "——\($0)" } ?? "")
         if let a = t.ask { s += "\n要使用者決定：\(a)" }
@@ -238,7 +239,7 @@ public enum Captain {
     public static func cancel(_ id: String, now: Date = Date()) -> (task: CaptainTask, notified: Bool)? {
         guard var t = CaptainStore.task(id) else { return nil }
         t.state = .cancelled; t.updatedAt = now; CaptainStore.save(t)
-        let note = "【隊長取消 \(id)】這張派工不用做了：\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(60))。已經做到一半的就停在安全的地方，回報目前狀態即可。"
+        let note = "【秘書取消 \(id)】這張派工不用做了：\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(60))。已經做到一半的就停在安全的地方，回報目前狀態即可。"
         switch Peer.find(t.toSession ?? t.to).map({ Peer.send(to: $0, text: note, fromName: "AI工作戰情中心") }) {
         case .success?: return (t, true)
         default: return (t, false)

@@ -38,7 +38,7 @@ public struct SessionRecord: Codable, Sendable, Equatable {
     public var name: String?
     public var status: String?
     public var kind: String?
-    public var entrypoint: String?         // "sdk-cli"＝`claude -p` 這類無頭呼叫（審核員、秘書…），不上看板
+    public var entrypoint: String?         // "sdk-cli"＝`claude -p` 這類無頭呼叫（審核員、LINE 秘書…），不上看板
     public var updatedAt: Double?          // ms
     public var statusUpdatedAt: Double?    // ms
     public var messagingSocketPath: String?  // 跨 session 訊息的收件 socket（Claude Code 內建 SendMessage 用的）
@@ -255,7 +255,7 @@ public struct TeamConfig: Codable, Sendable, Equatable {
     public var members: [TeamMember]
 
     public static func decode(_ d: Data) -> TeamConfig? { try? JSONDecoder().decode(TeamConfig.self, from: d) }
-    /// 隊長以外的人
+    /// 秘書以外的人
     public var teammates: [TeamMember] { members.filter { $0.agentType != "team-lead" } }
 }
 
@@ -301,9 +301,9 @@ public struct BoardCard: Codable, Sendable, Equatable, Identifiable {
     public var jobId: String? = nil        // 11-23：背景 session 的 job id（點衛星時 `claude attach <jobId>` 開視窗看它）
     /// 畫面上叫它的名字：職稱／專案；家目錄的沒有專案 ⇒ 用正在做的任務（11-22 Keng：英文人名不再顯示）
     public var display: String { label ?? report?.doing ?? title }
-    public var captain = false             // 是不是隊長
+    public var captain = false             // 是不是秘書
     public var sameProject: [String] = []  // 同專案的其他 session（重工警告）
-    public var tasks: [CaptainTask] = []   // 隊長：派出去的單；其他人：交給它、還沒結束的單
+    public var tasks: [CaptainTask] = []   // 秘書：派出去的單；其他人：交給它、還沒結束的單
     public var visiting: String? = nil     // 人還住在 project，但最近 cd 去逛的另一個專案（島上畫影分身）
     public var unused = false              // 開了 claude 但從來沒交代過事（連對話紀錄都沒有）：島上畫睡覺
     public var activity: AIActivity = .none        // 現在在做哪一類動作（只有進行中有值，其餘 none；10-20）

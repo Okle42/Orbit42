@@ -140,7 +140,7 @@ final class GraphWorker: @unchecked Sendable {
     private var failed: [String: NeuralGraphBuild.Stamp] = [:]
     /// cluster-only 失敗的：6 小時內不再試
     private var vizFailed: [String: Date] = [:]
-    /// 沙盒：允許一切、只禁網路（10-22 隊長 Chris 審查）
+    /// 沙盒：允許一切、只禁網路（10-22 秘書 Chris 審查）
     static let sandbox = "(version 1)(allow default)(deny network*)"
     /// 跑 graphify 前清空的金鑰環境變數（就算 graphify 想叫 LLM 也拿不到金鑰）
     static let noKeys = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "MOONSHOT_API_KEY", "KIMI_API_KEY",
@@ -205,7 +205,7 @@ final class GraphWorker: @unchecked Sendable {
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         // cwd 也設在輸出資料夾：就算工具有相對路徑的暫存，也只會落在我們自己的資料夾
         let t0 = Date()
-        // 包在「禁止網路」的沙盒裡跑（10-22 隊長 Chris 審查：確保程式碼不會對外送；code-only 模式實測斷網照樣跑完）
+        // 包在「禁止網路」的沙盒裡跑（10-22 秘書 Chris 審查：確保程式碼不會對外送；code-only 模式實測斷網照樣跑完）
         let r = Tools.run("/usr/bin/sandbox-exec", ["-p", Self.sandbox,
                                                     exe, "extract", p.path, "--code-only", "--max-workers", "2", "--out", out.path],
                           cwd: out.path, env: Self.noKeys, timeout: Self.timeout, qos: .utility)

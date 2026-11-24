@@ -42,7 +42,7 @@ struct SessionThreadTests {
         #expect(Set(xs.map(\.id)).count == xs.count)      // 同一則訊息裡的多個區塊 id 不重複
     }
 
-    @Test("隊長模式照舊：只收每輪最後的話")
+    @Test("秘書模式照舊：只收每輪最後的話")
     func captainMode() {
         let xs = CaptainThread.parse(tail)
         #expect(xs.map(\.role) == [.kang, .kang, .captain])

@@ -258,8 +258,8 @@ enum BoardActions {
         return delivered("已送進「\(c.title)」")
     }
 
-    /// 使用者答了組員卡片的問題 ⇒ 轉隊長一則「【使用者已答】」、清掉隊長卡片上同一題（隊長 Penny 10-25：別再重複問 Kang）。
-    /// 答的是隊長自己的卡片就不用轉
+    /// 使用者答了組員卡片的問題 ⇒ 轉秘書一則「【使用者已答】」、清掉秘書卡片上同一題（秘書 Penny 10-25：別再重複問 Kang）。
+    /// 答的是秘書自己的卡片就不用轉
     private static func tellCaptain(_ c: BoardCard, answer: String, question q: String?) {
         guard let cap = CaptainStore.captain()?.sessionId, cap != c.sessionId else { return }
         Answered.clearCaptainCard(sid: cap, question: q)
@@ -392,7 +392,7 @@ final class CtxGuard {
             }
             // 後備：hook 沒接手（例如 session 開在 hook 裝好之前）、停了 60 秒以上、又在 tmux 裡才打字；
             // 打不進去就不記已送、不動剪貼簿，等下次停下來由 hook 收
-            // 隊長不在這裡收尾（11-10：隊長改走 captain.ctxTokens 的【換哨提醒】，不自動 /clear）
+            // 秘書不在這裡收尾（11-10：秘書改走 captain.ctxTokens 的【換哨提醒】，不自動 /clear）
             if autoWrapUp, !c.captain, ContextGuard.shouldWrapUp(card: c, ctx: x, alreadySent: wasSent(c.sessionId)),
                let t = c.lastActivity, Date().timeIntervalSince(t) >= 60,
                BoardActions.tmuxPane(of: c.pid) != nil {
@@ -431,9 +431,9 @@ extension BoardActions {
     }
 }
 
-// MARK: - P3 派工：自動回報隊長、自動接力（Kang 10-09）
+// MARK: - P3 派工：自動回報秘書、自動接力（Kang 10-09）
 
-/// 每次刷新看一遍派工單：做完／要你決定／卡住 ⇒ 傳一則【派工回報】給隊長；做完又有下一棒 ⇒ 自動派給下一棒。
+/// 每次刷新看一遍派工單：做完／要你決定／卡住 ⇒ 傳一則【派工回報】給秘書；做完又有下一棒 ⇒ 自動派給下一棒。
 /// 只有正式 agent 會送（測試視窗不動手）；送訊息會等一下，所以放背景，同一張單同時只處理一次。
 @MainActor
 final class TaskRouter {
@@ -471,7 +471,7 @@ final class TaskRouter {
                 Log.note("ROUTER notify \(id) \(t.state.rawValue) → \(cap.name ?? cap.sessionId) \(r)")
                 if case .failure = r { systemNotice(t) }
             } else {
-                systemNotice(t)                // 隊長不在（或從看板直接派的），改發系統通知給你
+                systemNotice(t)                // 秘書不在（或從看板直接派的），改發系統通知給你
             }
             notified = t.state
         }
@@ -493,7 +493,7 @@ final class TaskRouter {
 }
 
 extension BoardActions {
-    /// 看板上直接派工給某個 session（你按的）；有隊長就由隊長收回報，沒有就發系統通知給你
+    /// 看板上直接派工給某個 session（你按的）；有秘書就由秘書收回報，沒有就發系統通知給你
     nonisolated static func dispatch(to c: BoardCard, text: String, thenTo: String?, thenText: String?, captain: String?) -> Result<String, CardError> {
         let id = Captain.newId(now: Date(), existing: Set(CaptainStore.tasks().map(\.id)))
         let t = CaptainTask(id: id, from: captain ?? "board", to: c.name ?? c.sessionId, toSession: c.sessionId, project: c.project, text: text,
@@ -502,25 +502,25 @@ extension BoardActions {
         return r.map { _ in id }
     }
 
-    /// 把一件事交給隊長，由它決定給誰
+    /// 把一件事交給秘書，由它決定給誰
     nonisolated static func toCaptain(_ sid: String, text: String) -> Result<String, CardError> {
         let body = captainOrder(text)
-        guard let cap = Peer.find(sid) else { return .failure(CardError("隊長的 session 沒開著")) }
+        guard let cap = Peer.find(sid) else { return .failure(CardError("秘書的 session 沒開著")) }
         return Peer.send(to: cap, text: body, fromName: "AI工作戰情中心（使用者）")
     }
 }
 
-// MARK: - 收件匣：交給隊長（10-26 Kang：預設 Opus，需要判斷時再升 Fable）
+// MARK: - 收件匣：交給秘書（10-26 Kang：預設 Opus，需要判斷時再升 Fable）
 
 extension BoardActions {
     nonisolated static var captainModel: String {
         UserDefaults(suiteName: "ai.okle42.showork")?.string(forKey: CaptainLaunch.modelKey).flatMap { $0.isEmpty ? nil : $0 } ?? CaptainLaunch.defaultModel
     }
-    /// 正在開／接回隊長（開始的時間）：還沒登記好之前不要再開第二個
+    /// 正在開／接回秘書（開始的時間）：還沒登記好之前不要再開第二個
     nonisolated(unsafe) private static var launching: Date?
     nonisolated private static let launchLock = NSLock()
 
-    /// 現在的隊長還開著嗎（行程在、有收件匣）
+    /// 現在的秘書還開著嗎（行程在、有收件匣）
     nonisolated static func liveCaptain() -> SessionRecord? {
         CaptainStore.captain().flatMap { Peer.find($0.sessionId) }
     }
@@ -573,29 +573,29 @@ extension BoardActions {
     }
 
     nonisolated static func captainOrder(_ text: String) -> String {
-        "【使用者從看板交辦】\(text)\n請照隊長守則處理：先看名冊（showork roster），選人後用 showork task add 派工；小事自己做。"
+        "【使用者從看板交辦】\(text)\n請照秘書守則處理：先看名冊（showork roster），選人後用 showork task add 派工；小事自己做。"
     }
 
-    /// 交給隊長：隊長在就直送；程序不在就把它的對話接回來（背景終端機型）；接不回來才開新隊長。
+    /// 交給秘書：秘書在就直送；程序不在就把它的對話接回來（背景終端機型）；接不回來才開新秘書。
     /// 會等（開 session 最多 30 秒），呼叫端放背景佇列。
     nonisolated static func askCaptain(_ text: String) -> String {
         let line = Inbox.message(text)
         guard !line.isEmpty else { return "沒有內容" }
         let cap = CaptainStore.captain()
-        // 舊的串流隊長還在做事：先照舊送進去，不打斷（閒下來再轉成終端機型）
+        // 舊的串流秘書還在做事：先照舊送進去，不打斷（閒下來再轉成終端機型）
         if let cap, let h = SessionHost.shared.handle(for: cap.sessionId), let s = SessionHost.shared.session(h), s.state != .idle {
-            return s.send(captainOrder(line)) ? "已交給隊長「\(cap.name ?? "隊長")」" : "送不到隊長：程序已經結束"
+            return s.send(captainOrder(line)) ? "已交給秘書" : "送不到秘書：程序已經結束"
         }
         if let live = liveCaptain(), SessionHost.shared.handle(for: live.sessionId) == nil {
             switch toCaptain(live.sessionId, text: line) {
-            case .success: return "已交給隊長「\(live.name ?? "隊長")」"
-            case .failure(let e): return "送不到隊長：\(e.message)"
+            case .success: return "已交給秘書"
+            case .failure(let e): return "送不到秘書：\(e.message)"
             }
         }
         launchLock.lock()
         if let at = launching, Date().timeIntervalSince(at) < 120 {
             launchLock.unlock()
-            return "隊長剛開，還在暖機；過半分鐘再送一次"
+            return "秘書剛開，還在暖機；過半分鐘再送一次"
         }
         launching = Date()
         launchLock.unlock()
@@ -607,16 +607,16 @@ extension BoardActions {
                 if let rec = waitJob(job), rec.sessionId != CaptainStore.captain()?.sessionId {
                     CaptainStore.setCaptain(CaptainRecord(sessionId: rec.sessionId, name: rec.name ?? cap.name))
                 }
-                return "已交給隊長「\(cap.name ?? "隊長")」"
-            case .failure(let e): why = "舊隊長接不回來（\(e.message)），"
+                return "已交給秘書"
+            case .failure(let e): why = "舊秘書接不回來（\(e.message)），"
             }
         }
         switch startBackground(resume: nil, prompt: CaptainLaunch.bootstrap(showork: TaskRouter.showork, task: line), cwd: BoardPaths.home, model: captainModel) {
-        case .failure(let e): return "開隊長失敗：" + e.message
+        case .failure(let e): return "開秘書失敗：" + e.message
         case .success(let job):
-            // 登記成隊長（它自己跑 showork captain 也會登記；先登記，下一句交辦才找得到它）
+            // 登記成秘書（它自己跑 showork captain 也會登記；先登記，下一句交辦才找得到它）
             if let rec = waitJob(job) { CaptainStore.setCaptain(CaptainRecord(sessionId: rec.sessionId, name: rec.name)) }
-            return why + "已開新隊長（\(modelTitle(captainModel))），這件事是它的第一個任務"
+            return why + "已開新秘書（\(modelTitle(captainModel))），這件事是它的第一個任務"
         }
     }
 

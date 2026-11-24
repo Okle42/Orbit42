@@ -4,7 +4,7 @@ import ShoWorkCore
 
 // 收件匣（10-21 Kang：「我一直在操作終端機，戰情中心是不是失去使用意義？」）：
 // 所有在等你的 AI 列在右邊，按選項或打字就把答案送進那個 session（tmux 打字／看板直送），不用切回終端機。
-// 底下是「交給隊長」：隊長不在就開一個背景隊長（模型 captain.model，預設 Opus 5.5，10-26 由 Fable 改）。
+// 底下是「交給秘書」：秘書不在就開一個背景秘書（模型 captain.model，預設 Opus 5.5，10-26 由 Fable 改）。
 // 權限對話框（第 2 步）：允許／一律允許／拒絕，寫回答檔給等著的 PermissionRequest hook（Permit.swift）。
 // 選擇題（AskUserQuestion）與計畫確認（ExitPlanMode）也走同一條 hook（10-25）：按選項／勾多選／打「其他」、核准／退回計畫。
 // 規則在 ShoWorkCore/Inbox.swift；送出走 BoardActions.answer／permit／askCaptain。
@@ -19,9 +19,9 @@ struct InboxPanel: View {
     let onCaptain: (String) -> Void
     var onClose: (() -> Void)? = nil
     var captainBusy = false
-    var thread: [CaptainLine] = []        // 隊長對話（10-22 第 3 步）
+    var thread: [CaptainLine] = []        // 秘書對話（10-22 第 3 步）
     var tasks: [CaptainTask] = []         // 還沒結的派工單
-    // 右側對話窗格（10-25）：點了某個 AI，下半部改成跟它的對話；nil＝隊長
+    // 右側對話窗格（10-25）：點了某個 AI，下半部改成跟它的對話；nil＝秘書
     var person: BoardCard? = nil
     var personThread: [CaptainLine] = []
     var onPersonSend: (String) -> Void = { _ in }
@@ -397,9 +397,9 @@ private struct PlanBox: View {
     }
 }
 
-/// 隊長對話（10-22 第 3 步：直接派工給隊長）：你送的話、隊長每輪最後講給你聽的話、其他 AI 的回報（灰色一行），
-/// 下面是還沒結的派工單和輸入框。隊長不在：送出時開一個（BoardActions.askCaptain）。資料來自隊長的對話紀錄（CaptainThread）。
-/// person＝true（10-25 右側對話窗格）：同一個面板看任何一個 AI——多了每輪中途的話、工具一行摘要；回到隊長、跳到終端機兩顆鈕。
+/// 秘書對話（10-22 第 3 步：直接派工給秘書）：你送的話、秘書每輪最後講給你聽的話、其他 AI 的回報（灰色一行），
+/// 下面是還沒結的派工單和輸入框。秘書不在：送出時開一個（BoardActions.askCaptain）。資料來自秘書的對話紀錄（CaptainThread）。
+/// person＝true（10-25 右側對話窗格）：同一個面板看任何一個 AI——多了每輪中途的話、工具一行摘要；回到秘書、跳到終端機兩顆鈕。
 private struct CaptainPanel: View {
     let captain: BoardCard?
     let busy: Bool
@@ -416,7 +416,7 @@ private struct CaptainPanel: View {
     @State private var pending: (text: String, at: Date)?
     @State private var showReports = true
 
-    private var name: String { captain.map { $0.title.split(separator: "-").first.map(String.init) ?? "隊長" } ?? "隊長" }
+    private var name: String { captain.map { $0.title.split(separator: "-").first.map(String.init) ?? "秘書" } ?? "秘書" }
     private var thinking: Bool { captain?.column == .active }
     /// 隱藏鈕（person 模式）：只看你和它講的話，工具摘要和回報收起來
     private var shown: [CaptainLine] { showReports ? thread : thread.filter { $0.role != .report && $0.role != .tool } }
@@ -427,10 +427,10 @@ private struct CaptainPanel: View {
             HStack(spacing: 6) {
                 if person {
                     Button(action: onBack) { Image(systemName: "chevron.backward") }
-                        .buttonStyle(.borderless).help("回到隊長對話").accessibilityLabel("回到隊長對話")
+                        .buttonStyle(.borderless).help("回到秘書對話").accessibilityLabel("回到秘書對話")
                 }
                 Image(systemName: person ? "person.crop.circle" : "person.crop.circle.badge.checkmark").foregroundStyle(.secondary)
-                Text(person ? name : captain == nil ? "隊長" : "隊長 \(name)").font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(person ? name : "秘書").font(.subheadline.weight(.semibold)).lineLimit(1)
                 if captain != nil, thinking {
                     ProgressView().controlSize(.mini)
                     Text("思考中⋯").font(.caption).foregroundStyle(.secondary)
@@ -444,12 +444,12 @@ private struct CaptainPanel: View {
                     }
                     .buttonStyle(.plain).help(showReports ? "只看你和它講的話（收起工具與回報）" : "顯示工具與回報")
                 } else if captain == nil {
-                    Text("不在：送出時開 \(BoardActions.modelTitle(BoardActions.captainModel)) 隊長").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text("不在：送出時開 \(BoardActions.modelTitle(BoardActions.captainModel)) 秘書").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 } else {
                     Button { showReports.toggle() } label: {
                         Image(systemName: showReports ? "text.bubble" : "text.bubble.fill").foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain).help(showReports ? "隱藏其他 AI 的回報，只看你和隊長的對話" : "顯示其他 AI 的回報")
+                    .buttonStyle(.plain).help(showReports ? "隱藏其他 AI 的回報，只看你和秘書的對話" : "顯示其他 AI 的回報")
                 }
             }
             if person, let c = captain {
@@ -469,10 +469,10 @@ private struct CaptainPanel: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         if shown.isEmpty && pending == nil {
-                            Text(person ? "讀取對話中⋯（還沒有對話的話，在下面打一句話給它）" : captain == nil ? "還沒有隊長。在下面打一句話，戰情中心會開一個隊長來接。" : "還沒有對話。在下面打一句話交給隊長。")
+                            Text(person ? "讀取對話中⋯（還沒有對話的話，在下面打一句話給它）" : captain == nil ? "還沒有秘書。在下面打一句話，戰情中心會開一個秘書來接。" : "還沒有對話。在下面打一句話交給秘書。")
                                 .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
                         }
-                        ForEach(shown) { CaptainBubble(line: $0, speaker: person ? name : "隊長") }
+                        ForEach(shown) { CaptainBubble(line: $0, speaker: person ? name : "秘書") }
                         if let p = pending {
                             CaptainBubble(line: CaptainLine(id: "pending", at: p.at, role: .kang, text: p.text, via: "送出中⋯"), speaker: name)
                         }
@@ -482,7 +482,7 @@ private struct CaptainPanel: View {
                 .scrollIndicators(.automatic)
                 .onAppear { proxy.scrollTo("end", anchor: .bottom) }
                 .onChange(of: thread.last?.id) { _, _ in
-                    // 隊長那邊出現了剛送的話：拿掉「送出中」
+                    // 秘書那邊出現了剛送的話：拿掉「送出中」
                     if let p = pending, thread.contains(where: { $0.role == .kang && $0.text == p.text }) || Date().timeIntervalSince(p.at) > 180 { pending = nil }
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) }
                 }
@@ -508,7 +508,7 @@ private struct CaptainPanel: View {
                 }
             }
             HStack(alignment: .bottom, spacing: 6) {
-                ChatInput(text: $text, placeholder: person ? "跟 \(name) 說⋯" : captain == nil ? "要做什麼？會開一個隊長來決定給哪個 AI" : "跟隊長說⋯（交辦、追問、拍板都可以）",
+                ChatInput(text: $text, placeholder: person ? "跟 \(name) 說⋯" : captain == nil ? "要做什麼？會開一個秘書來決定給哪個 AI" : "跟秘書說⋯（交辦、追問、拍板都可以）",
                           resizable: true, maxHeight: max(80, paneHeight / 2), onSubmit: send)
                 if busy { ProgressView().controlSize(.small) }
                 Button("送出", action: send)
@@ -540,7 +540,7 @@ private struct CaptainPanel: View {
 
 private struct CaptainBubble: View {
     let line: CaptainLine
-    var speaker = "隊長"
+    var speaker = "秘書"
 
     var body: some View {
         switch line.role {

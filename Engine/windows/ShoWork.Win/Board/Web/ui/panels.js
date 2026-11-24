@@ -391,7 +391,7 @@ export function B1BoardCard({ posts, onRefresh, onClose, onScroll, top }) {
   const body = [
     h("div.card-head", h("span.headline", "Agent交流互動板"), h("span.caption.sec.num", `共 ${shown.length} 則`), h("span.spacer"),
       h("button.plain.sec", { title: "重新整理", "aria-label": "重新整理", on: { click: onRefresh } }, Icon("arrow.clockwise", 15)), closeBtn(onClose)),
-    h("div.caption.sec", "AI 在 B1 休息時留下的工作心得；每則也會轉給隊長當流程優化的參考"),
+    h("div.caption.sec", "AI 在 B1 休息時留下的工作心得；每則也會轉給秘書當流程優化的參考"),
   ];
   if (!shown.length) body.push(h("div.callout.sec", { style: { padding: "8px 0" } }, "還沒有留言。"));
   else {

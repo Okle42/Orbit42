@@ -155,7 +155,7 @@ public static class KuboMath
     public const double PuffSeconds = 0.6, FadeSeconds = 0.8, TypingPeriod = 0.5, Fps = 8;
 }
 
-/// 截圖驗收用的固定示範卡片（--board-demo）：六種狀態（含休息喝咖啡、從沒用過在睡覺）、隊長、耳機、眼鏡、影分身、擠滿 5 人的島都有
+/// 截圖驗收用的固定示範卡片（--board-demo）：六種狀態（含休息喝咖啡、從沒用過在睡覺）、秘書、耳機、眼鏡、影分身、擠滿 5 人的島都有
 public static class BoardDemo
 {
     static BoardCard Sleepy(BoardCard c) { c.Unused = true; c.LastActivity = null; return c; }
@@ -182,11 +182,11 @@ public static class BoardDemo
             C("d3", "ShoWork42", BoardColumn.Review, "做完了，你還沒看", "設定頁深色模式", 100, 90, 18, "設定頁標題列跟著系統深色，六種光芒預覽都改好了。"),
             C("d4", "ShoWork42", BoardColumn.Stuck, "41 分鐘沒有新動靜", "安裝包簽章", 30, 40, 88, "等憑證檔，簽章工具找不到 signtool。"),
             C("d5", "ShoWork42", BoardColumn.Done, "閒置", "README 英文版"),
-            // 隊長＋研究（眼鏡）
+            // 秘書＋研究（眼鏡）
             C("d6", "ProjectA", BoardColumn.Active, "AI 正在工作", "派工與名冊整理", 45, 70, 33, "名冊 6 個 session，正在分派下一批任務。", captain: true),
             C("d7", "ProjectA", BoardColumn.Review, "做完了，你還沒看", "給排水法規研究", 100, 85, 9,
               "建築技術規則第 36、52、113 條整理完成，排水管徑表已更新。"),
-            // 秘書（耳機）＋等你回答
+            // LINE 秘書（耳機）＋等你回答
             C("d8", "ProjectC", BoardColumn.Review, "等你回答", "LINE 自動回覆", 70, 65, 55, ask: "客人問週六能不能改時間，要怎麼回？"),
             C("d9", "ProjectC", BoardColumn.Done, "閒置", "平板連線檢查"),
             Sleepy(C("d10", "ProjectC", BoardColumn.Done, "閒置", "未命名")),                 // 開了沒用過：睡覺

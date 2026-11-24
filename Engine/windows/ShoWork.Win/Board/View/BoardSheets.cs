@@ -2,12 +2,12 @@ using System.Drawing.Drawing2D;
 
 namespace ShoWork;
 
-// 11-02 P8 第二輪：Mac BoardWindow.swift 的工具列（新任務⋯、交給隊長⋯、AI 審核、ctx 門檻＋自動收尾）與對話框
+// 11-02 P8 第二輪：Mac BoardWindow.swift 的工具列（新任務⋯、交給秘書⋯、AI 審核、ctx 門檻＋自動收尾）與對話框
 // （SendBackSheet、ParkSheet、DispatchSheet、CaptainSheet、NewTaskSheet）的 WinForms 轉寫。
 // Mac 的 sheet 從視窗上緣滑下來；Windows 用置中在戰情中心上的強制回應對話框（同樣擋住後面、Esc 取消、預設鈕是送出）。
 // 多行輸入框裡 Enter 是換行（同 Mac 的 TextEditor）；Ctrl+Enter 送出。
 
-/// 工具列：新任務⋯／交給隊長⋯兩顆按鈕、AI 審核開關、ctx 門檻（點開選 %）＋自動收尾開關。全部自己畫（同 ViewSwitch），窄的時候換短標籤
+/// 工具列：新任務⋯／交給秘書⋯兩顆按鈕、AI 審核開關、ctx 門檻（點開選 %）＋自動收尾開關。全部自己畫（同 ViewSwitch），窄的時候換短標籤
 sealed class BoardControls : Control
 {
     readonly BoardForm owner;
@@ -34,7 +34,7 @@ sealed class BoardControls : Control
     IEnumerable<(string Id, string Text, string Kind)> Items(bool s)
     {
         yield return ("newTask", s ? "新任務" : "新任務⋯", "button");
-        yield return ("captain", s ? "隊長" : "交給隊長⋯", "button");
+        yield return ("captain", s ? "秘書" : "交給秘書⋯", "button");
         yield return ("review", s ? "審核" : "AI 審核", "switch");
         yield return ("ctx", (s ? "" : "ctx ") + $"{CtxGuard.TokenLimit / 1000}k ⌄", "link");
         yield return ("wrap", s ? "收尾" : "自動收尾", "switch");
@@ -57,7 +57,7 @@ sealed class BoardControls : Control
     string Tip(string id) => id switch
     {
         "newTask" => "在選的資料夾開一個 Claude 背景 session（不開視窗）",
-        "captain" => owner.CaptainCard == null ? $"還沒有隊長：送出時會開一個 {BoardActions.ModelTitle(BoardActions.CaptainModel)} 背景隊長" : "把一件事交給隊長，由它決定給哪個 session",
+        "captain" => owner.CaptainCard == null ? $"還沒有秘書：送出時會開一個 {BoardActions.ModelTitle(BoardActions.CaptainModel)} 背景秘書" : "把一件事交給秘書，由它決定給哪個 session",
         "review" => $"AI 審核：卡片進「待審」時，請 {Reviewer.Model} 獨立審一次（走你的訂閱額度）",
         "ctx" => $"點一下改門檻：AI 記憶量用到 {CtxGuard.TokenLimit / 1000}k 就通知你；開著自動收尾時，也請那個 AI 收尾",
         _ => $"自動收尾：AI 記憶量到 {CtxGuard.TokenLimit / 1000}k 會通知你；開著時，等那個 AI 停下來就請它 commit、規則允許才 push、更新交接",
@@ -350,7 +350,7 @@ sealed class DispatchSheet : SheetForm
         this.card = card; this.captain = captain; this.onDone = onDone;
         AddLabel($"{card.Project}・{card.Title}", secondary: true);
         if (card.SameProject.Count > 0) AddLabel($"‼ 同專案還有 {string.Join("、", card.SameProject)}", color: Th.Warn);
-        AddLabel("訊息會排進它的收件匣，下一次它用工具時讀到，不會打進輸入框。" + (captain == null ? "回報會用系統通知告訴你。" : "回報會傳給隊長。"), secondary: true);
+        AddLabel("訊息會排進它的收件匣，下一次它用工具時讀到，不會打進輸入框。" + (captain == null ? "回報會用系統通知告訴你。" : "回報會傳給秘書。"), secondary: true);
         text = AddText(5);
         relay = AddCheck("做完後自動交給下一個（接力）");
         relay.Enabled = others.Count > 0;
@@ -391,7 +391,7 @@ sealed class DispatchSheet : SheetForm
     }
 }
 
-/// 交給隊長：由隊長決定給誰（Mac CaptainSheet）
+/// 交給秘書：由秘書決定給誰（Mac CaptainSheet）
 sealed class CaptainSheet : SheetForm
 {
     readonly BoardCard? captain;
@@ -400,10 +400,10 @@ sealed class CaptainSheet : SheetForm
     readonly Action<string> onDone;
 
     public CaptainSheet(BoardForm owner, BoardCard? captain, bool testMode, Action<string> onDone)
-        : base(owner, captain != null ? $"♛ 交給隊長（{captain.Name ?? captain.Title}）" : $"♛ 交給隊長（送出時開 {BoardActions.ModelTitle(BoardActions.CaptainModel)} 隊長）", "交給隊長", 440)
+        : base(owner, captain != null ? $"♛ 交給秘書（{captain.Name ?? captain.Title}）" : $"♛ 交給秘書（送出時開 {BoardActions.ModelTitle(BoardActions.CaptainModel)} 秘書）", "交給秘書", 440)
     {
         this.captain = captain; this.testMode = testMode; this.onDone = onDone;
-        AddLabel("隊長會看名冊，決定交給哪個 session，或自己做。訊息排進它的收件匣，不會打斷它正在做的事。", secondary: true);
+        AddLabel("秘書會看名冊，決定交給哪個 session，或自己做。訊息排進它的收件匣，不會打斷它正在做的事。", secondary: true);
         text = AddText(6);
         text.TextChanged += (_, _) => Recheck();
         Finish();
@@ -413,14 +413,14 @@ sealed class CaptainSheet : SheetForm
     protected override void Submit()
     {
         if (!CanSubmit()) return;
-        // 測試視窗看的是你真的 session：不送、不開隊長
-        if (testMode) { onDone("測試：不交給隊長"); Close(); return; }
-        SetBusy(true, captain == null ? "正在開隊長⋯" : "送出中⋯");
+        // 測試視窗看的是你真的 session：不送、不開秘書
+        if (testMode) { onDone("測試：不交給秘書"); Close(); return; }
+        SetBusy(true, captain == null ? "正在開秘書⋯" : "送出中⋯");
         var t = text.Text;
         Background(() => BoardActions.AskCaptain(t), msg =>
         {
             BoardHistory.Append(new Dictionary<string, string> { ["ev"] = "tocaptain", ["text"] = t });
-            onDone(msg ?? "送不到隊長");
+            onDone(msg ?? "送不到秘書");
             Close();
         });
     }

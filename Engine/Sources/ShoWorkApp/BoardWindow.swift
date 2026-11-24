@@ -229,9 +229,9 @@ struct BoardView: View {
         .pickerStyle(.segmented).labelsHidden().fixedSize()
         Button { newTask = true } label: { Label(short ? "新任務" : "新任務⋯", systemImage: "plus") }
             .keyboardShortcut("n").fixedSize()
-        Button { toCaptain = true } label: { Label(short ? "隊長" : "交給隊長⋯", systemImage: "crown") }
+        Button { toCaptain = true } label: { Label(short ? "秘書" : "交給秘書⋯", systemImage: "crown") }
             .fixedSize()
-            .help(captainCard == nil ? "還沒有隊長：送出時會開一個 \(BoardActions.modelTitle(BoardActions.captainModel)) 背景隊長" : "把一件事交給隊長，由它決定給哪個 session")
+            .help(captainCard == nil ? "還沒有秘書：送出時會開一個 \(BoardActions.modelTitle(BoardActions.captainModel)) 背景秘書" : "把一件事交給秘書，由它決定給哪個 session")
         Toggle(short ? "審核" : "AI 審核", isOn: $reviewOn)
             .toggleStyle(.switch).controlSize(.small).fixedSize()
             .onChange(of: reviewOn) { _, v in Reviewer.shared.enabled = v }
@@ -343,7 +343,7 @@ extension BoardColumn {
     }
 }
 
-/// 隊長卡：派出去的單；其他卡：交給它還沒結束的單
+/// 秘書卡：派出去的單；其他卡：交給它還沒結束的單
 struct TaskList: View {
     let tasks: [CaptainTask]
     let captain: Bool
@@ -359,7 +359,7 @@ struct TaskList: View {
             ForEach(shown) { t in
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Image(systemName: Self.symbol(t.state)).foregroundStyle(Self.color(t.state)).font(.caption2)
-                    Text(captain ? "→ \(t.to)：\(t.summary ?? t.text)" : "隊長派工：\(t.text)")
+                    Text(captain ? "→ \(t.to)：\(t.summary ?? t.text)" : "秘書派工：\(t.text)")
                         .lineLimit(expanded ? nil : 1)
                 }
                 .font(.caption).foregroundStyle(.secondary)
@@ -444,7 +444,7 @@ struct DispatchSheet: View {
             if !card.sameProject.isEmpty {
                 Label("同專案還有 \(card.sameProject.joined(separator: "、"))", systemImage: "exclamationmark.2").font(.callout).foregroundStyle(.orange)
             }
-            Text("訊息會排進它的收件匣，下一次它用工具時讀到，不會打進輸入框。" + (captain == nil ? "回報會用系統通知告訴你。" : "回報會傳給隊長。"))
+            Text("訊息會排進它的收件匣，下一次它用工具時讀到，不會打進輸入框。" + (captain == nil ? "回報會用系統通知告訴你。" : "回報會傳給秘書。"))
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextEditor(text: $text).font(.body).frame(minHeight: 90)
                 .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color(nsColor: .separatorColor)))
@@ -489,7 +489,7 @@ struct DispatchSheet: View {
     }
 }
 
-/// 交給隊長：由隊長決定給誰
+/// 交給秘書：由秘書決定給誰
 struct CaptainSheet: View {
     let captain: BoardCard?
     let onDone: (String) -> Void
@@ -499,19 +499,19 @@ struct CaptainSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(captain.map { "交給隊長（\($0.name ?? $0.title)）" } ?? "交給隊長（送出時開 \(BoardActions.modelTitle(BoardActions.captainModel)) 隊長）",
+            Label(captain.map { _ in "交給秘書" } ?? "交給秘書（送出時開 \(BoardActions.modelTitle(BoardActions.captainModel)) 秘書）",
                   systemImage: "crown.fill").font(.headline)
-            Text("隊長會看名冊，決定交給哪個 session，或自己做。訊息排進它的收件匣，不會打斷它正在做的事。")
+            Text("秘書會看名冊，決定交給哪個 session，或自己做。訊息排進它的收件匣，不會打斷它正在做的事。")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextEditor(text: $text).font(.body).frame(minHeight: 110)
                 .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color(nsColor: .separatorColor)))
             HStack {
-                if busy { ProgressView().controlSize(.small); Text(captain == nil ? "正在開隊長⋯" : "送出中⋯").font(.callout) }
+                if busy { ProgressView().controlSize(.small); Text(captain == nil ? "正在開秘書⋯" : "送出中⋯").font(.callout) }
                 Spacer()
                 Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("交給隊長") {
-                    // 測試視窗看的是你真的 session：不送、不開隊長
-                    if BoardWindow.testMode { onDone("測試：不交給隊長"); dismiss(); return }
+                Button("交給秘書") {
+                    // 測試視窗看的是你真的 session：不送、不開秘書
+                    if BoardWindow.testMode { onDone("測試：不交給秘書"); dismiss(); return }
                     busy = true
                     let t = text
                     DispatchQueue.global().async {

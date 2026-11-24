@@ -167,6 +167,7 @@ struct OrbitAPI: Sendable {
 struct Sat: Identifiable, Hashable, Sendable {
     let id: String, name: String, brain: String, brainLabel: String, state: String
     var sessionId: String? = nil
+    var captain = false                 // 現任秘書（紅框）
     var moons: [String] = []            // Mac 上這顆衛星開著的面板：3d／web
     var moonTitles: [String: String] = [:]
     var json: [String: Any] { ["id": id, "name": name, "brain": brain, "brainLabel": brainLabel, "state": state] }
@@ -176,7 +177,7 @@ struct Sat: Identifiable, Hashable, Sendable {
             guard let id = o["id"] as? String else { return nil }
             return Sat(id: id, name: o["name"] as? String ?? id, brain: o["brain"] as? String ?? "claude",
                        brainLabel: o["brainLabel"] as? String ?? "Claude", state: o["state"] as? String ?? "open",
-                       sessionId: o["sessionId"] as? String,
+                       sessionId: o["sessionId"] as? String, captain: o["captain"] as? Bool ?? false,
                        moons: (o["moons"] as? [[String: Any]] ?? []).compactMap { $0["kind"] as? String },
                        moonTitles: Dictionary((o["moons"] as? [[String: Any]] ?? []).compactMap { m in (m["kind"] as? String).map { ($0, m["title"] as? String ?? "") } }, uniquingKeysWith: { a, _ in a }))
         }

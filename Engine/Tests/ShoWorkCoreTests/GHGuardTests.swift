@@ -57,7 +57,7 @@ struct GHGuardTests {
         #expect(why("gh api repos/{owner}/{repo}/issues -f title=x") == nil)
         #expect(why("gh issue comment https://github.com/Okle42/私有b/issues/3 -b hi", cwd: "/w/other") == nil)
         #expect(why("cd /w/own && gh pr create --fill", cwd: "/w/other") == nil)          // 跟著 cd
-        #expect(why("gh api graphql -f query=x") == nil)                                  // 不是 repos/（隊長範圍只算 repos/）
+        #expect(why("gh api graphql -f query=x") == nil)                                  // 不是 repos/（秘書範圍只算 repos/）
 
         #expect(why("gh pr create --fill", cwd: "/w/pub")?.contains("Okle42/公開工具") == true)   // 自己的但公開
         #expect(why("gh pr create --fill", cwd: "/w/other")?.contains("acme/widget") == true)

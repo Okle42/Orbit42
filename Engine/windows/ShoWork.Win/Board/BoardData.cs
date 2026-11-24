@@ -5,8 +5,8 @@ using System.Text.Json.Nodes;
 
 namespace ShoWork;
 
-// 11-02 P8 第二輪：戰情中心收件匣／隊長對話／進度條／B1 留言板要讀的資料。Mac 版 ShoWorkCore 逐檔轉寫：
-//   CaptainThread.swift（隊長對話）、RunProgress.swift（背景長工作進度）、Answered.swift（使用者已答）、Inbox.swift 的 message／CaptainLaunch。
+// 11-02 P8 第二輪：戰情中心收件匣／秘書對話／進度條／B1 留言板要讀的資料。Mac 版 ShoWorkCore 逐檔轉寫：
+//   CaptainThread.swift（秘書對話）、RunProgress.swift（背景長工作進度）、Answered.swift（使用者已答）、Inbox.swift 的 message／CaptainLaunch。
 //   Permit.swift、B1Talk.swift、Handover.swift、Captain.swift 的派工單在 hook 端已經轉寫（showork\Core，namespace ShoWork.Hooks），
 //   這裡直接用，只做「轉成卡片／網頁要的形狀」。
 // 這個檔不碰 WinForms（測試專案直接連）。檔案位置、欄位名、時間格式跟 Mac 一樣，只是根目錄在 %LOCALAPPDATA%\ShoWork42。
@@ -32,7 +32,7 @@ public static class PermitCards
     };
 }
 
-// MARK: - 隊長對話（CaptainThread.swift）
+// MARK: - 秘書對話（CaptainThread.swift）
 
 public sealed record CaptainLine
 {
@@ -48,7 +48,7 @@ public sealed record CaptainLine
 
 public static class CaptainThread
 {
-    /// 看板送給隊長時包在外面的字（BoardActions.toCaptain）
+    /// 看板送給秘書時包在外面的字（BoardActions.toCaptain）
     public const string BoardPrefix = "【使用者從看板交辦】";
     public const string BoardFromName = "AI工作戰情中心（使用者）";
     public const int Keep = 40;
@@ -178,12 +178,13 @@ public static class CaptainThread
     {
         var t = body.StartsWith(BoardPrefix, StringComparison.Ordinal) ? body[BoardPrefix.Length..]
               : body.StartsWith(AnswerPrefix, StringComparison.Ordinal) ? body[AnswerPrefix.Length..] : body;
-        int r = t.IndexOf("\n請照隊長守則", StringComparison.Ordinal);
+        int r = t.IndexOf("\n請照秘書守則", StringComparison.Ordinal);
+        if (r < 0) r = t.IndexOf("\n請照隊長守則", StringComparison.Ordinal);      // 改名前的紀錄
         if (r >= 0) t = t[..r];
         return t.Trim();
     }
 
-    /// 隊長回答開頭的 miniKang 提醒（hook 要它加的，給使用者看沒意義）：第一段是「🧢 miniKang：」就拿掉
+    /// 秘書回答開頭的 miniKang 提醒（hook 要它加的，給使用者看沒意義）：第一段是「🧢 miniKang：」就拿掉
     public static string StripNag(string t)
     {
         if (!t.StartsWith("🧢", StringComparison.Ordinal)) return t;
@@ -268,7 +269,7 @@ public static class Answered
     public static string Relay(string name, string? question, string answer)
     {
         var q = question?.Trim() is { Length: > 0 } x ? x : "（卡片上沒有問題文字）";
-        return $"{Prefix}{name}：{q}→{answer}。這題不用再問使用者；隊長卡片上同一題已自動清掉。";
+        return $"{Prefix}{name}：{q}→{answer}。這題不用再問使用者；秘書卡片上同一題已自動清掉。";
     }
 
     /// 比對用：去空白、全形半形問號與句尾標點、不分大小寫
@@ -281,7 +282,7 @@ public static class Answered
         return x.Length > 0 && x == Normal(b);
     }
 
-    /// 改寫隊長的卡片檔（board/cards/<sid>.json）：掛著同一題就拿掉 ask／options；有清掉回 true。
+    /// 改寫秘書的卡片檔（board/cards/<sid>.json）：掛著同一題就拿掉 ask／options；有清掉回 true。
     /// 用 JsonNode 改，其他欄位（Windows 的 SelfReport 沒有的）原樣留著
     public static bool ClearCaptainCard(string sid, string? question, string? dir = null)
     {
@@ -297,7 +298,7 @@ public static class Answered
     }
 }
 
-// MARK: - 收件匣送出的字、隊長開機（Inbox.swift）
+// MARK: - 收件匣送出的字、秘書開機（Inbox.swift）
 
 public static class InboxText
 {
@@ -305,17 +306,17 @@ public static class InboxText
     public static string Message(string text) => text.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
 }
 
-/// 隊長：戰情中心「交給隊長」找不到隊長時，自己開一個背景隊長。
-/// 10-26 Kang：值班用 Opus（Fable 隊長一週佔 24% 用量），要做重大判斷時再手動 /model 升 Fable；設定的 captain.model 仍可覆寫
+/// 秘書：戰情中心「交給秘書」找不到秘書時，自己開一個背景秘書。
+/// 10-26 Kang：值班用 Opus（Fable 秘書一週佔 24% 用量），要做重大判斷時再手動 /model 升 Fable；設定的 captain.model 仍可覆寫
 public static class CaptainLaunch
 {
     public const string DefaultModel = "claude-opus-5-5";
     public const string ModelKey = "captain.model";
 
-    /// 背景隊長的第一句話：登記、守則，以及它看不到終端機 ⇒ 所有要跟使用者講的都走 showork card
+    /// 背景秘書的第一句話：登記、守則，以及它看不到終端機 ⇒ 所有要跟使用者講的都走 showork card
     public static string Bootstrap(string showork, string task) => $"""
-        你是 AI 工作戰情中心的隊長（背景 session，使用者看不到你的終端機）。
-        1. 先跑："{showork}" captain（登記成隊長並印出守則），照守則做事：先看 "{showork}" roster，選人後用 "{showork}" task add 派工；同專案只派一個；小事自己做。
+        你是 AI 工作戰情中心的秘書（背景 session，使用者看不到你的終端機）。
+        1. 先跑："{showork}" captain（登記成秘書並印出守則），照守則做事：先看 "{showork}" roster，選人後用 "{showork}" task add 派工；同專案只派一個；小事自己做。
         2. 你要跟使用者講的話，一律用 "{showork}" card 回報（--summary 寫結果；要他決定就 --status review --ask "<問題>" --options "<選項1>|<選項2>"）。他在戰情中心看卡片、按選項回答你。
         3. 之後使用者從戰情中心交辦的事，會以【使用者從看板交辦】的訊息送進來，一樣照守則處理。
         使用者交辦的第一件事：{task}

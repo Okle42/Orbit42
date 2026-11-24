@@ -202,12 +202,12 @@ public sealed record AskQuestion
     public List<Option> Options { get; set; } = new();
 }
 
-/// 隊長派工單（Mac Captain.swift 的 CaptainTask；卡片上的 tasks。Windows 的看板還不派工，一律空的）
+/// 秘書派工單（Mac Captain.swift 的 CaptainTask；卡片上的 tasks。Windows 的看板還不派工，一律空的）
 public sealed record CaptainTaskInfo
 {
     public enum TaskState { sent, working, review, done, blocked, cancelled }
     public string Id { get; set; } = "";
-    public string From { get; set; } = "";             // 隊長的 sessionId
+    public string From { get; set; } = "";             // 秘書的 sessionId
     public string To { get; set; } = "";               // 對方的 session 名（SendMessage 的地址）
     public string? ToSession { get; set; }             // 派出當下對方的 sessionId
     public string? Project { get; set; }
@@ -221,6 +221,6 @@ public sealed record CaptainTaskInfo
     public string? ThenText { get; set; }              // 交給下一棒的任務
     public string? FollowUp { get; set; }              // 已經開出的下一棒單號
     public string? After { get; set; }                 // 這張是哪張單的下一棒
-    public TaskState? Notified { get; set; }           // 已經通知隊長到哪個狀態（同一個狀態只通知一次）
+    public TaskState? Notified { get; set; }           // 已經通知秘書到哪個狀態（同一個狀態只通知一次）
     public string? SendError { get; set; }             // 直送失敗的原因
 }

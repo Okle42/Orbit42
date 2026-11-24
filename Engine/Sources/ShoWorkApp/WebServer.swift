@@ -4,7 +4,7 @@ import ShoWorkCore
 
 // 網頁版戰情中心的 HTTP 伺服器（11-10，規則在 ShoWorkCore/WebBoard.swift，頁面在 WebPage.swift）。
 // 放在看板常駐程式裡（不是另開 `showork web serve`），因為：①看板資料（BoardModel.shared.cards、captainTasks）本來就在這裡算好，
-// 不用再讀一次 ②回答要走跟收件匣按鈕同一條 BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝，並轉隊長【使用者已答】），
+// 不用再讀一次 ②回答要走跟收件匣按鈕同一條 BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝，並轉秘書【使用者已答】），
 // 那條路是 @MainActor、要 BoardModel，只有這個行程有。
 // 開關：`showork web enable|disable` 寫 web/config.json 後發 ai.okle42.showork.web 通知，這裡重讀，不用重開 agent。
 // Unix socket（Server.swift）完全不動；這是另一個 listener，只綁 Tailscale IP。
@@ -159,7 +159,7 @@ final class WebServer {
         defer { BoardModel.shared.refresh() }
         switch a {
         case .answer(let id, let text):
-            // 跟原生收件匣按選項同一條：BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝；轉隊長【使用者已答】；「放行」直接放行）
+            // 跟原生收件匣按選項同一條：BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝；轉秘書【使用者已答】；「放行」直接放行）
             return WebSnapshot.validate(answer: text, for: id, cards: cards).map { c in
                 answered[c.sessionId] = Date()
                 return BoardActions.answer(c, text: Inbox.message(text))

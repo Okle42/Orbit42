@@ -322,7 +322,7 @@ public sealed class OfficeSource
         return residents;
     }
 
-    /// `scanning`＝保全正在立即掃描；`extra`＝收件匣、隊長對話、進度條這些選填欄位（PROTOCOL.md 的選填表），直接併進 office2
+    /// `scanning`＝保全正在立即掃描；`extra`＝收件匣、秘書對話、進度條這些選填欄位（PROTOCOL.md 的選填表），直接併進 office2
     public string Build(List<BoardCard> cards0, DateTime now, CityState? city, WeatherSite site, WeatherNow? weather, NeuralGraph? graph,
                         IReadOnlyDictionary<string, string>? colors = null, bool reduceMotion = false, bool scanning = false, JsonObject? extra = null)
     {
@@ -354,7 +354,7 @@ public sealed class OfficeSource
         if (mode != null) tower = plan;
         var guardStatus = Guard.status(now);
         var json = Office2.Payload(plan, d, w, islands, guardStatus, scanning, city, now, lighting, site, weather, graph, colors, reduceMotion);
-        // 卡片全部給（含排隊卡 #q…、隊長）：收件匣、需要你列、右鍵選單都讀這份（Mac OfficeView 的 cards）
+        // 卡片全部給（含排隊卡 #q…、秘書）：收件匣、需要你列、右鍵選單都讀這份（Mac OfficeView 的 cards）
         json["cards"] = new JsonArray(cards.Select(c => (JsonNode?)CardMirror.Of(c)).ToArray());
         if (extra != null) foreach (var (k, v) in extra) json[k] = v?.DeepClone();
         return Office2.Json(json);

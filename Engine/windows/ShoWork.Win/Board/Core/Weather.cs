@@ -60,7 +60,7 @@ public sealed record WeatherSite
     /// 預設只看台北（10-25 Kang）
     public static List<WeatherSite> defaults => new() { taipei };
 
-    /// 最多幾個地點（每個地點每 10 分鐘一次請求，常駐程式不無限長；隊長 Penny 10-25）
+    /// 最多幾個地點（每個地點每 10 分鐘一次請求，常駐程式不無限長；秘書 Penny 10-25）
     public const int limit = 5;
 
     static readonly JsonSerializerOptions Opt = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };

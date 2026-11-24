@@ -5,7 +5,7 @@ namespace ShoWork.Hooks;
 // Agent交流互動板（Mac 版 Sources/ShoWorkCore/B1Talk.swift 的移植，board\b1-board.jsonl 格式相同）。
 // 10-27 Kang（T1027193007）改成「收尾時順便留、不叫醒人」：
 //   • 只在收尾那一輪（Stop hook 的收尾提示，用 `showork b1 hint` 取這段；Windows 的 `showork ctx-wrapup` 直接接上）順便留，不多開一輪
-//   • 頂多一則、可以零則；只留「需要修正」的事，附證據；每則留言同時轉給現任隊長（【交流板】）
+//   • 頂多一則、可以零則；只留「需要修正」的事，附證據；每則留言同時轉給現任秘書（【交流板】）
 
 static class B1Talk
 {
@@ -20,7 +20,7 @@ static class B1Talk
     /// 收尾提示裡加的那段（接在發收尾卡之前，收尾卡順延成 ⑤）
     public static string WrapupNote(string showork, List<B1Post> recent)
     {
-        var t = "④交流板檢討（頂多一則、可以零則）：這段工作有失敗、被使用者／隊長糾正、或重工繞遠路才留，一切順利就不留；"
+        var t = "④交流板檢討（頂多一則、可以零則）：這段工作有失敗、被使用者／秘書糾正、或重工繞遠路才留，一切順利就不留；"
             + $"要留就 `\"{showork}\" b1 post --text \"<{MaxChars} 字以內>\"`（**硬上限 {MaxChars} 字，寫好先數字數再送**）：哪裡錯或繞遠路、根因、建議改成什麼規則或做法，附證據（檔名、log、SHA）；"
             + "通用好用技巧不留；不寫帳號、金鑰、客戶名、真實人名";
         var last = recent.Skip(Math.Max(0, recent.Count - RecentN)).ToList();
@@ -61,7 +61,7 @@ sealed class B1Post
     public string Line() =>
         $"#{Id} {At.ToLocalTime():MM-dd HH:mm} {Name}" + (Project.Length == 0 ? "" : $"（{Project}）") + (Re is { } r ? $" ↪#{r}" : "") + $"：{Text}";
 
-    /// 轉給隊長的那則
+    /// 轉給秘書的那則
     public string CaptainText =>
         $"【交流板 #{Id}】{Name}" + (Project.Length == 0 ? "" : $"（{Project}）") + (Re is { } r ? $" 回應 #{r}" : "") + $"：{Text}\n"
         + "（工作心得，請收進流程優化的參考；不用回。全部留言：showork b1 read）";

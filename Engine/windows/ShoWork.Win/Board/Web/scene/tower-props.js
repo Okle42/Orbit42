@@ -13,7 +13,7 @@ const F = Math.fround;
 export const TowerTheme = {
   /** 中文主題名（TowerTheme.swift 的 title；樓層名牌 builder.labelTargets 讀 Tower.TowerTheme.title） */
   title: {
-    monitor: "監控中心", app_studio: "App 開發室", library: "研究書房", print_shop: "3D 列印工坊", call_room: "秘書電話室",
+    monitor: "監控中心", app_studio: "App 開發室", library: "研究書房", print_shop: "3D 列印工坊", call_room: "LINE 秘書電話室",
     trading_desk: "交易室", media_studio: "攝影棚", design_studio: "設計工作室", legal_room: "法務室", ledger_room: "財務帳房",
     game_lab: "遊戲工作室", hw_lab: "硬體實驗室", marketing: "行銷室", dispatch_room: "調度中心", drafting_room: "建築製圖室", general: "通用辦公",
   },
@@ -188,7 +188,7 @@ const all = (() => {
     k.b(x, 0, 0, 0, 1.4, 1.2, 0.35, TM.f(TP.FN5));
     for (let i = 0; i < 3; i++) k.b(x, -0.45 + i * 0.45, 1.2, 0, 0.25, 0.25, 0.25, TM.f(TP.WL1));
   });
-  // ── 5 秘書電話室
+  // ── 5 LINE 秘書電話室
   p["phone_booth"] = def(1.1, 1.1, 2.2, R.wall, (k, x, a) => {
     k.b(x, 0, 0, 0, 1.1, 0.06, 1.1, a); k.b(x, 0, 2.12, 0, 1.1, 0.08, 1.1, a);
     for (const [sx, sz] of [[-0.53, -0.53], [0.53, -0.53], [-0.53, 0.53], [0.53, 0.53]]) k.b(x, sx, 0, sz, 0.05, 2.12, 0.05, TM.f(TP.FN3));

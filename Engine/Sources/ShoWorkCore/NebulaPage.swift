@@ -2,7 +2,7 @@ import Foundation
 
 // 3D 知識星雲頁（10-22 Kang：「這個圖片可以變成 3D 一點的星雲圖嗎？」——Graphify 原本的 graph.html 是 2D）。
 // 頁面範本＋繪圖函式庫（three.js 0.180、3d-force-graph 1.80.1）打包在 assets/nebula/，安裝時放到 App Support/ShoWork42/nebula/，
-// 不走 CDN（10-22 隊長 Chris：斷網或 CDN 改版就開不了、也少一條對外連線）。這裡只做純函式：graph.json → 頁面要的精簡資料 → 套範本。
+// 不走 CDN（10-22 秘書 Chris：斷網或 CDN 改版就開不了、也少一條對外連線）。這裡只做純函式：graph.json → 頁面要的精簡資料 → 套範本。
 
 public enum NebulaPage {
     /// 一頁最多幾顆星（再多瀏覽器會卡）

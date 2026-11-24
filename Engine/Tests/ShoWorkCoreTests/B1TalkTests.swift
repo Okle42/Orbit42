@@ -26,7 +26,7 @@ struct B1TalkTests {
         #expect(!n.contains("\n"))          // hook 把它接進同一段收尾提示
     }
 
-    @Test("留言板：編號遞增、一行一則、轉隊長的文字")
+    @Test("留言板：編號遞增、一行一則、轉秘書的文字")
     func board() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("b1board-\(UUID().uuidString)")
         let f = dir.appendingPathComponent("b1-board.jsonl")

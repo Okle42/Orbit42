@@ -1,11 +1,11 @@
 import Foundation
 
-// 第 3 步：直接派工給隊長（10-22）。收件匣的「交給隊長」本來只能送，隊長的回答只在它的終端機裡，
-// Kang 只好 attach 到隊長視窗跟它講話。這裡從隊長的對話紀錄（jsonl 尾端）整理出「隊長對話」：
-//   • Kang：在隊長終端機打的（origin.kind == human）、從戰情中心送的（peer，from-name「AI工作戰情中心（使用者）」）
-//   • 隊長：每一輪最後的那段話（stop_reason == end_turn 的文字）——就是它要講給 Kang 聽的
+// 第 3 步：直接派工給秘書（10-22）。收件匣的「交給秘書」本來只能送，秘書的回答只在它的終端機裡，
+// Kang 只好 attach 到秘書視窗跟它講話。這裡從秘書的對話紀錄（jsonl 尾端）整理出「秘書對話」：
+//   • Kang：在秘書終端機打的（origin.kind == human）、從戰情中心送的（peer，from-name「AI工作戰情中心（使用者）」）
+//   • 秘書：每一輪最後的那段話（stop_reason == end_turn 的文字）——就是它要講給 Kang 聽的
 //   • 回報：其他 AI 的【工作回報】【派工回報】只留第一行，灰色小字；AI 之間的自由訊息只顯示「誰傳來一則訊息」
-//   不顯示：工具呼叫的輸入與結果、thinking、每輪中途的話（10-22 隊長審查：工具往返裡有帳號、金鑰路徑、證件檔路徑）
+//   不顯示：工具呼叫的輸入與結果、thinking、每輪中途的話（10-22 秘書審查：工具往返裡有帳號、金鑰路徑、證件檔路徑）
 // 10-25 點任何一個 AI 都能在右邊看它的對話（full 模式）：多了每輪中途的話、工具一行摘要（工具名＋AI 自己寫的說明或檔名），
 //   工具的輸入原文與結果照樣不顯示。
 // 純函式，畫面只負責顯示。
@@ -23,7 +23,7 @@ public struct CaptainLine: Sendable, Equatable, Identifiable {
 }
 
 public enum CaptainThread {
-    /// 看板送給隊長時包在外面的字（BoardActions.toCaptain）
+    /// 看板送給秘書時包在外面的字（BoardActions.toCaptain）
     public static let boardPrefix = "【使用者從看板交辦】"
     public static let boardFromName = "AI工作戰情中心（使用者）"
     public static let keep = 40
@@ -39,7 +39,7 @@ public enum CaptainThread {
     /// - Parameter full: 也收每輪中途的話與工具摘要（右側對話窗格看一般 AI 用）
     public static func parse(_ tail: Data, full: Bool = false) -> [CaptainLine] {
         var out: [CaptainLine] = []
-        var skipNoopReply = false        // 舊版每 30 分鐘送「【巡檢時間】無變化」，隊長回一句「巡檢無變化，沒有動作」：兩邊都不顯示（11-09 使用者：很亂）
+        var skipNoopReply = false        // 舊版每 30 分鐘送「【巡檢時間】無變化」，秘書回一句「巡檢無變化，沒有動作」：兩邊都不顯示（11-09 使用者：很亂）
         for raw in tail.split(separator: 0x0A) {
             guard raw.count < 2 << 20, let o = try? JSONSerialization.jsonObject(with: Data(raw)) as? [String: Any] else { continue }
             let type = o["type"] as? String
@@ -89,7 +89,7 @@ public enum CaptainThread {
     }
 
     static let alarmUnchangedPrefix = "【巡檢時間】無變化"
-    /// 隊長對「無變化」巡檢的短回覆（「巡檢無變化，沒有動作。」之類）
+    /// 秘書對「無變化」巡檢的短回覆（「巡檢無變化，沒有動作。」之類）
     static func isNoopPatrolReply(_ t: String) -> Bool { t.count <= 40 && t.contains("無變化") }
 
     /// 工具一行：工具名＋AI 自己寫的說明或檔名（不放指令原文、網址參數、檔案內容）
@@ -133,11 +133,12 @@ public enum CaptainThread {
     static func boardText(_ body: String) -> String {
         var t = body.hasPrefix(boardPrefix) ? String(body.dropFirst(boardPrefix.count))
             : body.hasPrefix(answerPrefix) ? String(body.dropFirst(answerPrefix.count)) : body
-        if let r = t.range(of: "\n請照隊長守則") { t = String(t[..<r.lowerBound]) }
+        // 改名前的紀錄寫的是「隊長守則」
+        if let r = t.range(of: "\n請照秘書守則") ?? t.range(of: "\n請照隊長守則") { t = String(t[..<r.lowerBound]) }
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 隊長回答開頭的 miniKang 提醒（hook 要它加的，給 Kang 看沒意義）：第一段是「🧢 miniKang：」就拿掉
+    /// 秘書回答開頭的 miniKang 提醒（hook 要它加的，給 Kang 看沒意義）：第一段是「🧢 miniKang：」就拿掉
     static func stripNag(_ t: String) -> String {
         guard t.hasPrefix("🧢") else { return t }
         let parts = t.components(separatedBy: "\n\n")

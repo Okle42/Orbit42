@@ -1,9 +1,9 @@
 import Foundation
 import ShoWorkCore
 
-// Agent交流互動板（10-24 Kang：B1 交流不一定要面對面，改成留言板；內容都進隊長的優化指揮）
-//   showork b1 read [--n 20] [--all]      看最近的留言（隊長整理流程優化、AI 留言前先看）
-//   showork b1 post --text "…" [--re 編號]  留一則；同時轉給現任隊長
+// Agent交流互動板（10-24 Kang：B1 交流不一定要面對面，改成留言板；內容都進秘書的優化指揮）
+//   showork b1 read [--n 20] [--all]      看最近的留言（秘書整理流程優化、AI 留言前先看）
+//   showork b1 post --text "…" [--re 編號]  留一則；同時轉給現任秘書
 //   showork b1 hint                       印收尾提示要加的那段（hook_ctx_wrapup.py 用；10-27 改成收尾時順便留）
 enum B1CLI {
     static func run(_ args: [String]) -> Int32 {
@@ -27,11 +27,11 @@ enum B1CLI {
                 CaptainCLI.err("沒有留成（內容是空的，或寫檔失敗）"); return 1
             }
             print("已留言 #\(p.id)" + (B1Board.clean(text).count > B1Talk.maxChars ? "（超過 \(B1Talk.maxChars) 字，下次精簡一點）" : ""))
-            // 轉給現任隊長（自己就是隊長、或隊長不在線就不送；留言本身已經在板上）
+            // 轉給現任秘書（自己就是秘書、或秘書不在線就不送；留言本身已經在板上）
             if let cap = CaptainStore.captain(), cap.sessionId != sid, let r = Peer.find(cap.sessionId) {
                 switch Peer.send(to: r, text: p.captainText, fromName: "AI工作戰情中心（Agent交流互動板）") {
-                case .success: print("已轉給隊長 \(cap.name ?? r.name ?? "")")
-                case .failure(let e): print("轉給隊長失敗（\(e)）；留言在板上，隊長用 showork b1 read 看得到")
+                case .success: print("已轉給秘書")
+                case .failure(let e): print("轉給秘書失敗（\(e)）；留言在板上，秘書用 showork b1 read 看得到")
                 }
             }
             return 0

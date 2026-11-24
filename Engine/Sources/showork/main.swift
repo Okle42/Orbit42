@@ -7,7 +7,7 @@
 //   showork title [--done]  hook：回傳 terminalSequence，把視窗標題改成「英文名-任務」
 //   showork permit         PermissionRequest hook：等你在戰情中心收件匣按允許／拒絕（會讀 stdin、最久等 1 小時）
 //   showork guard-push     PreToolUse(Bash) hook：1 樓保全在 git push 之前檢查（擋 ghosts／old-history／金鑰⋯，規則在 PushGuard.swift）
-//   showork captain        把目前這個 session 設成隊長，印出隊長守則
+//   showork captain        把目前這個 session 設成秘書，印出秘書守則
 //   showork roster [--json]  名冊：每個 session 的名字、專案、在做什麼、重工警告
 //   showork task add --to <英文名，例如 Chris> --text "…"   建派工單，印出要用 SendMessage 送的全文
 //   showork task cancel <單號>    showork tasks [--all]
@@ -80,7 +80,7 @@ if args.first == "card" {
             if var t = CaptainStore.task(id) { t.apply(r); CaptainStore.save(t) }
             else { FileHandle.standardError.write(Data("showork card：找不到派工單 \(id)（自報已存）\n".utf8)) }
         }
-        if r.isStart {     // 開工卡也進隊長收件匣（看板轉送成功才標已送；新隊長 showork captain 會看到沒送到的）
+        if r.isStart {     // 開工卡也進秘書收件匣（看板轉送成功才標已送；新秘書 showork captain 會看到沒送到的）
             CaptainInbox.save(CaptainInboxItem(id: CaptainInbox.newID(.start), kind: .start, at: r.at, sid: sid, name: NicknameStore.ensure(sid).name,
                                                project: CaptainStore.roster()?.entries.first { $0.sessionId == sid }?.project,
                                                text: [r.doing, r.summary].compactMap { $0 }.joined(separator: "：")))
@@ -110,7 +110,7 @@ if args.first == "title" {
         prompt = o["prompt"] as? String
         cwdPath = o["cwd"] as? String
     }
-    // 開工卡（T1024033803 ①）：使用者直接下的指令 ⇒ 提醒動手前先發；隊長自己不用（隊長只審不做）；local.json 的 noKickoffRepos（例如秘書）不發
+    // 開工卡（T1024033803 ①）：使用者直接下的指令 ⇒ 提醒動手前先發；秘書自己不用（秘書只審不做）；local.json 的 noKickoffRepos（例如 LINE 秘書）不發
     //   距上一道使用者指令超過 10 分鐘＝完整提醒；10 分鐘內＝只在換了任務時才發
     //   使用者打「放行」／「放行 <單號>」＝放行這個 session 被擋下的指令（寫 board/permits/releases.jsonl）
     // 收尾後只有使用者本人又下指令才不自動 /clear；其他 session／看板的訊息回一段「交接中」提醒（T1026230337）
@@ -160,8 +160,9 @@ if args.first == "title" {
     if let sid, NicknameStore.get(sid) == nil, let ctx {
         print(Nicknames.hookOutput(nil, done: done, event: event, context: ctx))
     }
-    if let sid, let n = NicknameStore.get(sid) {
+    if let sid, var n = NicknameStore.get(sid) {
         NicknameStore.touch(sid)
+        if CaptainStore.captain()?.sessionId == sid { n.name = Nicknames.captainTitle }      // 秘書的標題與收件地址都只叫「秘書」
         print(Nicknames.hookOutput(n, done: done, event: event, context: ctx))
         // 做完時 Claude Code 會在 Stop hook 之後把標題改回它自己的 session 標題（10-19 實測：Dora 一閒下來就變回「✳ Handoff 88」），
         // 所以 1.5 秒後直接寫一次 OSC 0 到這個 session 的 tty；閒置時 Claude 不會再動標題
@@ -210,11 +211,11 @@ func ghExempt(_ hs: inout [(rule: CaptainLink.Rule, segment: String)], _ cmd: St
 }
 
 // PreToolUse(Bash) hook：1 樓保全的 push 守門（規則在 ShoWorkCore/PushGuard.swift）。不是 git push 就馬上安靜離開。
-// 同一個 hook 也做隊長連動②「動作預告」：高風險指令執行前通知隊長（不阻擋，規則在 ShoWorkCore/CaptainLink.swift）
+// 同一個 hook 也做秘書連動②「動作預告」：高風險指令執行前通知秘書（不阻擋，規則在 ShoWorkCore/CaptainLink.swift）
 if args.first == "guard-push" {
     guard isatty(0) == 0, let o = try? JSONSerialization.jsonObject(with: FileHandle.standardInput.readDataToEndOfFile()) as? [String: Any],
           let cmd = (o["tool_input"] as? [String: Any])?["command"] as? String else { exit(0) }
-    if !isReviewer, let sid = o["session_id"] as? String, CaptainStore.captain()?.sessionId != sid {   // 隊長自己不擋不預告（隊長只審不做）
+    if !isReviewer, let sid = o["session_id"] as? String, CaptainStore.captain()?.sessionId != sid {   // 秘書自己不擋不預告（秘書只審不做）
         var hs = CaptainLink.hits(cmd, rules: CaptainLink.loadRules())
         let ghWhy = ghExempt(&hs, cmd, cwd: o["cwd"] as? String ?? FileManager.default.currentDirectoryPath)
         let hits = hs.map(\.rule)
@@ -227,7 +228,7 @@ if args.first == "guard-push" {
             let released = !blocks.isEmpty && CaptainInbox.consume(sid: sid, fingerprint: fp, now: now)
             if !blocks.isEmpty, !released,
                let pre = CaptainInbox.usePreapproval(sid: sid, rules: blocks.map(\.name), now: now) {
-                // 戰情中心回答已點名這個動作＝事先放行：記成已放行＋已用、通知隊長，照常往下跑
+                // 戰情中心回答已點名這個動作＝事先放行：記成已放行＋已用、通知秘書，照常往下跑
                 let base = CaptainInbox.waiting(sid: sid, fingerprint: fp, now: now) ?? CaptainInboxItem(id: CaptainInbox.newID(.block), kind: .block, at: now, sid: sid, name: name,
                                                                                                project: project, kinds: hits.map(\.name), text: CaptainLink.hitSummary(cmd, hs), fingerprint: fp)
                 var item = CaptainInbox.releaseByAnswer(base, answer: pre, now: now)
@@ -236,17 +237,17 @@ if args.first == "guard-push" {
                     item.delivered = true; CaptainInbox.save(item)
                 }
             } else if !blocks.isEmpty, !released {
-                // 擋下等放行：同一個指令重試不再開新單；第一次立即送隊長（不在線就留在收件匣）
+                // 擋下等放行：同一個指令重試不再開新單；第一次立即送秘書（不在線就留在收件匣）
                 var item = CaptainInbox.waiting(sid: sid, fingerprint: fp, now: now) ?? CaptainInboxItem(id: CaptainInbox.newID(.block), kind: .block, at: now, sid: sid, name: name,
                                                                                                project: project, kinds: hits.map(\.name), text: CaptainLink.hitSummary(cmd, hs) + (ghWhy.map { "（\($0)）" } ?? ""), fingerprint: fp)
-                if !item.delivered, let cap = CaptainStore.captain(), let to = Peer.find(cap.sessionId),
+                if CaptainLink.pushNow(item), let cap = CaptainStore.captain(), let to = Peer.find(cap.sessionId),
                    case .success = Peer.send(to: to, text: CaptainLink.blockText(item), fromName: "AI工作戰情中心（動作預告）") { item.delivered = true }
                 CaptainInbox.save(item)
                 let o: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": CaptainLink.denyReason(item)]]
                 print(String(decoding: (try? JSONSerialization.data(withJSONObject: o)) ?? Data(), as: UTF8.self))
                 exit(0)
             }
-            // 不擋的：先進收件匣，看板把同一 session 一小段時間內的合成一則送（CaptainLink.dueNotices）
+            // 不擋的：只進收件匣，不叫醒秘書（11-24）
             if !notices.isEmpty {
                 CaptainInbox.save(CaptainInboxItem(id: CaptainInbox.newID(.notice), kind: .notice, at: now, sid: sid, name: name, project: project,
                                                    kinds: notices.map(\.name), text: CaptainLink.hitSummary(cmd, hs.filter { !$0.rule.block })))
@@ -355,7 +356,7 @@ if args.first == "asks" {
     exit(0)
 }
 
-// 11-22 職稱：`showork role 隊長`（設自己的）、`showork role --clear`、`showork role --for <英文名> 審核員`（設別人的）
+// 11-22 職稱：`showork role 秘書`（設自己的）、`showork role --clear`、`showork role --for <英文名> 審核員`（設別人的）
 // 畫面上有職稱就顯示職稱，沒有就「專案 · 任務」；英文名只當收件地址
 if args.first == "role" {
     var rest = Array(args.dropFirst()), target = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ID"]
@@ -363,7 +364,7 @@ if args.first == "role" {
         let who = rest[1]; rest.removeFirst(2)
         let names = NicknameStore.all()
         let live = NicknameStore.liveSessions()
-        let hit = ShortName.match(who, among: live.map { ($0.sessionId, $0.name) }, nick: names.mapValues(\.name))
+        let hit = ShortName.match(who, among: live.map { ($0.sessionId, $0.name) }, nick: names.mapValues(\.name), captain: CaptainStore.captain()?.sessionId)
         guard hit.count == 1 else { FileHandle.standardError.write(Data("找不到（或不只一個）叫 \(who) 的 session\n".utf8)); exit(1) }
         target = hit[0]
     }

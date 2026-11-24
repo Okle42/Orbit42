@@ -40,7 +40,7 @@ final class OfficeBuilder {
     static let lobbyOmni: Double = env("SHOWORK_OFFICE_LOBBY") ?? 900
     /// 每層室內燈的衰減終點（公尺）：有光照位元分層，拉長也不會照到上下層
     static let floorRange: CGFloat = env("SHOWORK_OFFICE_RANGE").map { CGFloat($0) } ?? 11
-    /// 每層室內燈的光照位元（隊長 Penny：SceneKit 每個 geometry 最多吃 8 盞燈，多的靜默丟掉）：第 i 個專案樓層用 bit 8+(i%16)，
+    /// 每層室內燈的光照位元（秘書 Penny：SceneKit 每個 geometry 最多吃 8 盞燈，多的靜默丟掉）：第 i 個專案樓層用 bit 8+(i%16)，
     /// 那層的幾何（玻璃除外）加這個位元、那層的燈只照這個位元 ⇒ 每個 geometry 只吃自己那盞＋太陽／補光，永遠不超過上限。
     /// 相隔 16 層才會共用同一個位元（48 公尺，遠超過燈的衰減距離）
     /// 測試：SHOWORK_OFFICE_LEGACY_NIGHT=1 ＝ 10-25 以前的夜晚燈光（量測對照用）
@@ -1457,7 +1457,7 @@ final class OfficeBuilder {
 
     private var frontDoor: SCNNode? { modules["lobby"]?.parts.node.childNode(withName: "fdoor", recursively: false) }
 
-    /// 照行程排正門：人走進門口 1.4 公尺內提早 doorTime 開；最後一個人離開 1 秒後才關（隊長 Penny：多人進出不抖）。
+    /// 照行程排正門：人走進門口 1.4 公尺內提早 doorTime 開；最後一個人離開 1 秒後才關（秘書 Penny：多人進出不抖）。
     /// 一次性 SCNAction（TowerCore.runDoor），不每幀檢查；現在只有保全巡邏會走大門
     private func scheduleFrontDoor(_ path: TripPath, start: Date, now: Date) {
         guard let d = frontDoor else { return }

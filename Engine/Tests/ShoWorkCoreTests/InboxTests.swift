@@ -53,12 +53,12 @@ struct InboxTests {
         #expect(Inbox.message(" 好\n做 ") == "好 做")
     }
 
-    @Test("背景隊長的第一句話帶登記、回報方式與交辦內容")
+    @Test("背景秘書的第一句話帶登記、回報方式與交辦內容")
     func bootstrap() {
-        // 11-24 隊長改背景終端機型：已是背景 session 的不能再帶參數（會開成副本）
+        // 11-24 秘書改背景終端機型：已是背景 session 的不能再帶參數（會開成副本）
         #expect(CaptainLaunch.bgArgs(resume: "s1", saved: true, model: "m", prompt: "p") == ["--bg", "--resume", "s1", "p"])
         let fresh = CaptainLaunch.bgArgs(resume: nil, saved: false, model: "m", prompt: "p")
-        #expect(fresh.contains("隊長") && fresh.last == "p" && !fresh.contains("--resume"))
+        #expect(fresh.contains("秘書") && fresh.last == "p" && !fresh.contains("--resume"))
         #expect(CaptainLaunch.bgArgs(resume: "s1", saved: false, model: "m", prompt: nil).contains("--model"))
         #expect(CaptainLaunch.bgJob("note: x\nbackgrounded · 03e944d5 · Ivan5\n") == "03e944d5")
         #expect(CaptainLaunch.bgJob("error") == nil)
@@ -127,7 +127,7 @@ struct ShortNameTests {
         #expect(Nicknames.inherited(d([#"{"type":"custom-title","customTitle":"Bella","sessionId":"x"}"#])) == "Bella")
         #expect(Nicknames.inherited(d([#"{"type":"mode"}"#, #"{"type":"custom-title","customTitle":"Bella-清模擬器"}"#])) == "Bella")
         #expect(Nicknames.inherited(d([#"{"type":"agent-name","agentName":"Alex2"}"#])) == "Alex2")
-        #expect(Nicknames.inherited(d([#"{"type":"custom-title","customTitle":"隊長"}"#])) == nil)
+        #expect(Nicknames.inherited(d([#"{"type":"custom-title","customTitle":"秘書"}"#])) == nil)
         #expect(Nicknames.inherited(d([#"{"type":"user","message":"hi"}"#])) == nil && Nicknames.inherited(nil) == nil)
     }
 

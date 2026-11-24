@@ -2,7 +2,7 @@ import SwiftUI
 import Speech
 import AVFoundation
 
-/// 11-24 Keng：手機說話給 Mac 上的智能體（跟在 Mac 上按住智能體講話同一條路：簡單的它自己答，答不了交給隊長）。
+/// 11-24 Keng：手機說話給 Mac 上的智能體（跟在 Mac 上按住智能體講話同一條路：簡單的它自己答，答不了交給秘書）。
 /// iPhone 內建語音辨識（中文），停頓 1.6 秒就自動結束、送到 Mac 的 /api/say。動作按鈕／控制中心按鈕也是開這個。
 @MainActor
 final class VoiceInput: ObservableObject {

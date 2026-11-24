@@ -23,7 +23,7 @@ struct IslandsTests {
         #expect(Mood.of(fresh) == .asleep)                     // 從來沒用過＝睡覺；做完已讀＝休息
     }
 
-    @Test("配件：隊長皇冠優先、秘書專案耳機、研究審核標題眼鏡")
+    @Test("配件：秘書皇冠優先、LINE 秘書專案耳機、研究審核標題眼鏡")
     func accessories() {
         LocalFixture.use()
         let h = Islands.defaultHeadsetProjects

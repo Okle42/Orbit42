@@ -410,7 +410,7 @@ public sealed record TeamConfig
 
     static readonly JsonSerializerOptions Opt = new() { PropertyNameCaseInsensitive = true };
     public static TeamConfig? Decode(string json) { try { return JsonSerializer.Deserialize<TeamConfig>(json, Opt); } catch { return null; } }
-    /// 隊長以外的人
+    /// 秘書以外的人
     public IEnumerable<TeamMember> Teammates => Members.Where(m => m.AgentType != "team-lead");
 }
 
@@ -453,12 +453,12 @@ public sealed record BoardCard
     public Review? Review { get; set; }            // 這一輪的審核
     public ContextUse? Ctx { get; set; }           // context 用量
     public string? Name { get; set; }              // session 名（SendMessage 的地址）
-    public bool Captain { get; set; }              // 是不是隊長
+    public bool Captain { get; set; }              // 是不是秘書
     public List<string> SameProject { get; set; } = new();   // 同專案的其他 session（重工警告）
     public string? Visiting { get; set; }          // 人還住在 project，但最近 cd 去逛的另一個專案（島上畫影分身）
     public bool Unused { get; set; }               // 開了 claude 但從來沒交代過事（島上畫睡覺）
     // 11-02 P8：Mac BoardCard 10-20 之後的欄位（office2 的 card 跟 Mac 同形狀）。Windows 的 BoardReader 還沒算，一律預設值；示範卡片才有值
-    public List<CaptainTaskInfo> Tasks { get; set; } = new();   // 隊長：派出去的單；其他人：交給它、還沒結束的單
+    public List<CaptainTaskInfo> Tasks { get; set; } = new();   // 秘書：派出去的單；其他人：交給它、還沒結束的單
     public AIActivity Activity { get; set; }                    // 現在在做哪一類動作（只有進行中有值，其餘 none）
     public BlockedReason? BlockedReason { get; set; }           // 卡住／等你回答的原因（判不出就 null）
     public List<SubagentInfo> Subagents { get; set; } = new();  // 進行中的子 agent

@@ -212,7 +212,7 @@ final class OfficeWebHost: NSObject, WKScriptMessageHandler, WKNavigationDelegat
             toast(BoardActions.permit(c, PermitAnswer(d, message: str("message"), answers: m["answers"] as? [String: [String]])))
         case "askCaptain":
             let text = str("text") ?? ""
-            if blocked { return toast("測試：不交給隊長「\(text)」", captainDone: true) }
+            if blocked { return toast("測試：不交給秘書「\(text)」", captainDone: true) }
             DispatchQueue.global().async {
                 let msg = BoardActions.askCaptain(text)
                 DispatchQueue.main.async { MainActor.assumeIsolated { self.toast(msg, captainDone: true) } }
@@ -333,7 +333,7 @@ final class OfficeWebHost: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         if blocked { print("office-web toast:", text); fflush(stdout) }
         if let t = onToast {
             t(text)
-            if captainDone { post(["type": "captainBusy", "busy": false]) }      // 清掉網頁上的「隊長開啟中」
+            if captainDone { post(["type": "captainBusy", "busy": false]) }      // 清掉網頁上的「秘書開啟中」
             return
         }
         var o: [String: Any] = ["type": "toast", "text": text]
