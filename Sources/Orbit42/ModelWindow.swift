@@ -18,7 +18,7 @@ enum ModelLoader {
     static func accepts(_ u: URL) -> Bool { let e = u.pathExtension.lowercased(); return all.contains(e) || closed[e] != nil }
 
     struct Failure: LocalizedError { let msg: String; var errorDescription: String? { msg } }
-    struct Loaded { let node: SCNNode; let size: SCNVector3; let parts: Int; let triangles: Int; let unit: String }
+    struct Loaded { var phone: Data? = nil; let node: SCNNode; let size: SCNVector3; let parts: Int; let triangles: Int; let unit: String }
 
     static let freecad = "/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd"
     static let blenderApp = "/Applications/Blender.app/Contents/MacOS/Blender"
@@ -58,7 +58,7 @@ enum ModelLoader {
         root.position = SCNVector3(-(lo.x + hi.x) / 2, -(lo.y + hi.y) / 2, -(lo.z + hi.z) / 2)
         if zUp { holder.eulerAngles.x = -.pi / 2 }
         let out = SCNNode(); out.addChildNode(holder)
-        return Loaded(node: out, size: size, parts: parts, triangles: tris, unit: unit)
+        return Loaded(phone: PhoneMesh.pack(out), node: out, size: size, parts: parts, triangles: tris, unit: unit)
     }
 
     private static func readScene(_ url: URL, into root: SCNNode) throws -> Bool {
@@ -183,6 +183,8 @@ final class ModelView: NSView {
     var onShut: (() -> Void)? { didSet { shut.isHidden = onShut == nil; fold.isHidden = onShut == nil } }
     var onTuck: () -> Void = {}
     private let fold = NSButton(title: "－", target: nil, action: nil)
+    /// 給 iPhone 的內容（PhonePane.swift）：換檔就換版本
+    private(set) var phoneData: Data?, phoneVer = Int(Date().timeIntervalSince1970) % 1_000_000, baseInfo = ""
     var isImage: Bool { !flat.isHidden }
     var hasPicture: Bool { picture.image != nil }
     private var root = SCNNode(), loaded: ModelLoader.Loaded?, wire = false
@@ -257,15 +259,18 @@ final class ModelView: NSView {
         }
         var size = img.size                                        // 點陣圖用像素大小（DPI 標記不同也一樣大）
         if let r = img.representations.first, r.pixelsWide > 0, r.pixelsHigh > 0 { size = NSSize(width: r.pixelsWide, height: r.pixelsHigh); img.size = size }
+        phoneData = d.count <= PhoneMesh.maxBytes && !["svg", "pdf"].contains(u.pathExtension.lowercased()) ? d : img.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }
+        phoneVer += 1
         picture.image = img; picture.frame = NSRect(origin: .zero, size: size)
         flat.isHidden = false; message.isHidden = true; fitPicture()
+        baseInfo = "\(Int(size.width)) × \(Int(size.height))"
         info.stringValue = "\(Int(size.width)) × \(Int(size.height))   \(u.pathExtension.uppercased())"
         onLoaded(true)
     }
 
     func open(_ u: URL) {
         cancel()
-        url = u
+        url = u; phoneData = nil; phoneVer += 1; baseInfo = ""
         if !history.contains(u) { history.append(u) }
         files.removeAllItems()
         for h in history { files.menu?.addItem(NSMenuItem(title: h.lastPathComponent, action: nil, keyEquivalent: "")) }
@@ -290,8 +295,9 @@ final class ModelView: NSView {
                 self.process = nil
                 switch r {
                 case .success(let l):
+                    self.phoneData = l.phone; self.phoneVer += 1
                     self.loaded = l; self.message.isHidden = true
-                    self.root.addChildNode(l.node); self.summary(); self.look(0); self.onLoaded(true)
+                    self.root.addChildNode(l.node); self.summary(); self.baseInfo = self.info.stringValue; self.look(0); self.onLoaded(true)
                 case .failure(let e):
                     self.message.stringValue = e.localizedDescription; self.onLoaded(false)
                 }

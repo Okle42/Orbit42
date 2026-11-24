@@ -128,6 +128,7 @@ struct MainView: View {
     @State private var sats: [Sat] = []
     @State private var path: [Sat] = []
     @State private var satError: String?
+    @State private var wantTab: String?
 
     init(link: MacLink, onForget: @escaping () -> Void) {
         self.link = link; self.onForget = onForget
@@ -155,7 +156,7 @@ struct MainView: View {
                                 Circle().fill(s.state == "busy" ? Color.okAccent : s.state == "exited" ? .gray : Color.okGreen).frame(width: 8, height: 8)
                                 VStack(alignment: .leading) {
                                     Text(s.name).font(.headline)
-                                    Text("\(s.brainLabel) · \(stateText(s.state))").font(.caption).foregroundStyle(.secondary)
+                                    Text("\(s.brainLabel) · \(stateText(s.state))" + (s.moons.isEmpty ? "" : " · " + s.moons.map { $0 == "web" ? "網頁" : "3D" }.joined(separator: "、"))).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -171,7 +172,7 @@ struct MainView: View {
                     }
                 }
                 .navigationTitle("衛星")
-                .navigationDestination(for: Sat.self) { s in TermScreen(model: TermModel(link: link, sat: s)) }
+                .navigationDestination(for: Sat.self) { s in TermScreen(link: link, sat: s, want: $wantTab).id(s.id) }
                 .refreshable { await loadSats() }
             }
             .tabItem { Label("衛星", systemImage: "terminal") }.tag(1)
@@ -179,11 +180,17 @@ struct MainView: View {
         .task {
             sphere.start()
             // 測試：ORBIT_PHONE_TAB=sat ⇒ 一開就到衛星分頁、打開第一顆（模擬器沒辦法用指令點畫面）
-            if ProcessInfo.processInfo.environment["ORBIT_PHONE_TAB"] == "sat" { await loadSats(); tab = 1; if let s = sats.first { path = [s] } }
+            if ProcessInfo.processInfo.environment["ORBIT_PHONE_TAB"] == "sat" { await loadSats(); tab = 1; wantTab = ProcessInfo.processInfo.environment["ORBIT_PHONE_PANE"]; if let s = sats.first { path = [s] } }
             await satLoop()
         }
         .onReceive(VoiceInput.shared.$listening) { if $0 { tab = 0 } }      // 11-24 動作按鈕／控制中心開始聽 ⇒ 回球體分頁（字幕在那）
         .onAppear {
+            sphere.onMoon = { sid, kind in
+                Task {
+                    await loadSats()
+                    if let s = sats.first(where: { $0.sessionId == sid }) { wantTab = kind; tab = 1; path = [s] }
+                }
+            }
             // 點球上的 session：是 Orbit42 衛星就切過去看它的終端機
             sphere.onFocus = { sid in
                 Task {
@@ -199,7 +206,7 @@ struct MainView: View {
 
     func loadSats() async {
         if link.isDemo { sats = Sat.demo; return }
-        do { sats = Sat.list(try await OrbitAPI(link: link).sats()); satError = nil }
+        do { sats = Sat.list(try await OrbitAPI(link: link).sats()); satError = nil; sphere.setMoons(sats) }
         catch { if NetStats.shared.down { satError = error.localizedDescription } }     // 偶爾失敗一次不換掉清單、不跳紅字
     }
     func satLoop() async {
@@ -209,24 +216,51 @@ struct MainView: View {
 
 struct TermScreen: View {
     @StateObject var model: TermModel
+    @StateObject var panes: PaneModel
+    @StateObject private var phoneWeb = PhoneWeb()
+    @State var tab = "term"
+    @Binding var want: String?
     @ObservedObject private var look = Look.shared
+    init(link: MacLink, sat: Sat, want: Binding<String?>) {
+        _model = StateObject(wrappedValue: TermModel(link: link, sat: sat))
+        _panes = StateObject(wrappedValue: PaneModel(link: link, sat: sat))
+        _want = want
+    }
+    private func take() { if let w = want { tab = w; want = nil } }
     var body: some View {
         VStack(spacing: 0) {
-            ZStack(alignment: .bottom) {
-                WebBox(web: model.web)
-                if let e = model.error { Banner(text: e) }
+            Picker("", selection: $tab) {
+                Text("終端機").tag("term")
+                Text("3D").tag("3d")
+                Text("網頁").tag("web")
             }
-            KeyBar(light: model.light, send: { model.send(Data($0.utf8)) })
+            .pickerStyle(.segmented).padding(.horizontal, 10).padding(.vertical, 6)
+            switch tab {
+            case "3d": ModelPane(model: panes)
+            case "web": WebPaneView(panes: panes, model: phoneWeb)
+            default:
+                ZStack(alignment: .bottom) {
+                    WebBox(web: model.web)
+                    if let e = model.error { Banner(text: e) }
+                }
+                KeyBar(light: model.light, send: { model.send(Data($0.utf8)) })
+            }
         }
         .background(model.light ? Color(uiColor: TermModel.lightBG) : Color.black)
         .navigationTitle(model.sat.name).navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
-            Button { model.toggleKeyboard() } label: { Image(systemName: model.keyboard ? "keyboard.chevron.compact.down" : "keyboard") }
-                .accessibilityLabel(model.keyboard ? "收起鍵盤" : "打字")
+            if tab == "term" { Button { model.toggleKeyboard() } label: { Image(systemName: model.keyboard ? "keyboard.chevron.compact.down" : "keyboard") }
+                .accessibilityLabel(model.keyboard ? "收起鍵盤" : "打字") }
         } }
-        .onAppear { _ = model.web; model.setLight(look.light); model.start() }
+        .onAppear { _ = model.web; model.setLight(look.light); take(); sync() }
+        .onChange(of: want) { _, _ in take() }
+        .onChange(of: tab) { _, _ in sync() }
         .onChange(of: look.light) { _, l in model.setLight(l) }      // 11-24 智能體換配色 ⇒ 終端機跟著換
-        .onDisappear { model.stop() }
+        .onDisappear { model.stop(); panes.stop() }
+    }
+    /// 看 3D／網頁時終端機先停（Mac 那邊 5 秒後恢復自己的大小），回來再接上
+    private func sync() {
+        if tab == "term" { panes.stop(); model.start() } else { model.stop(); panes.start() }
     }
 }
 

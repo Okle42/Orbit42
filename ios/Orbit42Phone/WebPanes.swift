@@ -66,6 +66,13 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
     private var last: Data?
     /// 點球上的衛星（Mac 上 Orbit42 開的）→ 切到那顆衛星的鏡像畫面
     var onFocus: (String) -> Void = { _ in }
+    var onMoon: (String, String) -> Void = { _, _ in }
+    /// Mac 的小衛星也掛到手機的球上
+    func setMoons(_ sats: [Sat]) {
+        var o: [String: [[String: Any]]] = [:]
+        for s in sats { if let sid = s.sessionId, !s.moons.isEmpty { o[sid] = s.moons.map { ["kind": $0, "title": s.moonTitles[$0] ?? "", "on": false] } } }
+        js(web, "window.karaMoons", [o])
+    }
 
     init(link: MacLink) { self.link = link }
 
@@ -114,6 +121,8 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
                 do { toast(try await OrbitAPI(link: link).answer(session: sid, text: text)) }
                 catch { toast("沒送出：\(error.localizedDescription)") }
             }
+        case "moon":           // 11-24 點小衛星 ⇒ 到那顆衛星的 3D／網頁
+            if let sid = o["sessionId"] as? String { onMoon(sid, o["kind"] as? String ?? "3d") }
         case "theme":          // 11-24 球體換配色 ⇒ 終端機和整個 App 跟著換
             guard let n = o["name"] as? String else { return }
             Look.shared.fromSphere(mode: o["mode"] as? String ?? "auto", name: n)

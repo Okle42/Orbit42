@@ -138,6 +138,16 @@ struct OrbitAPI: Sendable {
                       data: Data(base64Encoded: o["data"] as? String ?? "") ?? Data(), size: size)
     }
     struct Screen: Sendable { let total: Int, from: Int, data: Data; let size: (cols: Int, rows: Int)? }
+    /// 11-24 這顆衛星在 Mac 上開著的面板（3D／網頁）和 3D 內容的一段
+    func panes(_ id: String) async throws -> [[String: Any]] {
+        let d = try await request("api/sat", query: [URLQueryItem(name: "id", value: "pane|\(id)|list")])
+        return (try JSONSerialization.jsonObject(with: d) as? [String: Any])?["panes"] as? [[String: Any]] ?? []
+    }
+    func paneChunk(_ id: String, from: Int) async throws -> (ver: Int, data: Data) {
+        let d = try await request("api/sat", query: [URLQueryItem(name: "id", value: "pane|\(id)|3d"), URLQueryItem(name: "from", value: String(from))])
+        let o = try JSONSerialization.jsonObject(with: d) as? [String: Any] ?? [:]
+        return (o["ver"] as? Int ?? -1, Data(base64Encoded: o["data"] as? String ?? "") ?? Data())
+    }
     /// 11-24 衛星終端機輸入（鍵盤、滑鼠點擊／滾輪的跳脫序列）→ Mac 寫進那顆衛星的終端機
     func input(_ id: String, _ data: Data) async throws {
         _ = try await request("api/input", body: ["id": id, "data": data.base64EncodedString()])
@@ -157,6 +167,8 @@ struct OrbitAPI: Sendable {
 struct Sat: Identifiable, Hashable, Sendable {
     let id: String, name: String, brain: String, brainLabel: String, state: String
     var sessionId: String? = nil
+    var moons: [String] = []            // Mac 上這顆衛星開著的面板：3d／web
+    var moonTitles: [String: String] = [:]
     var json: [String: Any] { ["id": id, "name": name, "brain": brain, "brainLabel": brainLabel, "state": state] }
 
     static func list(_ d: Data) -> [Sat] {
@@ -164,9 +176,13 @@ struct Sat: Identifiable, Hashable, Sendable {
             guard let id = o["id"] as? String else { return nil }
             return Sat(id: id, name: o["name"] as? String ?? id, brain: o["brain"] as? String ?? "claude",
                        brainLabel: o["brainLabel"] as? String ?? "Claude", state: o["state"] as? String ?? "open",
-                       sessionId: o["sessionId"] as? String)
+                       sessionId: o["sessionId"] as? String,
+                       moons: (o["moons"] as? [[String: Any]] ?? []).compactMap { $0["kind"] as? String },
+                       moonTitles: Dictionary((o["moons"] as? [[String: Any]] ?? []).compactMap { m in (m["kind"] as? String).map { ($0, m["title"] as? String ?? "") } }, uniquingKeysWith: { a, _ in a }))
         }
     }
+    static func == (a: Sat, b: Sat) -> Bool { a.id == b.id && a.name == b.name && a.state == b.state && a.sessionId == b.sessionId && a.moons == b.moons && a.moonTitles == b.moonTitles }
+    func hash(into h: inout Hasher) { h.combine(id) }
     static let demo = [Sat(id: "demo1", name: "Claude 1", brain: "claude", brainLabel: "Claude", state: "busy"),
                        Sat(id: "demo2", name: "Claude 2", brain: "claude", brainLabel: "Claude", state: "open")]
 }

@@ -43,7 +43,7 @@ targets:
           SW="$ROOT/Packages/ShoWork42"; [ -d "$SW" ] || SW="$ROOT/.build/checkouts/ShoWork42"
           mkdir -p "$OUT/OrbitWeb" "$OUT/Web"
           rsync -a --delete --exclude .DS_Store "$ROOT/Web/" "$OUT/OrbitWeb/"
-          rsync -a --delete --exclude bench --exclude .DS_Store --exclude '*.md' "$SW/windows/ShoWork.Win/Board/Web/" "$OUT/Web/"
+          rsync -a --delete --exclude bench --exclude .DS_Store --exclude '*.md' "${SPHERE_WEB:-$SW/windows/ShoWork.Win/Board/Web}/" "$OUT/Web/"
         basedOnDependencyAnalysis: false
 
   # 11-24 Keng：控制中心／鎖定畫面的「Orbit42 說話」按鈕（ControlWidget 要 iOS 18）

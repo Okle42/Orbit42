@@ -199,6 +199,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 return h.order.compactMap { id -> [String: Any]? in
                     guard let s = h.sats[id] else { return nil }
                     var o = s.json
+                    o["moons"] = OrbitWindow.shared.moonList(id)
                     if let j = s.attachedJob, let r = recs.first(where: { $0.jobId == j }) { o["sessionId"] = r.sessionId }        // 背景 session：用 job id 對
                     else if let p = s.pty, let r = recs.first(where: { $0.pid == p.pid || Host.parent(of: $0.pid) == p.pid }) { o["sessionId"] = r.sessionId }
                     return o
@@ -208,6 +209,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         SphereEmbed.remoteScreen = { [weak self] id, from, size in
             let o: [String: Any]? = MainActor.assumeIsolated {
+                if id.hasPrefix("pane|") { return OrbitWindow.shared.phonePane(id, from: from) }        // 手機看這顆衛星的 3D／網頁面板
                 if let size, let h = self, let s = h.sats[id], let to = s.phoneView(cols: size.cols, rows: size.rows) { h.applyPhone(id, s, to, phone: true) }   // 手機附上自己的大小 ⇒ 手機在看時用手機大小
                 return self?.sats[id]?.remote(from: from)
             }
@@ -721,7 +723,13 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                     after(5) {
                         print("standalone after: \(self.modelCount)")
                         guard let (w, v) = self.pane(id) else { print("pane missing"); exit(1) }
-                        shot(w, v, out); self.openView(fs[1], sat: id)
+                        shot(w, v, out)
+                            @MainActor func ask(_ k: String, _ f: Int) -> [String: Any] { SphereEmbed.remoteScreen?("pane|\(id)|\(k)", f, nil).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:] }
+                            print("phone list \(ask("list", 0))")
+                            var got = Data(); while let c = Data(base64Encoded: ask("3d", got.count)["data"] as? String ?? ""), !c.isEmpty { got += c }
+                            try? got.write(to: URL(fileURLWithPath: out + ".mesh")); print("phone mesh \(got.count)")
+                            print("phone bad \(ask("../etc", 0)) \(ask("3d", -5)) \(SphereEmbed.remoteScreen?("pane|nope|3d", 0, nil) == nil)")
+                            self.openView(fs[1], sat: id)
                         after(3) {
                             shot(w, v, out + ".2.png"); print("same pane: \(self.pane(id)?.1 === v) history=\(v.history.count)")
                             print("moons \(self.moonJSON)"); w.toggleZoom()
@@ -1161,6 +1169,9 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         return satWins.filter { !$0.key.hasPrefix("3d-") && !$0.value.isHidden && $0.value.wantShown }
             .max { ($0.value.layer?.zPosition ?? 0) < ($1.value.layer?.zPosition ?? 0) }?.key
     }
+    func moonViews(_ id: String) -> [String: NSView] { moons[id] ?? [:] }
+    /// 手機球體用：這顆衛星有哪些小衛星
+    func moonList(_ id: String) -> [[String: Any]] { (moons[id] ?? [:]).keys.sorted().map { ["kind": $0, "title": moonTitle(moons[id]![$0]!), "on": moonShown[id] == $0] } }
     private func moonTitle(_ v: NSView) -> String { (v as? ModelView)?.url?.lastPathComponent ?? (v as? WebPane)?.titleText ?? "" }
     private var moonSids: [String: String] = [:]
     var moonJSON: String {
@@ -1168,7 +1179,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         for (id, m) in moons {
             guard let sid = host.sessionId(id) ?? moonSids[id] else { continue }
             moonSids[id] = sid
-            o[sid] = m.keys.sorted().map { ["kind": $0, "title": moonTitle(m[$0]!), "on": moonShown[id] == $0] }
+            _ = m; o[sid] = moonList(id)
         }
         return (try? JSONSerialization.data(withJSONObject: o)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }

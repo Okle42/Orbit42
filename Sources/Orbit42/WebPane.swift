@@ -48,6 +48,7 @@ final class WebPane: NSView, WKNavigationDelegate, WKUIDelegate, NSTextFieldDele
     @objc private func tuck() { onTuck() }
     @objc private func go() { if let u = Self.parse(address.stringValue) { open(u) } }
     var titleText: String { web.title.flatMap { $0.isEmpty ? nil : $0 } ?? web.url?.host ?? "網頁" }
+    var currentURL: String { let u = web.url?.absoluteString ?? ""; return u == "about:blank" ? "" : u }
     var messageText: String { message.isHidden ? "" : message.stringValue }
     func focusAddress() { window?.makeFirstResponder(address) }
 
