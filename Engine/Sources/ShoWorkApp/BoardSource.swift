@@ -41,6 +41,7 @@ final class BoardReader: @unchecked Sendable {
         var reports: [String: SelfReport] = [:]
         var asks: [String: [PendingAsk]] = [:]   // 排隊中還沒回答的 --ask（board/asks；11-11）
         var nicknames: [String: Nickname] = [:]
+        var jobs: [String: JobRecord] = [:]      // 開工卡定住的標題（WorkLabel.swift；11-25）
         var reviews: [String: Review] = [:]
         var decisions: [String: Decision] = [:]
         var rateLimits: RateLimits?
@@ -156,6 +157,11 @@ final class BoardReader: @unchecked Sendable {
         s.reports = BoardStore.readAll("cards", as: SelfReport.self)
         s.asks = AskQueue.all()
         s.nicknames = BoardStore.readAll("names", as: Nickname.self)
+        s.jobs = BoardStore.readAll("jobs", as: JobRecord.self)
+        for r in s.sessions {       // 配舊 showork：它不會記開工卡，由這裡補（新的已經記過，時間一樣就不動）
+            guard let rep = s.reports[r.sessionId], (s.jobs[r.sessionId]?.seen ?? .distantPast) < rep.at else { continue }
+            s.jobs[r.sessionId] = JobStore.note(r.sessionId, rep, cwd: s.transcripts[r.sessionId]?.lastWorkCwd ?? r.cwd, pid: r.pid, write: JobStore.appWrites)
+        }
         s.reviews = BoardStore.readAll("reviews", as: Review.self)
         s.decisions = BoardStore.readAll("decisions", as: Decision.self)
         s.permits = Permit.pending()
@@ -497,6 +503,10 @@ final class BoardModel: ObservableObject {
         }
     }
 
+    /// 每個 session 的固定標示（球體、收件匣、衛星標題列、手機都拿這一份）
+    private(set) var labels: [String: WorkLabel] = [:]
+    private lazy var labelNumbers = WorkLabels.numbers()
+    private let labelLook = WorkLabels.Lookup.cached()
     private func apply(_ s: BoardReader.Snapshot) {
         record(s)
         let fm = FileManager.default
@@ -514,6 +524,10 @@ final class BoardModel: ObservableObject {
             cards[i].handover = s.handovers[sid]?.label
         }
         let captain = s.captain.flatMap { r in s.sessions.contains { $0.sessionId == r.sessionId } ? r.sessionId : nil }
+        let named = WorkLabels.resolve(WorkLabels.people(s.sessions, nick: s.nicknames), captain: captain, jobs: s.jobs, tasks: s.tasks, numbers: labelNumbers, now: Date(), look: labelLook)
+        if named.numbers != labelNumbers { labelNumbers = named.numbers; let n = named.numbers; if JobStore.appWrites { queue.async { WorkLabels.saveNumbers(n) } } }
+        if named.labels != labels { labels = named.labels }
+        for i in cards.indices where !cards[i].id.contains("#") { if let l = labels[cards[i].sessionId] { cards[i].set(l) } }
         cards = Captain.annotate(cards, captain: captain, tasks: s.tasks)
         relayCards(s, captain: captain, cards: cards)
         let roster = Captain.roster(cards, captain: captain, now: Date())

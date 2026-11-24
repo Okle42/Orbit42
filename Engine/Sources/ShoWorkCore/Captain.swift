@@ -44,6 +44,12 @@ public struct CaptainTask: Codable, Sendable, Equatable, Identifiable {
     public var after: String? = nil        // 這張是哪張單的下一棒
     public var notified: State? = nil      // 已經通知秘書到哪個狀態（同一個狀態只通知一次）
     public var sendError: String? = nil    // 直送失敗的原因
+    // 11-25 固定標示：派出當下定住（舊單沒有，看板用任務文字判斷）
+    public var role: String? = nil         // 職責（修改／複核／設計／測試／研究／維運）
+    public var title: String? = nil        // 工作標題（≤14 字）
+    public var mainProject: String? = nil  // 主專案
+    public var thenRole: String? = nil     // 接力那一棒的職責、標題
+    public var thenTitle: String? = nil
 
     public init(id: String, from: String, to: String, toSession: String? = nil, project: String? = nil, text: String,
                 state: State = .sent, summary: String? = nil, ask: String? = nil, createdAt: Date = Date(), updatedAt: Date? = nil,
@@ -86,6 +92,7 @@ public struct RosterEntry: Codable, Sendable, Equatable {
     public var captain: Bool
     public var sameProject: [String]     // 同專案的其他 session 名（重工警告）
     public var handover: String? = nil   // 「已收尾待 /clear」⋯（Handover.swift；巡檢列出）
+    public var label: String? = nil      // 畫面上的第一行（職責 · 主專案）；收件地址還是 name
 }
 
 public struct Roster: Codable, Sendable, Equatable {
@@ -142,7 +149,7 @@ public enum Captain {
             guard !c.id.contains("#") else { return c }
             var c = c
             c.captain = c.sessionId == captain
-            if c.captain { c.label = Nicknames.captainTitle }
+            if c.captain, c.work == nil { c.label = Nicknames.captainTitle }
             c.sameProject = dup[c.sessionId] ?? []
             c.tasks = c.captain
                 ? tasks.filter { $0.from == c.sessionId }.sorted { $0.createdAt > $1.createdAt }
@@ -157,7 +164,7 @@ public enum Captain {
                         project: c.project, root: c.cwd, column: c.column, reason: c.reason, title: c.title,
                         summary: c.report?.summary ?? c.detail.map { String($0.prefix(120)) },
                         ctx: c.ctx.map { Int($0.percent) }, ctxTokens: c.ctx?.tokens, lastActivity: c.lastActivity,
-                        captain: c.captain, sameProject: c.sameProject, handover: c.handover)
+                        captain: c.captain, sameProject: c.sameProject, handover: c.handover, label: c.work?.head)
         }
         return Roster(at: now, captain: captain, entries: entries)
     }
@@ -189,8 +196,8 @@ public enum Captain {
         [AI工作戰情中心] 你現在是秘書。使用者把任務丟給你，你決定交給哪個 session 做，自己不下去做細節（保持 context 乾淨，才能一直當秘書）。
         1. 先看名冊："\(showork)" roster（每個 session 的名字、專案、在做什麼、閒置或忙、ctx、同專案重工警告）。
         2. 選人：同一個專案只交給一個 session（有人在做那個專案就交給它，不要再開）；名冊上 ctx 已到 token 門檻（showork roster 會標 ctx Nk）的不要再派；沒有合適的就請使用者開新的或用看板「新任務⋯」。
-        3. 派工："\(showork)" task add --to <英文名，例如 Chris> --text "<任務：目標、判準、交什麼>" —— 會建單並直接送進對方收件匣。
-           接力（A 做完自動交給 B）：再加 --then-to <B 的名字> --then "<B 要做的事>"，A 回報完成時看板會把 A 的回報附上、自動派給 B。
+        3. 派工："\(showork)" task add --to <英文名，例如 Chris> --role <修改|複核|設計|測試|研究|維運> --title "<14 字內短標題>" --text "<任務：目標、判準、交什麼>" —— 會建單並直接送進對方收件匣。
+           接力（A 做完自動交給 B）：再加 --then-to <B 的名字> --then "<B 要做的事>"（可帶 --then-role、--then-title），A 回報完成時看板會把 A 的回報附上、自動派給 B。
            直送失敗時它會印出全文，改用 SendMessage（to＝英文名，例如 Chris；名字固定，不會跟著對方在做的事變）送。
         4. 對方回報完成、要使用者決定、或卡住時，看板會自動傳一則「【派工回報】」給你；也可以隨時 "\(showork)" tasks 查。
            其他組員卡片只有待審（review）、卡住（blocked）、或帶 --ask 的才會以「【工作回報】」推給你；做完、做事中的卡只記在看板，要看就 "\(showork)" roster。
@@ -231,7 +238,9 @@ public enum Captain {
     public static func nextLeg(of t: CaptainTask, id: String, now: Date) -> CaptainTask? {
         guard t.state == .done, t.followUp == nil, let to = t.thenTo, let text = t.thenText else { return nil }
         let full = text + "\n（前一棒 \(t.to) 已完成「\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(80))」，回報：\(t.summary ?? "沒有摘要")）"
-        return CaptainTask(id: id, from: t.from, to: to, project: nil, text: full, createdAt: now, after: t.id)
+        var n = CaptainTask(id: id, from: t.from, to: to, project: nil, text: full, createdAt: now, after: t.id)
+        n.role = WorkRole.valid(t.thenRole) ?? WorkRole.guess(text); n.title = WorkTitle.clean(t.thenTitle) ?? WorkTitle.guess(text); n.mainProject = t.mainProject
+        return n
     }
 
     /// 建單＋直送；送不出去時單子照樣留著（sendError），讓呼叫端改走 SendMessage
@@ -320,6 +329,7 @@ public enum CaptainStore {
         guard let c = captain(), let n = afterClear(c, newSid: newSid, source: source, proc: ProcStamp.of(pid),
                                                     others: Set(recs.filter { $0.pid != pid }.map(\.sessionId))), setCaptain(n) else { return false }
         if NicknameStore.get(newSid) == nil, let old = NicknameStore.get(c.sessionId) { NicknameStore.save(newSid, old) }
+        JobStore.carry(from: c.sessionId, to: newSid)
         for var t in tasks() where t.from == c.sessionId { t.from = newSid; save(t) }
         return true
     }

@@ -257,8 +257,8 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
         let ss: [Session] = cards.filter { !$0.unused && !$0.id.contains("#") }.map { c in
             let it = items[c.sessionId]
             let summary = c.report?.summary ?? c.detail
-            return Session(id: c.sessionId, name: c.display, project: c.project, column: c.column.rawValue,
-                           columnTitle: columnTitle(c.column), reason: c.reason, doing: c.report?.doing,
+            return Session(id: c.sessionId, name: c.work?.head ?? c.display, project: c.work == nil ? c.project : "", column: c.column.rawValue,
+                           columnTitle: columnTitle(c.column), reason: c.reason, doing: c.work?.work ?? c.report?.doing,
                            summary: summary.map { String($0.prefix(400)) },
                            idleSeconds: c.lastActivity.map { max(0, Int(now.timeIntervalSince($0))) }, captain: c.captain,
                            question: it.map { $0.more > 0 ? $0.question + "（答完後面還有 \($0.more) 題）" : $0.question }, options: it?.kind == .reply ? it!.options : [],

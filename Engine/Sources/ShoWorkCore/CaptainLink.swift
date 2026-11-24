@@ -32,14 +32,14 @@ public enum CaptainLink {
     /// 10 分鐘內的連續指令：只有換了任務才發
     public static func sameTaskContext(showork: String, doing: String?) -> String {
         "【開工卡】你手上的任務是「\(doing ?? "（還沒報）")」。這道指令如果是同一件事接著做，不用發開工卡；換成新任務才在動手前發："
-            + "\"\(showork)\" card --kind start --doing \"<新任務>\" --summary \"<要做什麼>\" --how \"<打算怎麼做>\" --touch \"<會動到什麼>\" --outward \"<對外動作或「無」>\""
+            + "\"\(showork)\" card --kind start --role <修改|複核|設計|測試|研究|維運> --doing \"<新任務>\" --summary \"<要做什麼>\" --how \"<打算怎麼做>\" --touch \"<會動到什麼>\" --outward \"<對外動作或「無」>\""
     }
 
     /// 注入給組員的提醒（UserPromptSubmit 的 additionalContext）
     public static func startContext(showork: String) -> String {
         """
         【開工卡】這是使用者直接下的指令。動手（讀檔以外的任何改動、跑會改東西的指令）之前，先用 Bash 發一張開工卡給秘書，發完直接開始做、不用等回覆：
-        "\(showork)" card --kind start --doing "<這件事，10 個字內>" --summary "<要做什麼，一句話>" --how "<打算怎麼做>" --touch "<會動到哪些檔／repo／系統設定；沒有寫「無」>" --outward "<要不要 push、部署、對外傳訊息；沒有寫「無」>"
+        "\(showork)" card --kind start --role <修改|複核|設計|測試|研究|維運> --doing "<這件事，10 個字內>" --summary "<要做什麼，一句話>" --how "<打算怎麼做>" --touch "<會動到哪些檔／repo／系統設定；沒有寫「無」>" --outward "<要不要 push、部署、對外傳訊息；沒有寫「無」>"
         只是聊天、回答問題、不動手的回合不用發。不要把使用者的原話整段貼進卡片。
         """
     }

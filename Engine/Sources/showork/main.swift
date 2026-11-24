@@ -4,7 +4,7 @@
 //   showork card --status … AI 每輪自報（完成度／信心度／要你決定的事），存給戰情中心
 //   showork asks [withdraw <編號|all>]  這個 session 排在「等你回答」的 --ask；使用者已在終端機答了／不用問了就撤回
 //   showork names          活著的 session：英文名、SendMessage 地址、正在做的任務
-//   showork title [--done]  hook：回傳 terminalSequence，把視窗標題改成「英文名-任務」
+//   showork title [--done]  hook：回傳 terminalSequence，把視窗標題改成「職責 · 主專案｜工作標題」
 //   showork permit         PermissionRequest hook：等你在戰情中心收件匣按允許／拒絕（會讀 stdin、最久等 1 小時）
 //   showork guard-push     PreToolUse(Bash) hook：1 樓保全在 git push 之前檢查（擋 ghosts／old-history／金鑰⋯，規則在 PushGuard.swift）
 //   showork captain        把目前這個 session 設成秘書，印出秘書守則
@@ -51,6 +51,7 @@ if args.first == "brief" {
         }
         if let sid {
             let pid = Handover.claudePID()
+            JobStore.begin(sid, source: source, pid: pid, cwd: cwdPath)
             if CaptainStore.follow(newSid: sid, source: source, pid: pid) {
                 print("【秘書】/clear 後已自動接上秘書登記。先跑 \"\(URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path)\" captain 看守則與收件匣。")
             } else { CaptainStore.noteLeft(sid: sid, source: source, pid: pid); CaptainStore.stamp(sid: sid, pid: pid) }
@@ -63,7 +64,7 @@ if args.first == "brief" {
                               name: named?.name))
         // 11-23 Keng：剛開、還沒交代工作的 session 標題沒有英文名（Quinn 閒置 148 分鐘，戰情中心報卡住卻找不到是哪個視窗）
         // ⇒ 一開就把標題寫成「✳ 英文名」；等 Claude Code 啟動畫完自己的標題再寫，閒置時它不會再改
-        if let named { writeTitleLater(named, done: true, delay: 3) }
+        if let named, let sid { writeTitleLater(named, done: true, delay: 3, label: WorkLabels.current()[sid]?.line) }
     }
     exit(0)
 }
@@ -83,6 +84,7 @@ if args.first == "card" {
         guard let d = try? e.encode(r), (try? d.write(to: dir.appendingPathComponent(sid + ".json"), options: .atomic)) != nil else {
             FileHandle.standardError.write(Data("showork card：寫不進 \(dir.path)\n".utf8)); exit(1)
         }
+        JobStore.note(sid, r, cwd: FileManager.default.currentDirectoryPath, pid: Handover.claudePID())      // 固定標示：只有開工卡會換標題（WorkLabel.swift）
         AskQueue.record(sid: sid, report: r)      // --ask 另外排隊：後來的卡片不會蓋掉還沒回答的題（Asks.swift）
         if let id = r.task {
             if var t = CaptainStore.task(id) { t.apply(r); CaptainStore.save(t) }
@@ -105,7 +107,7 @@ if args.first == "card" {
     }
 }
 
-// hook：把 Ghostty 視窗標題改成「英文名-正在做的任務」（UserPromptSubmit／PostToolUse＝工作中，Stop＝做完）。
+// hook：把 Ghostty 視窗標題改成「職責 · 主專案｜工作標題」（UserPromptSubmit／PostToolUse＝工作中，Stop＝做完）。
 // 這個子指令要讀 stdin 的 hook JSON 拿 session_id（環境變數有就不讀）；還沒取名的 session 不輸出，標題照 Claude 原本的。
 if args.first == "title" {
     if isReviewer { exit(0) }
@@ -166,21 +168,21 @@ if args.first == "title" {
     if let sid, var n = NicknameStore.get(sid) {
         NicknameStore.touch(sid)
         if CaptainStore.captain()?.sessionId == sid { n.name = Nicknames.captainTitle }      // 秘書的標題與收件地址都只叫「秘書」
-        print(Nicknames.hookOutput(n, done: done, event: event, context: ctx))
+        print(Nicknames.hookOutput(n, done: done, event: event, context: ctx, label: WorkLabels.current()[sid]?.line))
         // 做完時 Claude Code 會在 Stop hook 之後把標題改回它自己的 session 標題（10-19 實測：Dora 一閒下來就變回「✳ Handoff 88」），
         // 所以 1.5 秒後直接寫一次 OSC 0 到這個 session 的 tty；閒置時 Claude 不會再動標題
-        if done { writeTitleLater(n, done: true, delay: 1.5) }
+        if done { writeTitleLater(n, done: true, delay: 1.5, label: WorkLabels.current()[sid]?.line) }
     }
     exit(0)
 }
 
 /// 過 delay 秒後直接寫 OSC 0 到這個 session 的 tty（Claude Code 會在 hook 之後改標題，所以要晚一點寫）
-func writeTitleLater(_ n: Nickname, done: Bool, delay: Double) {
+func writeTitleLater(_ n: Nickname, done: Bool, delay: Double, label: String? = nil) {
     guard let tty = TTYFinder.find()?.tty else { return }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/sh")
     p.arguments = ["-c", #"sleep "$SW_DELAY"; printf '\033]0;%s\007' "$SW_TITLE" > "$SW_TTY""#]
-    p.environment = ["SW_TITLE": Nicknames.terminalTitle(n, done: done), "SW_TTY": tty, "SW_DELAY": String(delay)]
+    p.environment = ["SW_TITLE": Nicknames.terminalTitle(n, done: done, label: label), "SW_TTY": tty, "SW_DELAY": String(delay)]
     p.standardInput = FileHandle.nullDevice; p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
     try? p.run()
 }
@@ -381,10 +383,11 @@ if args.first == "role" {
 if args.first == "names" {
     let names = NicknameStore.all()
     let rows = NicknameStore.liveSessions().sorted { (names[$0.sessionId]?.name ?? "~") < (names[$1.sessionId]?.name ?? "~") }
+    let labels = WorkLabels.current()
     let owned = SessionHost.shared.boardLiveIds()     // 戰情中心持有的 sdk-cli session 也列
     for r in rows where r.entrypoint != "sdk-cli" || owned.contains(r.sessionId) {
         let n = names[r.sessionId]
-        print("\(n?.name ?? "（還沒取名）")\t\(r.name ?? "-")\t\(n?.role.map { "【\($0)】" } ?? "")\(n?.doing ?? "（還沒報任務）")")
+        print("\(n?.name ?? "（還沒取名）")\t\(r.name ?? "-")\t\(labels[r.sessionId]?.line ?? "待命")\t\(n?.doing ?? "（還沒報任務）")")
     }
     exit(0)
 }

@@ -168,6 +168,7 @@ struct Sat: Identifiable, Hashable, Sendable {
     let id: String, name: String, brain: String, brainLabel: String, state: String
     var sessionId: String? = nil
     var captain = false                 // 現任秘書（紅框）
+    var head: String? = nil, work: String? = nil      // 職責 · 主專案／工作標題（舊版 Mac 沒有）
     var moons: [String] = []            // Mac 上這顆衛星開著的面板：3d／web
     var moonTitles: [String: String] = [:]
     var json: [String: Any] { ["id": id, "name": name, "brain": brain, "brainLabel": brainLabel, "state": state] }
@@ -178,11 +179,12 @@ struct Sat: Identifiable, Hashable, Sendable {
             return Sat(id: id, name: o["name"] as? String ?? id, brain: o["brain"] as? String ?? "claude",
                        brainLabel: o["brainLabel"] as? String ?? "Claude", state: o["state"] as? String ?? "open",
                        sessionId: o["sessionId"] as? String, captain: o["captain"] as? Bool ?? false,
+                       head: o["head"] as? String, work: o["work"] as? String,
                        moons: (o["moons"] as? [[String: Any]] ?? []).compactMap { $0["kind"] as? String },
                        moonTitles: Dictionary((o["moons"] as? [[String: Any]] ?? []).compactMap { m in (m["kind"] as? String).map { ($0, m["title"] as? String ?? "") } }, uniquingKeysWith: { a, _ in a }))
         }
     }
-    static func == (a: Sat, b: Sat) -> Bool { a.id == b.id && a.name == b.name && a.state == b.state && a.sessionId == b.sessionId && a.moons == b.moons && a.moonTitles == b.moonTitles }
+    static func == (a: Sat, b: Sat) -> Bool { a.id == b.id && a.name == b.name && a.state == b.state && a.sessionId == b.sessionId && a.moons == b.moons && a.moonTitles == b.moonTitles && a.captain == b.captain && a.head == b.head && a.work == b.work }
     func hash(into h: inout Hasher) { h.combine(id) }
     static let demo = [Sat(id: "demo1", name: "Claude 1", brain: "claude", brainLabel: "Claude", state: "busy"),
                        Sat(id: "demo2", name: "Claude 2", brain: "claude", brainLabel: "Claude", state: "open")]

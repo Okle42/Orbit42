@@ -345,7 +345,8 @@
   .trow .dot.pulse { animation: dpulse 1.2s ease-in-out infinite; }
   @keyframes dpulse { 50% { transform: scale(1.7); opacity: .55; } }
   .trow .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .trow .nm small { color: var(--ink-dim); font-size: 11px; }
+  .trow .nm small { color: var(--ink-dim); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; }
+  .trow.faded .nm { opacity: .55; }      /* 完成：10 分鐘內留著、變淡 */
   .trow .sub { grid-column: 2 / -1; font-size: 10px; color: var(--ink-dim); letter-spacing: .04em; margin-top: -2px; }
   .trow .sub .hi { color: var(--warn); }
   .trow .meter { grid-column: 2 / -1; margin-top: 0; }
@@ -1748,19 +1749,22 @@ function render() {
 /* v5 ④ 戰情卡 */
 const ST_COL = { "需要你": "var(--warn)", "進行中": "var(--ink)", "待審": "var(--gray)", "卡住": "var(--bad)", "完成": "var(--done)" };
 const lastSt = new Map();
+/* 位置固定（11-25）：前 6 列照原順序；排在後面但需要你的也列出來，不然看不到 */
+function teamShown() { return (data.team || []).map((c, i) => [c, i]).filter(([c, i]) => i < 6 || c.status === "需要你"); }
 function renderTeam() {
   const team = data.team || [], cnt = {};
   for (const c of team) cnt[c.status] = (cnt[c.status] || 0) + 1;
   $("chips").innerHTML = Object.keys(ST_COL).filter(k => cnt[k]).map(k => `<span><i style="--c:${ST_COL[k]}"></i>${esc(k)} ${cnt[k]}</span>`).join("");
-  const rowsHtml = team.slice(0, 6).map((c, i) => {
+  const shown = teamShown();
+  const rowsHtml = shown.map(([c, i]) => {
     const col = ST_COL[c.status] || "var(--done)", changed = lastSt.has(c.sessionId) && lastSt.get(c.sessionId) !== c.status;
     const sub = [esc(c.status === "卡住" && /等外部/.test(c.reason || "") ? "等待中" : c.status || ""), c.ctx != null ? `<span class="${c.ctx >= 80 ? "hi" : ""}">記憶 ${c.ctx}%</span>` : "", c.ago != null ? (c.ago < 1 ? "剛剛" : c.ago < 60 ? `${c.ago} 分鐘前` : `${Math.floor(c.ago / 60)} 小時前`) : ""].filter(Boolean).join(" · ");
-    return `<div class="row trow${c.status === "進行中" ? " live" : c.status === "卡住" ? " live wait" : ""}${c.sessionId ? " link" : ""}${changed ? " flash" : ""}" data-i="${i}" title="${c.sessionId ? "點一下跳到這個 session" : ""}">
+    return `<div class="row trow${c.status === "進行中" ? " live" : c.status === "卡住" ? " live wait" : ""}${c.sessionId ? " link" : ""}${changed ? " flash" : ""}${c.faded ? " faded" : ""}" data-i="${i}" title="${c.sessionId ? "點一下跳到這個 session" : ""}">
       <span class="dot${c.status === "需要你" ? " pulse" : ""}" style="--c:${col}"></span>
-      <span class="nm">${esc(c.name || "")}${c.doing ? `<small> · ${esc(c.doing)}</small>` : ""}</span><span>${c.progress != null ? c.progress + "%" : ""}</span>
+      <span class="nm">${esc(c.name || "")}${c.doing ? `<small>${esc(c.doing)}</small>` : ""}</span><span>${c.progress != null ? c.progress + "%" : ""}</span>
       <div class="meter seg ramp" title="完成度 ${c.progress != null ? c.progress + "%" : "還沒回報"}"><b style="--p:${Math.max(0, Math.min(100, c.progress ?? 0))}%"></b></div>
       <div class="sub">${sub}</div></div>`;
-  }).join("") + (team.length > 6 ? `<div class="more">還有 ${team.length - 6} 個 · 點衛星看</div>` : "");
+  }).join("") + (team.length > shown.length ? `<div class="more">還有 ${team.length - shown.length} 個 · 點衛星看</div>` : "");
   // 11-23 Keng「語音輸入的字會重複」（錄影：在第二螢幕打第二螢幕打、打開鏡像打開鏡像、順便順便）：
   // 原本每次重畫列都把答案卡拿到 body 再放回來 ⇒ 補充框離開文件一下，macOS 聽寫／注音的暫定字被打斷、留下重複。
   // 答案卡已經在列裡 ⇒ 不動它，只換掉它前後的列（不搬它自己，輸入框不會斷）
@@ -1768,7 +1772,7 @@ function renderTeam() {
   if (ORBIT && ac.parentNode === rowsEl) {
     const tmp = document.createElement("div"); tmp.innerHTML = rowsHtml;
     for (const n of [...rowsEl.children]) if (n !== ac) n.remove();
-    const nodes = [...tmp.children], at = team.slice(0, 6).findIndex(c => c.sessionId === askSid);
+    const nodes = [...tmp.children], at = shown.findIndex(([c]) => c.sessionId === askSid);
     nodes.forEach((n, k) => { if (at >= 0 && k <= at) rowsEl.insertBefore(n, ac); else rowsEl.appendChild(n); });
     placeAsk(null);                // 問的人換了位置才會真的搬（例如列的順序變了）
   } else {
@@ -2142,7 +2146,7 @@ function diff(team) {
       if (!p) continue;                      // 新出現的 session（含剛載入）只記下來，不播
       const was = p.status, is = c.status;
       if (is === was && (is !== "需要你" || p?.ask === c.ask)) continue;
-      const who = c.name || "有個 session";
+      const who = (c.name || "有個 session") + (c.doing && c.doing !== "待命" ? `「${String(c.doing).replace(/^完成：/, "")}」` : "");      // 同職責同專案靠標題分辨
       const pop = null;   // 11-23 Keng：唸 session 狀態時不彈事件卡——內容跟「戰情 · SESSION」列和答案卡重複；語音照唸、需要你的橫幅照出
       // 11-23 Keng 模擬「訊息送出 → 完成」逐句校正：
       //   結果（summary）只用這一輪的「回報卡」——開工卡的 summary 是打算做什麼，不能當成做完的內容唸
@@ -2361,7 +2365,7 @@ function renderAsk() {
   }
   const hint = [n ? `按 1–${Math.min(9, n)} 選選項` : "", hasRec ? "Enter 送建議" : "", "送出後 3 秒內可復原"].filter(Boolean).join(" · ");
   const sum = c.summary && c.reportKind !== "start" ? c.summary : "";
-  card.innerHTML = `<div class="top"><span>需要你</span><span class="nm">${esc(c.name || "")}</span><span class="ago">${agoText(c.ago)}</span>
+  card.innerHTML = `<div class="top"><span>需要你</span><span class="nm">${esc(c.name || "")}${c.doing ? ` · ${esc(c.doing)}` : ""}</span><span class="ago">${agoText(c.ago)}</span>
       ${list.length > 1 ? `<span class="nav"><button class="pill sm" data-nav="-1">‹</button>${i + 1}/${list.length}<button class="pill sm" data-nav="1">›</button></span>` : ""}</div>
     ${sum ? `<div class="sum">剛做完：${esc(clip(sum, 120))}</div>` : ""}<div class="q">${esc(c.ask || "在等你。")}</div>${detail ? `<div class="d">${esc(detail)}</div>` : ""}
     <div class="btns">${btns}</div>
@@ -2392,7 +2396,7 @@ function placeAsk(st) {
   if (ac.parentNode === rows && askTyping()) { ac.dataset.stale = "1"; return; }     // 打字／講話中不搬（搬動＝輸入框離開文件，聽寫會停），離開輸入框再搬
   // 11-23 Keng「你開在哪裡？我看不到」：戰情卡被收起來時答案卡跟著看不到 ⇒ 每個新問題出現時自動把戰情卡打開（同一題你再收起來就不硬開）
   try { if (hidden.has("cardTeam") && askOpenedFor !== ac.dataset.sig) { askOpenedFor = ac.dataset.sig; setPanel("cardTeam", true); } } catch {}   // hidden 在檔尾才宣告，載入途中呼叫不會炸
-  const i = (data.team || []).slice(0, 6).findIndex(c => c.sessionId === askSid);
+  const i = (data.team || []).findIndex(c => c.sessionId === askSid);
   const row = i >= 0 ? rows.querySelector(`.row[data-i="${i}"]`) : null;
   if (ac.parentNode === rows && (row ? row.nextElementSibling === ac : rows.firstElementChild === ac)) return;
   const fresh = !st && ac.parentNode !== rows;           // 第一次展開才捲到看得到（重畫列時不捲）
@@ -2648,16 +2652,16 @@ function answerLocal(q) {
   if (/幾點|現在時間/.test(t) && t.length < 12) { const d = new Date(); return `現在 ${d.getHours()} 點 ${d.getMinutes()} 分。`; }
   if (/誰.*(等我|需要我|找我)|需要我|等我(回答|決定)|有什麼要我/.test(t)) {
     const p = pending();
-    return p.length ? `${p.length} 個在等你：${p.slice(0, 4).map(c => `${c.name}${c.ask ? "（" + clip(c.ask, 18) + "）" : ""}`).join("、")}。` : "現在沒有人在等你。";
+    return p.length ? `${p.length} 個在等你：${p.slice(0, 4).map(c => `${c.name}${c.doing && c.doing !== "待命" ? "「" + c.doing + "」" : ""}${c.ask ? "（" + clip(c.ask, 18) + "）" : ""}`).join("、")}。` : "現在沒有人在等你。";
   }
   const asksStatus = /在幹嘛|在做什麼|在忙什麼|進度|狀況|怎麼樣|好了沒|做完了?沒|做到哪/.test(t);
   if (asksStatus) {
     const lower = t.toLowerCase();
     // 顯示名（職稱／專案／任務）或背後的英文名都對得上（11-22 起畫面不顯示英文名，但嘴巴還是可能叫 Hana）
-    const keys = c => [c.name, c.address].filter(Boolean);
+    const keys = c => [c.name, c.address, String(c.doing || "").replace(/^完成：/, "")].filter(k => k && k !== "待命");
     const c = team.filter(c => keys(c).length).sort((a, b) => Math.max(...keys(b).map(k => k.length)) - Math.max(...keys(a).map(k => k.length)))
       .find(c => keys(c).some(k => lower.includes(k.toLowerCase())));
-    if (c) return `${c.name}${c.status === "需要你" ? " 在等你回答" + (c.ask ? "：" + clip(c.ask, 30) : "") : "：" + c.status}${c.doing ? "，正在" + clip(c.doing, 24) : ""}${c.progress != null ? "，進度 " + c.progress + "%" : ""}${c.summary && c.status !== "進行中" ? "。" + clip(c.summary, 40) : ""}。`;
+    if (c) return `${c.name}${c.status === "需要你" ? " 在等你回答" + (c.ask ? "：" + clip(c.ask, 30) : "") : "：" + c.status}${c.doing && c.doing !== "待命" ? "，" + clip(c.doing, 24) : ""}${c.progress != null ? "，進度 " + c.progress + "%" : ""}${c.summary && c.status !== "進行中" ? "。" + clip(c.summary, 40) : ""}。`;
     if (/大家|全部|現況|整體/.test(t)) return `${statusLine()}。`;
   }
   if (/^(現況|大家呢?|狀況如何)/.test(t)) return `${statusLine()}。`;
