@@ -218,6 +218,7 @@ struct TermScreen: View {
     @StateObject var model: TermModel
     @StateObject var panes: PaneModel
     @StateObject private var chrome: MacChrome
+    @StateObject private var windows: WindowList
     @State var tab = "term"
     @State private var composing = false
     @Binding var want: String?
@@ -225,21 +226,19 @@ struct TermScreen: View {
     init(link: MacLink, sat: Sat, want: Binding<String?>) {
         _model = StateObject(wrappedValue: TermModel(link: link, sat: sat))
         _panes = StateObject(wrappedValue: PaneModel(link: link, sat: sat))
+        _windows = StateObject(wrappedValue: WindowList(link: link))
         _chrome = StateObject(wrappedValue: MacChrome(link: link, sat: sat))
         _want = want
     }
     private func take() { if let w = want { tab = w; want = nil } }
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                Text("終端機").tag("term")
-                Text("3D").tag("3d")
-                Text("網頁").tag("web")
-            }
-            .pickerStyle(.segmented).padding(.horizontal, 10).padding(.vertical, 6)
+            WindowTabs(model: windows, tab: $tab, moons: model.sat.moons)
             switch tab {
             case "3d": ModelPane(model: panes)
             case "web": WebPaneView(model: chrome)
+            case let t where t.hasPrefix("win"):
+                WindowScreen(link: model.link, window: Int(t.dropFirst(3)) ?? 0).id(t)
             default:
                 ZStack(alignment: .bottom) {
                     WebBox(web: model.web)
@@ -255,11 +254,11 @@ struct TermScreen: View {
             if tab == "term" { Button { composing.toggle() } label: { Image(systemName: composing ? "keyboard.chevron.compact.down" : "keyboard") }
                 .accessibilityLabel(composing ? "收起鍵盤" : "打字") }
         } }
-        .onAppear { _ = model.web; model.setLight(look.light); take(); sync() }
+        .onAppear { _ = model.web; model.setLight(look.light); take(); sync(); windows.start() }
         .onChange(of: want) { _, _ in take() }
         .onChange(of: tab) { _, _ in sync() }
         .onChange(of: look.light) { _, l in model.setLight(l) }      // 11-24 智能體換配色 ⇒ 終端機跟著換
-        .onDisappear { model.stop(); panes.stop(); chrome.stop() }
+        .onDisappear { model.stop(); panes.stop(); chrome.stop(); windows.stop() }
     }
     /// 看 3D／網頁時終端機先停（Mac 那邊 5 秒後恢復自己的大小），回來再接上
     private func sync() {

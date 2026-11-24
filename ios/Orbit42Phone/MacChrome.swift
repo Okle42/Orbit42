@@ -6,7 +6,7 @@ import UIKit
 /// 登入跟 Mac 衛星共用，localhost 也看得到。手機在看時 Mac 那頁換成手機寬度，離開 5 秒恢復。
 @MainActor
 final class MacChrome: ObservableObject {
-    let link: MacLink, sat: Sat
+    let link: MacLink, spec: String, target: String, isWindow: Bool
     @Published var image: UIImage?
     @Published var page = CGSize.zero           // 這張圖對應的頁面大小（點）
     @Published var text = ""                    // 網址列
@@ -22,17 +22,21 @@ final class MacChrome: ObservableObject {
     @Published var wide = false
     struct Ask: Equatable { let type, text, value: String }
     /// 看網頁時，球體和衛星清單放慢（請求一次只走一個，讓畫面先走）
-    static private(set) var live = false
+    static private var watching = 0
+    static var live: Bool { watching > 0 }
     var size = CGSize.zero { didSet { if size != oldValue { kick = true } } }
     private var have = 0, url = "", poll: Task<Void, Never>?, sending = false, kick = false, lastEdit: Int?
     private var queue: [[String: Any]] = [], lastAsk: Ask?
 
-    init(link: MacLink, sat: Sat) { self.link = link; self.sat = sat }
+    /// 衛星裡那頁 Chrome
+    init(link: MacLink, sat: Sat) { self.link = link; spec = "pane|\(sat.id)|web"; target = "pw-\(sat.id)"; isWindow = false }
+    /// Mac 上的一個視窗
+    init(link: MacLink, window: Int) { self.link = link; spec = "mac|\(window)"; target = "mw-\(window)"; isWindow = true }
 
     func start() {
         guard poll == nil else { return }
         if link.isDemo { note = "示範模式沒有網頁"; return }
-        Self.live = true; have = 0; lastEdit = nil
+        Self.watching += 1; have = 0; lastEdit = nil
         poll = Task { [weak self] in
             var quiet = 0
             while !Task.isCancelled {
@@ -46,12 +50,12 @@ final class MacChrome: ObservableObject {
             }
         }
     }
-    func stop() { poll?.cancel(); poll = nil; Self.live = false }
+    func stop() { guard poll != nil else { return }; poll?.cancel(); poll = nil; Self.watching -= 1 }
 
     private func tick() async -> Bool {
         guard size.width > 100, size.height > 100 else { return false }
         do {
-            let o = try await OrbitAPI(link: link).webFrame(sat.id, have: have, size: size)
+            let o = try await OrbitAPI(link: link).webFrame(spec, have: have, size: size)
             if Task.isCancelled { return false }
             guard let open = o["open"] as? Bool else { note = "Mac 的 Orbit42 還不支援，要更新"; return false }
             isOpen = open
@@ -92,7 +96,7 @@ final class MacChrome: ObservableObject {
         Task {
             while !queue.isEmpty {
                 let ops = Array(queue.prefix(20)); queue.removeFirst(ops.count)
-                do { try await OrbitAPI(link: link).webInput(sat.id, ops) }
+                do { try await OrbitAPI(link: link).webInput(target, ops) }
                 catch { note = "沒送到 Mac：\(error.localizedDescription)" }
                 kick = true
             }
@@ -141,7 +145,11 @@ final class ChromeTouch: UIView, UIGestureRecognizerDelegate {
         model = m
         super.init(frame: .zero)
         clipsToBounds = true; pic.contentMode = .scaleToFill; pic.layer.anchorPoint = .zero; addSubview(pic)
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tap)))
+        let t = UITapGestureRecognizer(target: self, action: #selector(tap)); addGestureRecognizer(t)
+        if m.isWindow {        // 長按＝右鍵；點兩下＝打開
+            let l = UILongPressGestureRecognizer(target: self, action: #selector(long)); addGestureRecognizer(l)
+            let d = UITapGestureRecognizer(target: self, action: #selector(twice)); d.numberOfTapsRequired = 2; addGestureRecognizer(d); t.require(toFail: d)
+        }
         let p = UIPanGestureRecognizer(target: self, action: #selector(pan)); p.maximumNumberOfTouches = 2; p.delegate = self; addGestureRecognizer(p)
         let z = UIPinchGestureRecognizer(target: self, action: #selector(pinch)); z.delegate = self; addGestureRecognizer(z)
     }
@@ -157,9 +165,9 @@ final class ChromeTouch: UIView, UIGestureRecognizerDelegate {
     override func willMove(toWindow w: UIWindow?) { super.willMove(toWindow: w); if w == nil { glide?.invalidate(); glide = nil } }
     func show(_ i: UIImage?, _ p: CGSize) { pic.image = i; page = p; place() }
     /// 圖照頁面的點數畫（鍵盤剛升起、Mac 還沒換大小時不要壓扁）
-    private var fit: CGFloat { page.width > 0 ? bounds.width / page.width : 1 }
+    private var fit: CGFloat { page.width > 0 ? min(bounds.width / page.width, model.isWindow && page.height > 0 ? bounds.height / page.height * 3 : .infinity) : 1 }
     private func place() {
-        let w = bounds.width * zoom, h = page.height * fit * zoom
+        let w = page.width > 0 ? page.width * fit * zoom : bounds.width * zoom, h = page.height * fit * zoom
         off.x = min(max(off.x, 0), max(w - bounds.width, 0)); off.y = min(max(off.y, 0), max(h - bounds.height, 0))
         pic.bounds = CGRect(x: 0, y: 0, width: w, height: h); pic.layer.position = CGPoint(x: -off.x, y: -off.y)
     }
@@ -170,6 +178,16 @@ final class ChromeTouch: UIView, UIGestureRecognizerDelegate {
         guard p.y <= page.height else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.5)
         model.act(["k": "tap", "x": Double(p.x), "y": Double(p.y)])
+    }
+    @objc private func long(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began else { return }
+        let p = onPage(g.location(in: self))
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        model.act(["k": "right", "x": Double(p.x), "y": Double(p.y)])
+    }
+    @objc private func twice(_ g: UITapGestureRecognizer) {
+        let p = onPage(g.location(in: self))
+        model.act(["k": "double", "x": Double(p.x), "y": Double(p.y)])
     }
     /// 手指移動 d（點）：放大時先移動畫面，多的才捲網頁
     private func move(_ d: CGPoint) {
@@ -216,7 +234,7 @@ struct WebPaneView: View {
     @FocusState private var addressFocus: Bool
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
+            if !model.isWindow { HStack(spacing: 12) {
                 Button { model.act(["k": "back"]) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("上一頁")
                 Button { model.act(["k": "forward"]) } label: { Image(systemName: "chevron.right") }.accessibilityLabel("下一頁")
                 TextField("網址或搜尋", text: $model.text).textFieldStyle(.roundedBorder).font(.footnote).focused($addressFocus)
@@ -228,17 +246,23 @@ struct WebPaneView: View {
                 Button { model.act(["k": "reload"]) } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("重新載入")
                 Button { composing.toggle() } label: { Image(systemName: composing ? "keyboard.chevron.compact.down" : "keyboard") }.accessibilityLabel(composing ? "收起鍵盤" : "打字")
                 Button { model.chromeApp() } label: { Image(systemName: "arrow.up.forward.app") }.accessibilityLabel("用 iPhone 的 Chrome 開")
-            }.padding(8)
+            }.padding(8) }
+            else { HStack {
+                Text(model.title).font(.footnote).lineLimit(1)
+                Spacer()
+                Button { composing.toggle() } label: { Image(systemName: composing ? "keyboard.chevron.compact.down" : "keyboard") }.accessibilityLabel(composing ? "收起鍵盤" : "打字")
+            }.padding(8) }
             ZStack {
                 Color.white
                 ChromeSurface(model: model, image: model.image, page: model.page)
-                if model.isOpen == false, model.note.isEmpty {
+                if model.isOpen == false, model.isWindow { Text("這個視窗已經關了").font(.callout).foregroundStyle(.gray) }
+                else if model.isOpen == false, model.note.isEmpty {
                     Text("這顆衛星還沒開網頁\n在上面輸入網址，Mac 的 Chrome 就會打開").font(.callout).foregroundStyle(.gray).multilineTextAlignment(.center).padding(30)
                 } else if model.image == nil, model.note.isEmpty { ProgressView("從 Mac 拿畫面").tint(.gray).foregroundStyle(.gray) }
                 if model.wide, model.image != nil {
                     Button("換手機版") { model.act(["k": "reload"]) }.font(.footnote).buttonStyle(.borderedProminent).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing).padding(12)
                 }
-                if !model.note.isEmpty { Text(model.note).font(.callout).multilineTextAlignment(.center).padding(20).background(.background, in: RoundedRectangle(cornerRadius: 10)).padding() }
+                if !model.note.isEmpty { Text(model.note).font(.callout).multilineTextAlignment(.center).padding(20).background(.background, in: RoundedRectangle(cornerRadius: 10)).padding().allowsHitTesting(false) }
             }
             if composing {
                 if model.edit == "password" {

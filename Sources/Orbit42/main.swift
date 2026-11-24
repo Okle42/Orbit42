@@ -209,6 +209,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
         SphereEmbed.remoteScreen = { [weak self] id, from, size in
             let o: [String: Any]? = MainActor.assumeIsolated {
+                if id.hasPrefix("mac|") { return MacWindows.shared.remote(id, have: from) }            // 手機看這台 Mac 的視窗
                 if id.hasPrefix("pane|") { return OrbitWindow.shared.phonePane(id, from: from, size: size) }        // 手機看這顆衛星的 3D／網頁面板
                 if let size, let h = self, let s = h.sats[id], let to = s.phoneView(cols: size.cols, rows: size.rows) { h.applyPhone(id, s, to, phone: true) }   // 手機附上自己的大小 ⇒ 手機在看時用手機大小
                 return self?.sats[id]?.remote(from: from)
@@ -218,6 +219,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // 11-24 Keng：iPhone 衛星終端機可以點、捲、打字 ⇒ 手機送來的位元組直接寫進那顆衛星的 pty（跟本機網頁的 "input" 同一條）
         SphereEmbed.remoteInput = { [weak self] id, data in
             MainActor.assumeIsolated {
+                if id.hasPrefix("mw-") { return MacWindows.shared.input(String(id.dropFirst(3)), data) }
                 if id.hasPrefix("pw-") { return OrbitWindow.shared.phoneWeb(String(id.dropFirst(3)), data) }      // 手機操作這顆衛星的網頁
                 guard let p = self?.sats[id]?.pty else { return false }
                 p.write(data); return true
@@ -702,7 +704,23 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             }
         }
         watchAskCard(); watchSphereFile()
-        startModels(test: test); startMoons()
+        startModels(test: test); startMoons(); MacWindows.shared.installMenu()
+        // 測試：ORBIT_TEST_MACWIN=<png 資料夾> ⇒ 列視窗、拍每個（只看不操作）、測操作會不會擋
+        if let out = env["ORBIT_TEST_MACWIN"] {
+            Task { @MainActor in
+                @MainActor func ask(_ s: String, _ have: Int = 0) -> [String: Any] { (SphereEmbed.remoteScreen?("mac|" + s, have, nil)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:] }
+                try? await Task.sleep(for: .seconds(2)); _ = ask("list"); try? await Task.sleep(for: .seconds(1))
+                let l = ask("list"); print("mw msg=\(l["msg"] ?? "-") control=\(l["control"] ?? "-")")
+                for w in l["wins"] as? [[String: Any]] ?? [] {
+                    let id = "\(w["id"] ?? 0)"; _ = ask(id); try? await Task.sleep(for: .seconds(1.2))
+                    let f = ask(id), d = (f["data"] as? String).flatMap { Data(base64Encoded: $0) }
+                    print("mw \(id) \(w["app"] ?? "") on=\(w["on"] ?? "") \(f["w"] ?? 0)x\(f["h"] ?? 0) jpg=\(d?.count ?? 0) msg=\(f["msg"] ?? "") again=\(ask(id, f["seq"] as? Int ?? 0)["data"] == nil)")
+                    try? d?.write(to: URL(fileURLWithPath: out + "/" + id + ".jpg"))
+                }
+                print("mw bad \(ask("x")) \(ask("999999999")) input=\(SphereEmbed.remoteInput?("mw-999999999", Data("[]".utf8)) ?? true)")
+                fflush(stdout); self.host.shutdown(); exit(0)
+            }
+        }
         // 測試：ORBIT_TEST_PHONEWEB=<網址> ⇒ 走手機的兩條路（remoteScreen／remoteInput）看、點、打字、捲、選單、對話框、離開還原
         if let u = env["ORBIT_TEST_PHONEWEB"] {
             let out = env["ORBIT_TEST_CHROME_SHOT"] ?? "/dev/null"
@@ -1413,11 +1431,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 for o in self.satWins.values where o !== w && !o.isHidden { o.matchSize(size) }
             }
             w.acceptFileDrops()
-            w.addTools([("3D", "在這顆衛星裡打開 3D 檔或圖片"), ("網頁", "在這顆衛星裡打開網頁")]) { [weak self] i in
-                guard let self else { return }
-                let kind = ["3d", "web"][i]
-                if self.moons[id]?[kind] != nil { self.tapMoon(id, kind) } else if i == 0 { self.pickModel(sat: id) } else { self.openWeb(nil, sat: id) }
-            }
             root.addSubview(w)
             satWins[id] = w
         }

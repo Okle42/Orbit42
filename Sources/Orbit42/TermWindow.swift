@@ -80,18 +80,6 @@ final class TermWindowView: NSView {
     private var grip: ResizeGrip!
 
     /// 標題列右邊的小鈕（3D／網頁）
-    private var tools = NSStackView(), onTool: (Int) -> Void = { _ in }
-    func addTools(_ list: [(String, String)], _ f: @escaping (Int) -> Void) {
-        onTool = f
-        for (i, t) in list.enumerated() {
-            let b = NSButton(title: t.0, target: self, action: #selector(tool(_:)))
-            b.tag = i; b.toolTip = t.1; b.bezelStyle = .inline; b.font = .systemFont(ofSize: 10)
-            tools.addArrangedSubview(b)
-        }
-        tools.spacing = 4; bar.addSubview(tools); needsLayout = true
-    }
-    @objc private func tool(_ b: NSButton) { onTool(b.tag) }
-
     // MARK: 檢視面板（11-24 Keng「用衛星終端機把 3D 視窗吃掉」）：3D／圖片直接開在這顆衛星裡
     // 視窗夠寬＝左終端機、右檢視；窄＝上檢視、下終端機。中間那條線可以拖
     private(set) var pane: NSView?
@@ -202,9 +190,7 @@ final class TermWindowView: NSView {
         guard let clip = subviews.first else { return }
         clip.frame = bounds
         bar.frame = NSRect(x: 0, y: bounds.height - Self.barHeight, width: bounds.width, height: Self.barHeight)
-        let tw = tools.arrangedSubviews.isEmpty ? 0 : tools.fittingSize.width
-        tools.frame = NSRect(x: bounds.width - tw - 12, y: 7, width: tw, height: 20)
-        let side = max(80, tw + 20)
+        let side: CGFloat = 80
         titleLabel.frame = NSRect(x: side, y: 9, width: max(0, bounds.width - side * 2), height: 16)
         let area = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - Self.barHeight)
         if let pane {
