@@ -16,8 +16,9 @@ public struct PendingAsk: Codable, Sendable, Equatable, Identifiable {
     public var at: Date                // 第一次問的時間（排隊順序）
     public var doing: String?
     public var unsureAt: Date? = nil   // 答案打進終端機但沒確認到：題目留著、前面明講請看終端機
+    public var sendingAt: Date? = nil  // 有人按了答案、正在送（AskQueue.claim）；App 中途當掉就一直留著，當成沒確認到
     /// 介面上顯示的題目
-    public var shown: String { unsureAt == nil ? ask : "⚠ 剛才的答案沒確認有沒有送到，請先看它的終端機再決定要不要重答。" + ask }
+    public var shown: String { unsureAt == nil && (sendingAt.map { Date().timeIntervalSince($0) < 60 } ?? true) ? ask : "⚠ 剛才的答案沒確認有沒有送到，輸入框裡可能還有字，請到它的終端機看；要答請直接在那裡打。" + ask }
     /// 等了多久；沒確認到就從那時算（介面才會把它當成新的、重新可按）
     public var since: Date { unsureAt ?? at }
     public init(id: String, ask: String, options: [String]? = nil, at: Date, doing: String? = nil) {
@@ -32,6 +33,44 @@ public enum AskQueue {
     public static var dir: URL {
         if let p = ProcessInfo.processInfo.environment["SHOWORK_ASKS_DIR"] { return URL(fileURLWithPath: p, isDirectory: true) }
         return Paths.supportDir.appendingPathComponent("board/asks", isDirectory: true)
+    }
+
+    // MARK: 一題只送一次
+
+    /// 讀了再改的都在這把鎖裡（跨程序：App、hook、showork）。不能巢狀
+    static func locked<T>(_ body: () -> T) -> T {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fd = open(dir.appendingPathComponent(".lock").path, O_CREAT | O_RDWR, 0o600)
+        defer { if fd >= 0 { close(fd) } }        // 關檔＝放鎖
+        if fd >= 0 { flock(fd, LOCK_EX) }
+        return body()
+    }
+    public enum Claim: Sendable, Equatable {
+        case ok(PendingAsk, text: String, queued: Int)     // 這次可以送（已標送出中）；text＝要送的字；queued＝排著幾題
+        case gone                                          // 沒這題、答過、過期、別的 session 的、選項對不上
+        case busy                                          // 正在送，或上次沒確認到
+    }
+    /// 按答案：驗題目與選項、標成送出中，一把鎖做完。有疑問就不給
+    public static func claim(sid: String, pick: AnswerPick?, now: Date = Date()) -> Claim {
+        locked {
+            var xs = load(sid)
+            let alive = live(xs, now: now)
+            guard let pick, let q = alive.first(where: { $0.id == pick.askId }), let t = pick.text(for: q), let i = xs.firstIndex(where: { $0.id == q.id }) else { return .gone }
+            guard q.sendingAt == nil, q.unsureAt == nil else { return .busy }
+            xs[i].sendingAt = now
+            save(sid, xs)
+            // 寫不進去就不算搶到
+            guard load(sid).first(where: { $0.id == q.id })?.sendingAt != nil else { return .busy }
+            return .ok(q, text: t, queued: alive.count)
+        }
+    }
+    /// 確定一個字都沒送出去：放回去讓他再按
+    public static func unclaim(sid: String, id: String) {
+        locked {
+            var xs = load(sid)
+            guard let i = xs.firstIndex(where: { $0.id == id }) else { return }
+            xs[i].sendingAt = nil; save(sid, xs)
+        }
     }
 
     // MARK: 純邏輯
@@ -86,45 +125,56 @@ public enum AskQueue {
     /// `showork card` 寫卡片時一起排（過期的順手清掉）
     @discardableResult
     public static func record(sid: String, report r: SelfReport, now: Date = Date()) -> [PendingAsk] {
-        let old = load(sid)
-        let xs = adding(r, to: live(old, now: now))
-        if xs != old { save(sid, xs) }
-        return xs
+        locked {
+            let old = load(sid)
+            let xs = adding(r, to: live(old, now: now))
+            if xs != old { save(sid, xs) }
+            return xs
+        }
     }
 
     /// 你在戰情中心回答了這一題 ⇒ 拿掉；卡片檔上同一題的 --ask 也清掉（不然它會用舊卡片的問題再冒出來）
     @discardableResult
     public static func resolve(sid: String, id: String, cardsDir: URL = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true)) -> PendingAsk? {
-        var xs = load(sid)
-        guard let i = xs.firstIndex(where: { $0.id == id }) else { return nil }
-        let q = xs.remove(at: i)
-        save(sid, xs)
+        let hit: PendingAsk? = locked {
+            var xs = load(sid)
+            guard let i = xs.firstIndex(where: { $0.id == id }) else { return nil }
+            let q = xs.remove(at: i)
+            save(sid, xs); return q
+        }
+        guard let q = hit else { return nil }
         Answered.clearCaptainCard(sid: sid, question: q.ask, dir: cardsDir)
         return q
     }
 
     /// 打進終端機但沒確認到
     public static func markUnsure(sid: String, id: String, now: Date = Date()) {
-        var xs = load(sid)
-        guard let i = xs.firstIndex(where: { $0.id == id }) else { return }
-        xs[i].unsureAt = now; save(sid, xs)
+        locked {
+            var xs = load(sid)
+            guard let i = xs.firstIndex(where: { $0.id == id }) else { return }
+            xs[i].unsureAt = now; xs[i].sendingAt = nil; save(sid, xs)
+        }
     }
 
     /// 同一題（文字相同）拿掉：秘書卡片掛著組員已經被回答的題（Answered）
     @discardableResult
     public static func resolve(sid: String, question: String?) -> Bool {
-        let xs = load(sid)
-        let ys = xs.filter { !Answered.same($0.ask, question) }
-        if ys.count != xs.count { save(sid, ys); return true }
-        return false
+        locked {
+            let xs = load(sid)
+            let ys = xs.filter { !Answered.same($0.ask, question) }
+            if ys.count != xs.count { save(sid, ys); return true }
+            return false
+        }
     }
 
     /// AI 撤回：編號或 all；回傳撤掉幾題
     public static func withdraw(sid: String, id: String) -> Int {
+        locked {
         let xs = load(sid)
         let ys = id == "all" ? [] : xs.filter { $0.id.caseInsensitiveCompare(id) != .orderedSame }
         save(sid, ys)
         return xs.count - ys.count
+        }
     }
 
     /// 使用者本人在終端機打的字才算回答：其他 session／看板轉送／系統訊息（<…> 標籤，含戰情中心回答）不算；
@@ -140,9 +190,8 @@ public enum AskQueue {
     public static func answeredInTerminal(sid: String, prompt: String?, captain: String? = nil,
                                           cardsDir: URL = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true)) -> [PendingAsk] {
         guard isTerminalAnswer(prompt) else { return [] }
-        let xs = load(sid)
+        let xs: [PendingAsk] = locked { let xs = load(sid); if !xs.isEmpty { save(sid, []) }; return xs }
         guard !xs.isEmpty else { return [] }
-        save(sid, [])
         for q in xs {
             Answered.clearCaptainCard(sid: sid, question: q.ask, dir: cardsDir)
             if let cap = captain, cap != sid {
@@ -170,7 +219,12 @@ public struct AnswerPick: Sendable, Equatable {
     /// 要送出去的字；題目不在（答過、過期、別的 session 的、排了好幾題）或選項對不上就 nil。字由這裡組，不用介面給的整句
     public func text(asks: [PendingAsk], now: Date) -> String? {
         let live = AskQueue.live(asks, now: now)
-        guard live.count == 1, let q = live.first, q.id == askId else { return nil }
+        guard live.count == 1, let q = live.first else { return nil }
+        return text(for: q)
+    }
+    /// 對某一題
+    public func text(for q: PendingAsk) -> String? {
+        guard q.id == askId else { return nil }
         let f = free?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard let option else { return f.isEmpty ? nil : f }
         let given = (q.options ?? []).isEmpty ? Inbox.genericOptions : q.options!

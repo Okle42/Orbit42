@@ -93,7 +93,7 @@ struct TermAnswerTests {
         var a = PendingAsk(id: "Q1", ask: "要 push 嗎", at: Date(timeIntervalSince1970: 1))
         #expect(a.shown == "要 push 嗎" && a.since == a.at)
         a.unsureAt = Date(timeIntervalSince1970: 9)
-        #expect(a.shown.contains("請先看它的終端機") && a.shown.hasSuffix("要 push 嗎") && a.since == a.unsureAt)
+        #expect(a.shown.contains("請到它的終端機看") && a.shown.hasSuffix("要 push 嗎") && a.since == a.unsureAt)
         #expect(AskQueue.adding(SelfReport(status: .review, ask: "要 push 嗎"), to: [a]).count == 1)
         let old = #"{"id":"Q1","ask":"x","at":"2026-10-21T00:00:00.000Z"}"#
         #expect(try BoardJSON.decoder.decode(PendingAsk.self, from: Data(old.utf8)).unsureAt == nil)

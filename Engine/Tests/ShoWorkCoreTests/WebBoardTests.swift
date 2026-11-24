@@ -161,6 +161,7 @@ struct WebBoardTests {
     @Test("動作解析：五種動作各自的形狀；單號格式、ack 不收 all、路徑字元、太長都擋")
     func actions() throws {
         func p(_ path: String, _ body: String) -> Result<WebAction, CardError> { WebAction.parse(path: path, body: Data(body.utf8)) }
+        #expect(try p("/api/answer", #"{"id":"a-1","text":"好","askId":"Q1"}"#).get() == .answer(session: "a-1", text: "好", askId: "Q1"))
         #expect(try p("/api/answer", #"{"id":"a-1","text":" 好 "}"#).get() == .answer(session: "a-1", text: "好"))
         #expect(try p("/api/send", #"{"id":"a","text":"hi"}"#).get() == .send(session: "a", text: "hi"))
         #expect(try p("/api/task", #"{"id":"a","text":"做 X"}"#).get() == .dispatch(session: "a", text: "做 X"))

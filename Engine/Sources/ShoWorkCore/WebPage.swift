@@ -101,7 +101,7 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
       .then(function(){ busy[key] = false; for (var i = 0; i < btns.length; i++) btns[i].disabled = false; load(); });
   }
   function answer(s, text, btns) {
-    post("/api/answer", s.id, { id: s.id, text: text }, "回答「" + s.name + "」：\n" + text, btns);
+    post("/api/answer", s.id, { id: s.id, text: text, askId: s.askId }, "回答「" + s.name + "」：\n" + text, btns);
   }
 
   function card(s) {

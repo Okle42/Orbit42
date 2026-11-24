@@ -592,6 +592,13 @@ extension CaptainInbox {
         return xs[k]
     }
 
+    /// 答案其實沒送到：把剛記的那筆事先放行拿掉
+    public static func dropAnswer(sid: String, answer: String, at: Date) {
+        var xs = loadPreapprovals()
+        guard let i = xs.lastIndex(where: { $0.sid == sid && $0.answer == answer && abs($0.at.timeIntervalSince(at)) < 0.01 && $0.used.isEmpty }) else { return }
+        xs.remove(at: i); savePreapprovals(xs)          // 只拿剛記的那一筆
+    }
+
     /// 使用者在終端機送出一句話（UserPromptSubmit）：記成事先放行；鍵盤打的、而且點名了等著的單，當場放行。
     /// 答案卡打進去的（TypedMark）只記事先放行，等那個指令重跑才過。每句只記一次
     public static func typedPrompt(sid: String, prompt p: String, who: String, now: Date) -> CaptainInboxItem? {
