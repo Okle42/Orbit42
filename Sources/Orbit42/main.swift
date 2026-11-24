@@ -604,10 +604,14 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     /// 11-23 Keng「4 選項答案卡跳出來應該在終端機上方，它要幫我們加速工作流程」：衛星小視窗是原生 view、蓋在球體網頁上，
     /// 網頁的 z-index 管不到 ⇒ 每 0.3 秒問球體答案卡（＋送出後的「復原」提示）在哪，蓋到它的衛星整個淡出、點擊穿過去；答完恢復
     private func watchAskCard() {
+        // 11-24 Keng「點答案卡，終端機短暫消失」：送出後 3 秒的復原條不再叫終端機讓位（改放進戰情卡）；
+        // 答案卡比戰情卡長時只算看得到的那一段（原本連捲在外面的也算，會誤判碰到終端機）
         let js = """
-        (() => { const r = []; for (const id of ["askCard", "askUndo", "askDot"]) { const e = document.getElementById(id);
+        (() => { const r = []; for (const id of ["askCard", "askDot"]) { const e = document.getElementById(id);
           if (!e || !e.classList.contains("on")) continue; const b = e.getBoundingClientRect();
-          if (b.width && b.height) r.push([b.left, b.top, b.width, b.height]); } return JSON.stringify(r); })()
+          const t = e.closest("#cardTeam"), c = t ? t.getBoundingClientRect() : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+          const x = Math.max(b.left, c.left), y = Math.max(b.top, c.top), w = Math.min(b.right, c.right) - x, h = Math.min(b.bottom, c.bottom) - y;
+          if (w > 0 && h > 0) r.push([x, y, w, h]); } return JSON.stringify(r); })()
         """
         askTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
