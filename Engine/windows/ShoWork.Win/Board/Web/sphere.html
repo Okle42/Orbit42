@@ -347,6 +347,18 @@
   .trow .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .trow .nm small { color: var(--ink-dim); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; }
   .trow.faded .nm { opacity: .55; }      /* 完成：10 分鐘內留著、變淡 */
+  /* 11-25 名卡拖動排序 */
+  #cardTeam .k .mn { margin-left: auto; background: none; border: 0; color: var(--ink-faint); font: 13px/1 -apple-system, sans-serif; cursor: pointer; padding: 0 4px; }
+  #cardTeam .k .mn ~ .x { margin-left: 4px; }
+  #cardTeam .k .mn[hidden] { display: none; } #cardTeam .k .mn[hidden] ~ .x { margin-left: auto; }
+  body.sortable #teamRows .trow { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; border-radius: 4px; }
+  body.sortable #teamRows .trow:focus { outline: none; } body.sortable #teamRows .trow:focus-visible { outline: 2px solid var(--ink-dim); outline-offset: 1px; }
+  #teamRows .trow.slot > * { visibility: hidden; } #teamRows .trow.slot { background: var(--soft); outline: 1px dashed var(--ink-dim); outline-offset: -1px; animation: none; }
+  .trow.float { position: fixed; z-index: 100000; pointer-events: none; margin: 0; background: var(--panel-solid); border: 1px solid var(--ink-dim); border-radius: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.38); cursor: grabbing;
+    transform: scale(1.02); transition: transform .12s ease; box-sizing: border-box; padding-left: 8px; padding-right: 8px; }
+  @media (prefers-reduced-motion: reduce) { .trow.float { transform: none; transition: none; } }
+  #teamRows button.more { display: block; width: 100%; background: none; border: 0; font: inherit; font-size: 10px; cursor: pointer; }
+  #teamRows button.more:hover, #teamRows button.more:focus-visible { color: var(--ink); }
   .trow .sub { grid-column: 2 / -1; font-size: 10px; color: var(--ink-dim); letter-spacing: .04em; margin-top: -2px; }
   .trow .sub .hi { color: var(--warn); }
   .trow .meter { grid-column: 2 / -1; margin-top: 0; }
@@ -513,7 +525,7 @@
 </div>
 
 <div class="card" id="cardTeam">
-  <div class="k">戰情 · SESSION</div>
+  <div class="k">戰情 · SESSION<button class="mn" id="teamMenuBtn" aria-label="清單選單" aria-haspopup="menu" title="清單選單" hidden>⋯</button></div>
   <div class="head"><span>在線</span><b id="ns">--</b></div>
   <div class="chips" id="chips"></div>
   <div id="teamRows"></div>
@@ -1750,21 +1762,29 @@ function render() {
 const ST_COL = { "需要你": "var(--warn)", "進行中": "var(--ink)", "待審": "var(--gray)", "卡住": "var(--bad)", "完成": "var(--done)" };
 const lastSt = new Map();
 /* 位置固定（11-25）：前 6 列照原順序；排在後面但需要你的也列出來，不然看不到 */
-function teamShown() { return (data.team || []).map((c, i) => [c, i]).filter(([c, i]) => i < 6 || c.status === "需要你"); }
-function renderTeam() {
-  const team = data.team || [], cnt = {};
-  for (const c of team) cnt[c.status] = (cnt[c.status] || 0) + 1;
-  $("chips").innerHTML = Object.keys(ST_COL).filter(k => cnt[k]).map(k => `<span><i style="--c:${ST_COL[k]}"></i>${esc(k)} ${cnt[k]}</span>`).join("");
-  const shown = teamShown();
-  const rowsHtml = shown.map(([c, i]) => {
+let teamAll = false;       // 展開全部
+function teamShown() { return (data.team || []).map((c, i) => [c, i]).filter(([c, i]) => teamAll || i < 6 || c.status === "需要你"); }
+function teamRowsHtml() {
+  const team = data.team || [], shown = teamShown();
+  return shown.map(([c, i]) => {
     const col = ST_COL[c.status] || "var(--done)", changed = lastSt.has(c.sessionId) && lastSt.get(c.sessionId) !== c.status;
     const sub = [esc(c.status === "卡住" && /等外部/.test(c.reason || "") ? "等待中" : c.status || ""), c.ctx != null ? `<span class="${c.ctx >= 80 ? "hi" : ""}">記憶 ${c.ctx}%</span>` : "", c.ago != null ? (c.ago < 1 ? "剛剛" : c.ago < 60 ? `${c.ago} 分鐘前` : `${Math.floor(c.ago / 60)} 小時前`) : ""].filter(Boolean).join(" · ");
-    return `<div class="row trow${c.status === "進行中" ? " live" : c.status === "卡住" ? " live wait" : ""}${c.sessionId ? " link" : ""}${changed ? " flash" : ""}${c.faded ? " faded" : ""}" data-i="${i}" title="${c.sessionId ? "點一下跳到這個 session" : ""}">
+    return `<div class="row trow${c.status === "進行中" ? " live" : c.status === "卡住" ? " live wait" : ""}${c.sessionId ? " link" : ""}${changed ? " flash" : ""}${c.faded ? " faded" : ""}" data-i="${i}" data-sid="${esc(c.sessionId || "")}"${data.orderable && c.sessionId ? ` tabindex="0" role="button" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc((c.name || "") + " " + (c.doing || "") + " " + (c.status || ""))}"` : ""} title="${c.sessionId ? "點一下跳到這個 session" + (data.orderable ? "；拖動可以排順序" : "") : ""}">
       <span class="dot${c.status === "需要你" ? " pulse" : ""}" style="--c:${col}"></span>
       <span class="nm">${esc(c.name || "")}${c.doing ? `<small>${esc(c.doing)}</small>` : ""}</span><span>${c.progress != null ? c.progress + "%" : ""}</span>
       <div class="meter seg ramp" title="完成度 ${c.progress != null ? c.progress + "%" : "還沒回報"}"><b style="--p:${Math.max(0, Math.min(100, c.progress ?? 0))}%"></b></div>
       <div class="sub">${sub}</div></div>`;
-  }).join("") + (team.length > shown.length ? `<div class="more">還有 ${team.length - shown.length} 個 · 點衛星看</div>` : "");
+  }).join("") + (!data.orderable ? (team.length > shown.length ? `<div class="more">還有 ${team.length - shown.length} 個 · 點衛星看</div>` : "")
+    : team.length > shown.length ? `<button class="more" data-more="1">還有 ${team.length - shown.length} 個 · 展開</button>` : teamAll && team.length > 6 ? `<button class="more" data-more="0">收合</button>` : "");
+}
+function renderTeam() {
+  if (window.teamDrag) { for (const n of $("teamRows").querySelectorAll(".askTag")) n.remove(); return; }      // 拖動中不重畫，放開才套用
+  const keepFocus = document.activeElement?.closest?.("#teamRows .trow")?.dataset.sid;
+  document.body.classList.toggle("sortable", !!data.orderable); $("teamMenuBtn").hidden = !data.orderable;
+  const team = data.team || [], cnt = {};
+  for (const c of team) cnt[c.status] = (cnt[c.status] || 0) + 1;
+  $("chips").innerHTML = Object.keys(ST_COL).filter(k => cnt[k]).map(k => `<span><i style="--c:${ST_COL[k]}"></i>${esc(k)} ${cnt[k]}</span>`).join("");
+  const shown = teamShown(), rowsHtml = teamRowsHtml();
   // 11-23 Keng「語音輸入的字會重複」（錄影：在第二螢幕打第二螢幕打、打開鏡像打開鏡像、順便順便）：
   // 原本每次重畫列都把答案卡拿到 body 再放回來 ⇒ 補充框離開文件一下，macOS 聽寫／注音的暫定字被打斷、留下重複。
   // 答案卡已經在列裡 ⇒ 不動它，只換掉它前後的列（不搬它自己，輸入框不會斷）
@@ -1781,6 +1801,7 @@ function renderTeam() {
     placeAsk(askSt);
   }
   for (const c of team) if (c.sessionId) lastSt.set(c.sessionId, c.status);
+  if (keepFocus) $("teamRows").querySelector(`.trow[data-sid="${CSS.escape(keepFocus)}"]`)?.focus({ preventScroll: true });
 }
 /* v5 ② 拉線：卡片和球之間畫一條「從球邊出發、轉個角、接到卡片」的細線 */
 const projV = new THREE.Vector3();
@@ -2129,6 +2150,189 @@ for (const id of ["sysRows", "sysWrap", "coolRows"]) $(id).addEventListener("cli
   e.stopPropagation();
   if (b.dataset.audit === "fix") post({ action: "auditFix" }); else post({ action: "audit", send: b.dataset.audit === "send" });
 });
+/* ---------- 11-25 Keng：名卡拖動排序（Mac 滑鼠、手機長按、Option＋上下鍵）。只動 #teamRows 的列，不碰答案卡 ---------- */
+(() => {
+  const rows = $("teamRows"), box = $("cardTeam"), still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const listed = () => [...rows.children].filter(n => n.classList.contains("trow"));
+  // 只在這些人原本佔的格子裡重排（跟 Mac 的 CardOrder.arrange 一樣）：不掉、不重複
+  const arrange = (all, want) => { const has = new Set(all), seen = new Set(), w = want.filter(x => has.has(x) && !seen.has(x) && seen.add(x)); let k = 0; return all.map(x => seen.has(x) ? w[k++] : x); };
+  const sortTeam = (team, ids) => { const by = new Map(team.map(c => [c.sessionId, c])); return arrange(team.map(c => c.sessionId), ids).map(id => by.get(id)); };
+  let mine = null, held = null;                       // mine＝剛放開、等 Mac 確認的順序；held＝拖動中收到的名單
+  window.teamIncoming = d => {
+    if (!d || !Array.isArray(d.team)) return d;
+    if (window.teamDrag) { held = d.team; return { ...d, team: data.team || [] }; }
+    if (mine) {
+      const t = sortTeam(d.team, mine.ids);
+      if (Date.now() > mine.until || t.every((c, i) => c === d.team[i])) mine = null; else return { ...d, team: t };
+    }
+    return d;
+  };
+  window.karaOrderFail = () => { mine = null; };
+  function commit(ids) {
+    mine = { ids, until: Date.now() + 6000 };
+    data.team = sortTeam(data.team || [], ids); data.ordered = true;
+    renderTeam(); post({ action: "order", ids });
+  }
+  // 畫面上看得到的列的新順序 → 整份名單的新順序（藏起來的跟著前一張走）
+  function full(shown) {
+    const all = (data.team || []).map(c => c.sessionId).filter(Boolean), vis = new Set(shown), out = [];
+    const follow = new Map(); let last = "";
+    for (const id of all) { if (vis.has(id)) last = id; else follow.set(last, [...(follow.get(last) || []), id]); }
+    // 第 6 列後面藏的固定接在畫面最後：拖動只改看得到的相對位置
+    const tail = follow.get(last) || [];
+    out.push(...(follow.get("") || []));
+    for (const id of shown) { out.push(id); if (id !== last) out.push(...(follow.get(id) || [])); }
+    out.push(...tail);
+    return [...new Set(out)];
+  }
+  function expand(on) { teamAll = on; renderTeam(); drawLinks(); }
+
+  /* 拖動 */
+  let d = null;
+  function begin(row, x, y, kind) {
+    const r = row.getBoundingClientRect(), f = row.cloneNode(true);
+    for (const n of f.querySelectorAll("canvas, .askTag")) n.remove();
+    f.classList.remove("live", "flash", "wait"); f.classList.add("float"); f.removeAttribute("tabindex"); f.setAttribute("aria-hidden", "true");
+    f.style.left = r.left + "px"; f.style.top = r.top + "px"; f.style.width = r.width + "px"; f.style.height = r.height + "px";
+    document.body.appendChild(f); row.classList.add("slot");
+    window.teamDrag = true; held = null;
+    d = { row, f, dy: y - r.top, x, y, kind, before: listed().map(n => n.dataset.sid), moreAt: 0, raf: 0 };
+    getSelection()?.removeAllRanges?.();
+    if (kind === "touch") { try { navigator.vibrate?.(8); } catch {} }
+    d.raf = setInterval(() => { if (d) scroll(); }, 16);      // 不用 rAF：球體畫得慢時捲動也要順
+  }
+  function place() {
+    d.f.style.top = (d.y - d.dy) + "px";
+    const mid = d.y - d.dy + d.f.offsetHeight / 2, others = listed().filter(n => n !== d.row);
+    const next = others.find(n => { const r = n.getBoundingClientRect(); return mid < r.top + r.height / 2; });
+    const last = others[others.length - 1];
+    if (!last) return;
+    const ok = next ? d.row.nextElementSibling === next : !others.some(n => d.row.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (ok) return;
+    const tops = new Map(others.map(n => [n, n.getBoundingClientRect().top]));
+    if (next) rows.insertBefore(d.row, next); else last.after(d.row);
+    if (still()) return;
+    for (const [n, t] of tops) { const k = t - n.getBoundingClientRect().top; if (k) n.animate([{ transform: `translateY(${k}px)` }, { transform: "none" }], { duration: 140, easing: "ease-out" }); }
+  }
+  function scroll() {
+    const b = box.getBoundingClientRect(), E = 32, up = b.top + E - d.y, down = d.y - (b.bottom - E);
+    const v = up > 0 ? -Math.min(12, up / 3) : down > 0 ? Math.min(12, down / 3) : 0;
+    if (v) { const s = box.scrollTop; box.scrollTop += v; if (box.scrollTop !== s) place(); }
+    // 拖到「還有 N 個」上停一下 ⇒ 把藏的帶出來（不重畫現有的列，拖著的那張不會跳）
+    const m = rows.querySelector('[data-more="1"]'), r = m?.getBoundingClientRect();
+    if (m && d.y > r.top - 14) { if (!d.moreAt) d.moreAt = Date.now(); else if (Date.now() - d.moreAt > 350) bringOut(m); } else d.moreAt = 0;
+  }
+  function bringOut(m) {
+    const have = new Set(listed().map(n => n.dataset.sid)), tmp = document.createElement("div");
+    teamAll = true; d.moreAt = 0;
+    const save = window.teamDrag; window.teamDrag = false;
+    tmp.innerHTML = teamRowsHtml(); window.teamDrag = save;
+    const seq = [...tmp.children].filter(n => n.classList.contains("trow"));
+    for (let i = seq.length - 1; i >= 0; i--) {             // 從後面往前插回自己的位置（下一張是誰就插在誰前面）
+      if (have.has(seq[i].dataset.sid)) continue;
+      const after = seq.slice(i + 1).map(n => rows.querySelector(`.trow[data-sid="${CSS.escape(n.dataset.sid)}"]`)).find(n => n && n !== d.row);
+      rows.insertBefore(seq[i], after || m);
+    }
+    m.remove(); place();
+  }
+  function end(ok) {
+    if (!d) return;
+    const x = d; d = null; clearInterval(x.raf); x.f.remove(); x.row.classList.remove("slot");
+    const ids = listed().map(n => n.dataset.sid); window.teamDrag = false;
+    // 放開後才套用拖動中收到的名單
+    const now = held; held = null;
+    if (ok && ids.join() !== x.before.join() && ids.length) {
+      const all = full(ids);
+      if (now) data.team = now;
+      commit(all);
+    } else { if (now) data.team = now; renderTeam(); }
+    render(); renderAsk(); diff(data.team || []); syncSats(data.team || []);
+  }
+  const can = e => data.orderable && !e.target.closest("#askCard, button, a, input, textarea, .askTag");
+  let eatClick = false;
+  rows.addEventListener("click", e => { if (eatClick) { eatClick = false; e.stopPropagation(); e.preventDefault(); } }, true);
+  // 滑鼠：動超過 6px 才算拖
+  rows.addEventListener("pointerdown", e => {
+    if (e.pointerType === "touch" || e.button !== 0 || d || !can(e)) return;
+    const row = e.target.closest(".trow"); if (!row?.dataset.sid) return;
+    eatClick = false;
+    const x0 = e.clientX, y0 = e.clientY;
+    const move = ev => {
+      if (ev.pointerId !== e.pointerId) return;
+      if (!d) { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) <= 6 || !row.isConnected) return; begin(row, x0, y0, "mouse"); }
+      ev.preventDefault(); d.x = ev.clientX; d.y = ev.clientY; place();
+    };
+    const off = () => { removeEventListener("pointermove", move, true); removeEventListener("pointerup", up, true); removeEventListener("pointercancel", bad, true); };
+    const up = ev => { if (ev.pointerId !== e.pointerId) return; off(); if (d) { eatClick = true; setTimeout(() => { eatClick = false; }, 60); end(true); } };
+    const bad = () => { off(); end(false); };
+    addEventListener("pointermove", move, true); addEventListener("pointerup", up, true); addEventListener("pointercancel", bad, true);
+  });
+  // 手指：按住約 0.3 秒不動才拖；先動了＝捲動
+  let hold = 0, t0 = null;
+  const letGo = () => { clearTimeout(hold); hold = 0; t0 = null; };
+  rows.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1) { letGo(); end(false); return; }
+    if (!can(e) || d) return;
+    const row = e.target.closest(".trow"), t = e.touches[0]; if (!row?.dataset.sid) return;
+    const sid = row.dataset.sid;
+    t0 = { x: t.clientX, y: t.clientY };
+    hold = setTimeout(() => {
+      hold = 0; if (!t0) return;
+      const r = row.isConnected ? row : rows.querySelector(`.trow[data-sid="${CSS.escape(sid)}"]`);     // 等的時候重畫過
+      if (r) begin(r, t0.x, t0.y, "touch");
+    }, 300);
+  }, { passive: true });
+  addEventListener("touchmove", e => {
+    const t = e.touches[0]; if (!t) return;
+    if (d?.kind === "touch") { e.preventDefault(); d.x = t.clientX; d.y = t.clientY; place(); }
+    else if (t0 && Math.hypot(t.clientX - t0.x, t.clientY - t0.y) > 8) letGo();
+  }, { passive: false });
+  addEventListener("touchend", e => { letGo(); if (d?.kind === "touch") { e.preventDefault(); end(true); } }, { passive: false });
+  addEventListener("touchcancel", () => { letGo(); if (d?.kind === "touch") end(false); });
+  rows.addEventListener("contextmenu", e => { if (d || hold) e.preventDefault(); });
+  addEventListener("blur", () => { letGo(); end(false); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { letGo(); end(false); } });
+  addEventListener("keydown", e => { if (e.key === "Escape" && d) { e.stopImmediatePropagation(); e.preventDefault(); eatClick = true; setTimeout(() => { eatClick = false; }, 400); end(false); } }, true);
+  // 鍵盤：選中一張，Option＋上下鍵移動；Enter／空白＝跳過去
+  rows.addEventListener("keydown", e => {
+    const row = e.target.closest(".trow"); if (!row || e.target !== row || !data.orderable) return;
+    const up = e.key === "ArrowUp", down = e.key === "ArrowDown";
+    if (e.altKey && (up || down)) {
+      e.preventDefault(); e.stopPropagation();
+      if (d) return;
+      const sid = row.dataset.sid;
+      if (down && !row.matches(".trow:has(~ .trow)") && rows.querySelector('[data-more="1"]')) expand(true);
+      const ids = listed().map(n => n.dataset.sid), i = ids.indexOf(sid), j = i + (up ? -1 : 1);
+      if (i < 0 || j < 0 || j >= ids.length) return;
+      [ids[i], ids[j]] = [ids[j], ids[i]]; commit(full(ids));
+      const n = rows.querySelector(`.trow[data-sid="${CSS.escape(sid)}"]`); n?.focus({ preventScroll: true }); n?.scrollIntoView({ block: "nearest" });
+    } else if ((up || down) && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault(); e.stopPropagation();
+      const l = listed(); l[l.indexOf(row) + (up ? -1 : 1)]?.focus();
+    } else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); row.click(); }
+  });
+  rows.addEventListener("click", e => { const m = e.target.closest("[data-more]"); if (m) { e.stopPropagation(); expand(m.dataset.more === "1"); } });
+  // 選單
+  const menu = document.createElement("div"); menu.className = "dropMenu"; menu.id = "teamMenu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", "清單選單");
+  document.body.appendChild(menu);
+  let wasOpen = false;
+  $("teamMenuBtn").addEventListener("pointerdown", e => { wasOpen = menu.classList.contains("on"); e.stopPropagation(); });
+  $("teamMenuBtn").onclick = () => {
+    if (wasOpen) { menu.classList.remove("on"); wasOpen = false; return; }
+    const n = (data.team || []).length;
+    menu.innerHTML = `<button class="row" role="menuitem" data-k="reset"${data.ordered ? "" : " disabled"} style="${data.ordered ? "" : "opacity:.45;cursor:default"}"><span class="lb">恢復預設順序</span></button>`
+      + (n > 6 ? `<button class="row" role="menuitem" data-k="all"><span class="lb">${teamAll ? "只看前 6 個" : `全部展開（${n}）`}</span></button>` : "");
+    menu.classList.add("on");
+    const r = $("teamMenuBtn").getBoundingClientRect(), w = menu.offsetWidth || 160, h = menu.offsetHeight || 60;
+    menu.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px"; menu.style.top = Math.min(r.bottom + 6, innerHeight - h - 8) + "px"; menu.style.right = "auto"; menu.style.bottom = "auto";
+    menu.querySelector("button:not([disabled])")?.focus();
+  };
+  menu.onclick = e => {
+    const k = e.target.closest("button")?.dataset.k; if (!k) return;
+    menu.classList.remove("on");
+    if (k === "reset") { mine = null; data.ordered = false; post({ action: "order", reset: true }); } else expand(!teamAll);
+  };
+})();
 $("teamRows").onclick = e => {
   const row = e.target.closest(".row"); if (!row) return;
   const c = (data.team || [])[+row.dataset.i];
@@ -2174,6 +2378,7 @@ function clip(s, n) { s = String(s).replace(/\s+/g, " ").trim(); return s.length
 
 window.karaUpdate = (d) => {
   embedded = true; document.body.classList.add("embedded");
+  d = window.teamIncoming ? window.teamIncoming(d) : d;
   Object.assign(data, d); render(); renderSys();
   syncSats(data.team || []); syncOuter(data.runs, data.heat);
   diff(data.team || []); quota(); captainReply(); renderAsk(); autoState(); brief();

@@ -121,6 +121,14 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
                 do { toast(try await OrbitAPI(link: link).answer(session: sid, text: text, askId: o["askId"] as? String)) }
                 catch { toast("沒送出：\(error.localizedDescription)") }
             }
+        case "order":          // 11-25 名卡拖動排序
+            if link.isDemo { return }
+            let ids = o["reset"] as? Bool == true ? nil : o["ids"] as? [String]
+            if ids == nil, o["reset"] as? Bool != true { return }
+            Task {
+                do { try await OrbitAPI(link: link).order(ids) }
+                catch { js(web, "window.karaOrderFail", []); toast("順序沒存到 Mac：\(error.localizedDescription)") }
+            }
         case "moon":           // 11-24 點小衛星 ⇒ 到那顆衛星的 3D／網頁
             if let sid = o["sessionId"] as? String { onMoon(sid, o["kind"] as? String ?? "3d") }
         case "theme":          // 11-24 球體換配色 ⇒ 終端機和整個 App 跟著換

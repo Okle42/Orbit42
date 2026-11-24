@@ -505,6 +505,29 @@ final class BoardModel: ObservableObject {
 
     /// 每個 session 的固定標示（球體、收件匣、衛星標題列、手機都拿這一份）
     private(set) var labels: [String: WorkLabel] = [:]
+    @Published private(set) var order: [String] = []          // 在線的人照名卡順序
+    private(set) var orderManual = false
+    private lazy var cardOrder = CardOrder.load()
+    private var orderLive: [(sid: String, prev: [String])] = []
+    private func refreshOrder() {
+        let old = cardOrder
+        let ids = cardOrder.reconcile(orderLive, now: Date())
+        if cardOrder != old { saveOrder() }
+        if orderManual != cardOrder.manual { orderManual = cardOrder.manual; objectWillChange.send() }
+        if ids != order { order = ids }
+    }
+    private func saveOrder() { if JobStore.appWrites { let o = cardOrder; queue.async { o.save() } } }
+    /// Mac 拖完、手機送來的順序；nil＝恢復預設。兩邊同時拖：都走這裡，後到的為準
+    @discardableResult
+    func setOrder(_ ids: [String]?) -> Bool {
+        guard loaded else { return false }
+        if let ids {
+            guard CardOrder.valid(ids) else { return false }
+            cardOrder.apply(ids, live: orderLive, now: Date())
+        } else { cardOrder = CardOrder() }
+        saveOrder(); refreshOrder()
+        return true
+    }
     private lazy var labelNumbers = WorkLabels.numbers()
     private let labelLook = WorkLabels.Lookup.cached()
     private func apply(_ s: BoardReader.Snapshot) {
@@ -528,6 +551,9 @@ final class BoardModel: ObservableObject {
         if named.numbers != labelNumbers { labelNumbers = named.numbers; let n = named.numbers; if JobStore.appWrites { queue.async { WorkLabels.saveNumbers(n) } } }
         if named.labels != labels { labels = named.labels }
         for i in cards.indices where !cards[i].id.contains("#") { if let l = labels[cards[i].sessionId] { cards[i].set(l) } }
+        // 名卡順序（CardOrder.swift）：Keng 排過就照他的，沒排過＝預設
+        orderLive = cards.filter { !$0.id.contains("#") }.sorted { WorkLabels.before(($0.sessionId, $0.work), ($1.sessionId, $1.work)) }.map { ($0.sessionId, s.jobs[$0.sessionId]?.prev ?? []) }
+        refreshOrder()
         cards = Captain.annotate(cards, captain: captain, tasks: s.tasks)
         relayCards(s, captain: captain, cards: cards)
         let roster = Captain.roster(cards, captain: captain, now: Date())

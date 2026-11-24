@@ -23,6 +23,7 @@ final class WebServer {
     private var answered: [String: Date] = [:]
     private var limiter = WebRateLimiter()
     /// 手機終端機打字／點擊：一秒好幾筆 ⇒ 跟按鈕分開限頻（每分鐘 1200 筆）
+    private var orderLimiter = WebRateLimiter(perMinute: 60, minGap: 0.2)
     private var inputLimiter = WebRateLimiter(perMinute: 1200, minGap: 0)
     private var sayLimiter = WebRateLimiter(perMinute: 12, minGap: 1)      // 11-24 iPhone 語音：一分鐘最多 12 句
     private let store = WebStore()
@@ -121,6 +122,14 @@ final class WebServer {
             return WebRouter.handleSay(r, peer: peer, localIP: boundIP, token: store.token(), limiter: &sayLimiter,
                                        say: { SphereEmbed.say($0) },
                                        audit: { [store] e in store.audit(e); NSLog("ShoWork web: say from \(e.peer) → \(e.status)") })
+        }
+        if r.path == WebRouter.orderPath {
+            return WebRouter.handleOrder(r, peer: peer, localIP: boundIP, token: store.token(), limiter: &orderLimiter,
+                                         order: { q in
+                                             if BoardWindow.testMode { return true }
+                                             if case .set(let ids) = q { return BoardModel.shared.setOrder(ids) }
+                                             return BoardModel.shared.setOrder(nil)
+                                         }, audit: { [store] e in store.audit(e) })
         }
         if r.path == WebRouter.inputPath {
             return WebRouter.handleInput(r, peer: peer, localIP: boundIP, token: store.token(), limiter: &inputLimiter,

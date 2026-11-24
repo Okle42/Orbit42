@@ -128,6 +128,7 @@ struct MainView: View {
     @State private var sats: [Sat] = []
     @State private var path: [Sat] = []
     @State private var satError: String?
+    @State private var moved = Date.distantPast
     @State private var wantTab: String?
 
     init(link: MacLink, onForget: @escaping () -> Void) {
@@ -163,6 +164,7 @@ struct MainView: View {
                             }
                         }
                     }
+                    .onMove { from, to in move(from, to) }      // 長按拖動；跟球體的戰情清單同一份順序
                     Section {
                         Text(link.isDemo ? "示範模式" : "已連到 \(link.host):\(link.port)").font(.footnote).foregroundStyle(.secondary)
                         if !link.isDemo {
@@ -206,9 +208,23 @@ struct MainView: View {
 
     func stateText(_ s: String) -> String { ["busy": "工作中", "open": "開著", "idle": "還沒啟動", "exited": "已結束"][s] ?? s }
 
+    private func move(_ from: IndexSet, _ to: Int) {
+        sats.move(fromOffsets: from, toOffset: to)
+        moved = Date()
+        let ids = sats.compactMap(\.sessionId)
+        guard !link.isDemo, !ids.isEmpty else { return }
+        Task {
+            do { try await OrbitAPI(link: link).order(ids) } catch { satError = "順序沒存到 Mac：\(error.localizedDescription)" }
+            moved = .distantPast
+        }
+    }
     func loadSats() async {
         if link.isDemo { sats = Sat.demo; return }
-        do { sats = Sat.list(try await OrbitAPI(link: link).sats()); satError = nil; sphere.setMoons(sats) }
+        do {
+            let l = Sat.list(try await OrbitAPI(link: link).sats())
+            guard Date().timeIntervalSince(moved) > 3 else { return }        // 剛拖完、還沒存到 Mac：不要被舊順序蓋回去
+            sats = l; satError = nil; sphere.setMoons(sats)
+        }
         catch { if NetStats.shared.down { satError = error.localizedDescription } }     // 偶爾失敗一次不換掉清單、不跳紅字
     }
     func satLoop() async {

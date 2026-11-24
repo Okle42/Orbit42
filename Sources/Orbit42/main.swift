@@ -272,7 +272,13 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     return o
                 }
             }
-            return (try? JSONSerialization.data(withJSONObject: list)) ?? Data("[]".utf8)
+            // 跟戰情清單同一份順序；沒有 session 的（Codex、還沒開）排後面、照原本先後
+            let at = MainActor.assumeIsolated { Dictionary(SphereEmbed.cardOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a }) }
+            let sorted = list.enumerated().sorted { a, b in
+                let x = (a.element["sessionId"] as? String).flatMap { at[$0] } ?? .max, y = (b.element["sessionId"] as? String).flatMap { at[$0] } ?? .max
+                return (x, a.offset) < (y, b.offset)
+            }.map(\.element)
+            return (try? JSONSerialization.data(withJSONObject: sorted)) ?? Data("[]".utf8)
         }
         SphereEmbed.remoteScreen = { [weak self] id, from, size in
             let o: [String: Any]? = MainActor.assumeIsolated {

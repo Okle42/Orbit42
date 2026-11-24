@@ -144,6 +144,9 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             js("window.karaSessionInfo", Self.info(c))
         case "timeline":        // v4 E：今日時間軸
             js("window.karaTimeline", SphereWatch.todayTimeline())
+        case "order":           // 11-25 名卡拖動排序（reset＝恢復預設）
+            if blocked { return }
+            if m["reset"] as? Bool == true { model.setOrder(nil) } else if let ids = m["ids"] as? [String] { model.setOrder(ids) }
         case "orbit":           // 11-23 Orbit42 自己的按鈕（全螢幕桌面…）
             SphereEmbed.command?(str("cmd") ?? "")
         case "newSatellite":    // 11-23 Orbit42：球體工具列「＋ 新衛星」
@@ -355,7 +358,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     private func push() {
         guard loaded else { return }
         let heat = CityParse.cool42(FileManager.default.contents(atPath: HeatGate.cool42Path), now: Date())
-        var o = Self.payload(model.cards, model.rateLimits, runs: model.runs, heat: heat)
+        var o = Self.payload(model.cards, model.rateLimits, runs: model.runs, heat: heat, order: model.order, ordered: model.orderManual)
         o["paused"] = HeatGate.shared.paused
         o["disks"] = SphereDisks.read()          // 11-22 Keng：球右半邊的硬碟空間刻度環
         if let a = SphereAudit.latest() { o["audit"] = a }
@@ -375,7 +378,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     }
 
     /// 網頁要的資料（純函式，方便測）
-    static func payload(_ cards: [BoardCard], _ limits: RateLimits?, runs: [RunProgress] = [], heat: CityPower? = nil, now: Date = Date()) -> [String: Any] {
+    static func payload(_ cards: [BoardCard], _ limits: RateLimits?, runs: [RunProgress] = [], heat: CityPower? = nil, now: Date = Date(), order: [String] = [], ordered: Bool = false) -> [String: Any] {
         let people = cards.filter { !$0.id.contains("#") }
         let l = limits?.current(now: now)
         var o: [String: Any] = ["sessions": people.count]
@@ -393,7 +396,9 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         // 今天做完（待審＋完成、最後動靜在今天）的件數：收工總結用
         o["doneToday"] = people.filter { ($0.column == .review || $0.column == .done) && $0.lastActivity.map { Calendar.current.isDate($0, inSameDayAs: now) } == true }.count
         // 11-25 Keng：秘書最前、再依主專案、接單先後，位置固定（狀態變不重排；需要你的由網頁保證看得到）
-        o["team"] = people.sorted { WorkLabels.before(($0.sessionId, $0.work), ($1.sessionId, $1.work)) }.map { c -> [String: Any] in
+        let at = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        o["orderable"] = true; o["ordered"] = ordered
+        o["team"] = people.enumerated().sorted { (at[$0.element.sessionId] ?? .max, $0.offset) < (at[$1.element.sessionId] ?? .max, $1.offset) }.map(\.element).map { c -> [String: Any] in
             var t: [String: Any] = ["name": c.head, "status": needsYou(c) ? "需要你" : c.column.title, "sessionId": c.sessionId]
             t["doing"] = c.workTitle                                         // 固定兩行：name＝職責 · 主專案、doing＝工作標題
             if c.work?.state == .done { t["faded"] = true }
