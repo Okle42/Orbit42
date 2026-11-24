@@ -702,6 +702,43 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         }
         watchAskCard(); watchSphereFile()
         startModels(test: test); startMoons()
+        // 測試：ORBIT_TEST_CHROME=<網址> ⇒ 衛星裡開 Chrome，點輸入框、組字、打字、按 Enter、開新視窗連結，印結果
+        if let u = env["ORBIT_TEST_CHROME"].flatMap(WebPane.parse) {
+            @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+            after(3) { [weak self] in
+                guard let self else { return }
+                let id = self.host.runCommand(name: "Chrome 測試", brain: .claude, command: "sleep 60")
+                self.openWeb(u, sat: id)
+                after(8) {
+                    guard let p = self.moonViews(id)["web"] as? WebPane else { print("chrome: no pane"); exit(1) }
+                    let w = p.web
+                    print("chrome frames=\(w.frames) title=\(p.titleText) url=\(p.currentURL) msg=\(p.messageText)")
+                    w.testClick(60, 30)
+                    after(1) {
+                        w.setMarkedText("ㄋㄧˇ", selectedRange: NSRange(location: 3, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+                        w.insertText("你好", replacementRange: NSRange(location: NSNotFound, length: 0)); w.insertText("abc", replacementRange: NSRange(location: NSNotFound, length: 0))
+                        if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) { w.keyDown(with: e) }
+                        after(1) {
+                            w.eval("document.getElementById('i').value + '|' + document.getElementById('o').textContent + '|' + navigator.userAgent + '|' + innerWidth + 'x' + innerHeight + '@' + devicePixelRatio") { print("chrome input=\($0)") }
+                            if let cg = w.snapshot { try? NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: env["ORBIT_TEST_CHROME_SHOT"] ?? "/dev/null")) }
+                            w.eval("(()=>{const r=document.getElementById('a').getBoundingClientRect();return r.x+5+','+(r.y+5)})()") { xy in
+                                let v = xy.split(separator: ",").compactMap { Double($0) }; if v.count == 2 { w.testClick(v[0], v[1]) }
+                            }
+                            after(4) {
+                                print("chrome popup url=\(p.currentURL)"); w.go(-1)
+                                after(2) {
+                                    print("chrome back url=\(p.currentURL)"); let n = w.frames
+                                    self.tuckMoon(id); after(2) { let m = w.frames; self.showMoon(id, "web"); after(2) {
+                                        print("chrome frames tuck \(n)→\(m) show→\(w.frames)"); self.dropMoon(id, "web"); ChromeBrowser.shared.quit()
+                                        after(3) { print("chrome running=\(ChromeBrowser.shared.running)"); fflush(stdout); self.host.shutdown(); exit(0) }
+                                    } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // 測試：ORBIT_TEST_PANE="<檔案1>|<檔案2>@<png>" ⇒ 開一顆印字的衛星，先把檔案 1 開成獨立視窗、再開進衛星（獨立視窗要不見），
         // 截圖 <png>；再開檔案 2（同一塊面板）截 <png>.2.png；放大視窗截 .3.png；關面板後終端機要回滿版
         if let spec = env["ORBIT_TEST_PANE"], let at = spec.lastIndex(of: "@") {
@@ -744,6 +781,8 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                                     self.openWeb(u, sat: id)
                                     after(5) {
                                         guard let p = w.pane as? WebPane else { print("web missing"); exit(1) }
+                                        print("chrome frames=\(p.web.frames) size=\(p.web.snapshot.map { "\($0.width)x\($0.height)" } ?? "nil") view=\(p.web.bounds.size)")
+                                        if let cg = p.web.snapshot { try? NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out + ".chrome.png")) }
                                         print("web title=\(p.titleText) msg=\(p.messageText) moons \(self.moonJSON)")
                                         self.tuckMoon(id); print("tuck: pane=\(w.pane == nil) moons \(self.moonJSON)")
                                         self.moonCommand("moon:\(self.host.sessionId(id) ?? ""):web"); print("tap: back=\(w.pane === p)")
@@ -1488,7 +1527,7 @@ if !orbitTest {
 }
 MainActor.assumeIsolated {
     NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
-        MainActor.assumeIsolated { OrbitWindow.shared.host.shutdown() }
+        MainActor.assumeIsolated { ChromeBrowser.shared.quit(); OrbitWindow.shared.host.shutdown() }
     }
     ShoWorkAgentMain.run(AgentOptions(regularApp: !orbitTest, waitForAccessibility: false, testOnly: orbitTest,
                                       onLaunch: {

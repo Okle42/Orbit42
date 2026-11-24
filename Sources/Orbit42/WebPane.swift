@@ -1,23 +1,29 @@
 import AppKit
-import WebKit
 
-/// 衛星裡的網頁面板（11-24 Keng「看網頁也要成為一個小衛星，衛星終端機裡面也可以打開網頁」）。
-/// 一般瀏覽器：自己的 WKWebView 設定，碰不到 Orbit42 的訊息通道；登入狀態存在 Orbit42 自己的網站資料裡。
+/// 衛星裡的網頁面板（11-24 Keng「看網頁也要成為一個小衛星，衛星終端機裡面也可以打開網頁」「衛星裡嵌真的 Chrome」）。
+/// 內容是背景 Chrome 的一頁（Chrome.swift）；登入存在 Orbit42 自己的 Chrome 設定檔，跟平常的 Chrome 分開。
 @MainActor
-final class WebPane: NSView, WKNavigationDelegate, WKUIDelegate, NSTextFieldDelegate {
-    let web: WKWebView
+final class WebPane: NSView, NSTextFieldDelegate {
+    let web = ChromeView(frame: .zero)
     private let address = NSTextField(), bar = NSStackView(), message = NSTextField(wrappingLabelWithString: "")
     var onShut: () -> Void = {}
     var onTuck: () -> Void = {}
     var onTitle: () -> Void = {}
     var onLoaded: (Bool) -> Void = { _ in }
-    private var titleWatch: NSKeyValueObservation?
 
     override init(frame: NSRect) {
-        let cfg = WKWebViewConfiguration()
-        web = WKWebView(frame: .zero, configuration: cfg)
         super.init(frame: frame)
-        web.navigationDelegate = self; web.uiDelegate = self; web.allowsBackForwardNavigationGestures = true
+        web.onChange = { [weak self] in
+            guard let self else { return }
+            if self.address.currentEditor() == nil { self.address.stringValue = self.web.url?.absoluteString ?? "" }
+            self.onTitle()
+        }
+        web.onLoaded = { [weak self] in self?.onTitle(); self?.onLoaded(true) }
+        web.onError = { [weak self] m in
+            guard let self else { return }
+            self.message.stringValue = m; self.message.isHidden = m.isEmpty
+            if !m.isEmpty { self.onLoaded(false) }
+        }
         addSubview(web)
         for (t, a) in [("‹", #selector(back)), ("›", #selector(forward)), ("↻", #selector(reload))] {
             let b = NSButton(title: t, target: self, action: a); b.bezelStyle = .inline; b.font = .systemFont(ofSize: 11); bar.addArrangedSubview(b)
@@ -32,7 +38,7 @@ final class WebPane: NSView, WKNavigationDelegate, WKUIDelegate, NSTextFieldDele
         }
         bar.spacing = 6; addSubview(bar)
         message.alignment = .center; message.isHidden = true; addSubview(message)
-        titleWatch = web.observe(\.title) { [weak self] _, _ in MainActor.assumeIsolated { self?.onTitle() } }
+        message.drawsBackground = true; message.backgroundColor = .windowBackgroundColor
     }
     required init?(coder: NSCoder) { fatalError() }
     override func layout() {
@@ -41,8 +47,8 @@ final class WebPane: NSView, WKNavigationDelegate, WKUIDelegate, NSTextFieldDele
         web.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 34))
         message.frame = NSRect(x: 30, y: bounds.height / 2 - 30, width: max(0, bounds.width - 60), height: 60)
     }
-    @objc private func back() { web.goBack() }
-    @objc private func forward() { web.goForward() }
+    @objc private func back() { web.go(-1) }
+    @objc private func forward() { web.go(1) }
     @objc private func reload() { web.reload() }
     @objc private func chrome() {
         guard let u = web.url.flatMap({ Self.parse($0.absoluteString) }) ?? Self.parse(address.stringValue),
@@ -52,7 +58,7 @@ final class WebPane: NSView, WKNavigationDelegate, WKUIDelegate, NSTextFieldDele
     @objc private func shut() { onShut() }
     @objc private func tuck() { onTuck() }
     @objc private func go() { if let u = Self.parse(address.stringValue) { open(u) } }
-    var titleText: String { web.title.flatMap { $0.isEmpty ? nil : $0 } ?? web.url?.host ?? "網頁" }
+    var titleText: String { (web.title.isEmpty ? nil : web.title) ?? web.url?.host ?? "網頁" }
     var currentURL: String { let u = web.url?.absoluteString ?? ""; return u == "about:blank" ? "" : u }
     var messageText: String { message.isHidden ? "" : message.stringValue }
     func focusAddress() { window?.makeFirstResponder(address) }
@@ -71,29 +77,8 @@ final class WebPane: NSView, WKNavigationDelegate, WKUIDelegate, NSTextFieldDele
     func open(_ u: URL) {
         message.isHidden = true
         address.stringValue = u.absoluteString
-        if u.isFileURL { web.loadFileURL(u, allowingReadAccessTo: u.deletingLastPathComponent()) } else { web.load(URLRequest(url: u)) }
+        web.load(u)
+        window?.makeFirstResponder(web)
     }
-    func stop() { web.stopLoading(); web.load(URLRequest(url: URL(string: "about:blank")!)) }
-
-    func webView(_ w: WKWebView, didCommit n: WKNavigation!) {
-        message.isHidden = true
-        if address.currentEditor() == nil { address.stringValue = w.url?.absoluteString ?? "" }
-        onTitle()
-    }
-    func webView(_ w: WKWebView, didFinish n: WKNavigation!) { onTitle(); onLoaded(true) }
-    func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: any Error) { fail(e) }
-    func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: any Error) { fail(e) }
-    private func fail(_ e: any Error) {
-        if (e as NSError).code == NSURLErrorCancelled { return }
-        message.stringValue = "打不開這個網頁：\(e.localizedDescription)"; message.isHidden = false; onLoaded(false)
-    }
-    /// 「開新分頁」的連結：就在這裡開
-    func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for a: WKNavigationAction, windowFeatures f: WKWindowFeatures) -> WKWebView? {
-        if let u = a.request.url, Self.parse(u.absoluteString) != nil { w.load(a.request) }
-        return nil
-    }
-    func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
-        let s = a.request.url?.scheme?.lowercased() ?? ""
-        decisionHandler(["http", "https", "about", "blob", "data", "file"].contains(s) ? .allow : .cancel)      // mailto: 之類不處理
-    }
+    func stop() { web.close() }
 }
