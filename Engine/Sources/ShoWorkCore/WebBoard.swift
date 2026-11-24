@@ -292,7 +292,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
         let pick = option == nil && free == nil ? AnswerPick(askId: askId, option: text) : AnswerPick(askId: askId, option: option, free: free.map(cleanTyped))
         if option == nil, free != nil, cleanTyped(free!).isEmpty { return .failure(.init("沒有看得到的字")) }
         guard let t = pick.text(for: q) else { return .failure(.init("只能按卡片上的選項")) }
-        if pick.free?.isEmpty == false, soundsLikeRelease(t) { return .failure(.init("手機打字不能放行，請到電腦答")) }
+        if pick.free?.isEmpty == false, soundsLikeRelease(t) { return .failure(.init("答案卡打字不能放行，請到電腦打「放行！單號」")) }
         return .success(Answer(card: c, pick: pick, text: t))
     }
     /// 「放行」開頭（全形半形、夾空白標點也算）
@@ -306,7 +306,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
             switch u.properties.generalCategory {
             case .control where u != "\n", .format, .surrogate, .privateUse, .unassigned: continue
             case .lineSeparator, .paragraphSeparator: out.append("\n")
-            default: out.append(u == "<" ? "＜" : u)
+            default: out.append(u == "<" ? "＜" : u == "【" ? "〔" : u == "】" ? "〕" : u)      // 【】是看板訊息的標記
             }
         }
         return String(out).trimmingCharacters(in: .whitespacesAndNewlines)

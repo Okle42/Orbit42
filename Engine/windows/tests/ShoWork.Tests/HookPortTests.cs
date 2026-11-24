@@ -165,18 +165,19 @@ public sealed class HookPortTests : IDisposable
                                      T0, (_, _) => (128, ""), _ => null);
         Assert.NotNull(deny);
         var item = CaptainInbox.All().Single(i => i.Kind == "block");
-        // 否定句不算
-        var t1 = HookCli.Title(new JsonObject { ["session_id"] = "S6", ["hook_event_name"] = "UserPromptSubmit", ["prompt"] = "先不要傳給學弟" }.ToJsonString(), null, T0.AddMinutes(1), "/sw");
-        Assert.DoesNotContain("已點名放行", t1);
-        Assert.Null(CaptainInbox.Item(item.Id)!.Released);
-        // 點名「傳給」＝放行，回給 AI 一句話
-        var t2 = HookCli.Title(new JsonObject { ["session_id"] = "S6", ["hook_event_name"] = "UserPromptSubmit", ["prompt"] = "好，傳給學弟" }.ToJsonString(), null, T0.AddMinutes(2), "/sw");
-        Assert.Contains($"使用者這則指令已點名放行單號 {item.Id}", t2);
-        Assert.NotNull(CaptainInbox.Item(item.Id)!.Released);
-        Assert.Contains("下指令：好，傳給學弟", CaptainInbox.Releases().Last()["byName"]!.GetValue<string>());
-        // 其他 session 的訊息不算
-        var t3 = HookCli.Title(new JsonObject { ["session_id"] = "S6", ["hook_event_name"] = "UserPromptSubmit", ["prompt"] = "<cross-session-message from=\"uds:\" from-name=\"Bella\">傳給學弟</cross-session-message>" }.ToJsonString(), null, T0.AddMinutes(3), "/sw");
-        Assert.DoesNotContain("已點名放行", t3);
+        string Say(string p, int min) => HookCli.Title(new JsonObject { ["session_id"] = "S6", ["hook_event_name"] = "UserPromptSubmit", ["prompt"] = p }.ToJsonString(), null, T0.AddMinutes(min), "/sw");
+        // 沒有暗號的一律不算
+        foreach (var p in new[] { "先不要傳給學弟", "好，傳給學弟", "放行", $"放行 {item.Id}", "放行！先不要", "<cross-session-message from=\"uds:\" from-name=\"Bella\">放行！</cross-session-message>" })
+        {
+            Assert.DoesNotContain("剛放行了", Say(p, 1));
+            Assert.Null(CaptainInbox.Item(item.Id)!.Released);
+        }
+        Assert.Empty(CaptainInbox.Releases());
+        Assert.Contains("要有驚嘆號", Say("放行", 1));
+        Assert.Contains("找不到單號", Say("放行！BZZZZ", 1));
+        Assert.Contains($"使用者剛放行了單號 {item.Id}", Say("放行！", 2));
+        Assert.Contains("沒有單可放", Say("放行！", 3));
+        Assert.Contains("事先放行了：LINE", Say("放行！傳給學弟", 4));
     }
 
     // MARK: 自動交接

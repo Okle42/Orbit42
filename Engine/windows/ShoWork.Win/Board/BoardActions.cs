@@ -208,11 +208,6 @@ static class BoardActions
         var t = now ?? DateTime.UtcNow;
         try
         {
-            // Mac 10-31：戰情中心的回答本身就是使用者的決定 ⇒ 答「放行」直接放行這個 AI 等著的單；答案點名的對外動作記成事先放行
-            if (line.StartsWith("放行", StringComparison.Ordinal))
-                CaptainInbox.Release(null, c.SessionId, "戰情中心", "使用者（戰情中心回答）", "戰情中心回答", t);
-            else
-                CaptainInbox.RecordAnswer(c.SessionId, line, c.Report?.Ask, t);
             var r = TypeInto(c.SessionId, line, true);
             Log.Note($"BOARD answer {Short(c.SessionId)} term → {r.Outcome} {r.Message}");
             if (r.Ok)
@@ -223,6 +218,8 @@ static class BoardActions
             if (FindPeer(c.SessionId) is { } peer)
             {
                 BoardHistory.Append(new Dictionary<string, string> { ["ev"] = "answer", ["id"] = c.SessionId, ["project"] = c.Project, ["text"] = line });
+                // 沒打進終端機（打進去由 hook 判）：這裡判放行暗號（CaptainInbox.Decide）
+                if (CaptainInbox.Decide(c.SessionId, line, "戰情中心", "使用者（戰情中心回答）", "戰情中心回答", c.Report?.Ask, t).Missed is { } miss) line += $"（戰情中心：{miss}）";
                 var (id, err) = SendPeer(peer, CaptainThread.AnswerPrefix + line, "AI工作戰情中心（使用者）", null);
                 if (id != null) return $"已送給「{c.Title}」";
                 Log.Note($"BOARD answer peer failed: {err}");

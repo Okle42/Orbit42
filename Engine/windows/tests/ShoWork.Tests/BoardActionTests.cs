@@ -108,9 +108,7 @@ public sealed class BoardActionTests : IDisposable
         Directory.CreateDirectory(Path.Combine(BoardDir, "cards"));
         File.WriteAllText(Path.Combine(BoardDir, "cards", "sid-cap.json"), """{"status":"review","ask":"要不要合併？","options":["好","不要"],"at":"2026-11-02T01:00:00.000Z","how":"留著"}""");
         BoardActions.Answer(Card(), "好，合併並 push");
-        var pre = JsonNode.Parse(File.ReadAllText(Path.Combine(BoardDir, "permits", "preapprovals.json")))!.AsArray();
-        Assert.Equal("好，合併並 push", pre[0]!["answer"]!.GetValue<string>());
-        Assert.Equal("要不要合併？", pre[0]!["question"]!.GetValue<string>());
+        Assert.False(File.Exists(Path.Combine(BoardDir, "permits", "preapprovals.json")));      // 沒有暗號不記放行
         var cap = JsonNode.Parse(File.ReadAllText(Path.Combine(BoardDir, "cards", "sid-cap.json")))!.AsObject();
         Assert.False(cap.ContainsKey("ask"));
         Assert.False(cap.ContainsKey("options"));
@@ -127,7 +125,13 @@ public sealed class BoardActionTests : IDisposable
     {
         var item = new Hooks.InboxItem { Id = "BTEST", Kind = "block", At = DateTime.UtcNow, Sid = "sid-a", Name = "Alex", Text = "gh pr create", Fingerprint = "fp" };
         CaptainInbox.Save(item);
+        // 打得進終端機：由 hook 判，這裡不放；打不進去走訊息才在這裡判
+        BoardActions.Answer(Card(), "放行！BTEST");
+        Assert.Null(CaptainInbox.Item("BTEST")!.Released);
+        termOk = false;
         BoardActions.Answer(Card(), "放行");
+        Assert.Null(CaptainInbox.Item("BTEST")!.Released);
+        BoardActions.Answer(Card(), "放行！BTEST");
         Assert.NotNull(CaptainInbox.Item("BTEST")!.Released);
         Assert.Contains(CaptainInbox.Releases(), r => r["source"]!.GetValue<string>() == "戰情中心回答");
     }

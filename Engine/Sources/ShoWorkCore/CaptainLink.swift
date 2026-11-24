@@ -100,7 +100,7 @@ public enum CaptainLink {
             let owner = LocalConfig.current.ownerName
             let head = "# 動作預告（T1024033803 ②，\(rulesVersion)）：一行「類別<TAB>擋|告<TAB>正規表示式」，不分大小寫。\n"
                 + "# 比對的是「一段指令」：以 ; && || | 換行切開、去掉 sudo／env／VAR=值 前綴，引號內容換成 Q（ssh 那段保留引號內容），heredoc 內文拿掉 ⇒ ^ 就是指令的第一個詞。\n"
-                + "# 擋＝先擋下、等秘書轉述\(owner)的決定（showork release）或\(owner)在那個 session 打「放行」；告＝只通知秘書不擋。# 開頭是註解，刪掉這個檔會重寫預設\n"
+                + "# 擋＝先擋下、等秘書轉述\(owner)的決定（showork release）或\(owner)在那個 session 打「放行！單號」；告＝只通知秘書不擋。# 開頭是註解，刪掉這個檔會重寫預設\n"
             let body = defaultRules.map { "\($0.name)\t\($0.block ? "擋" : "告")\t\($0.pattern)" }.joined(separator: "\n") + "\n"
             try? FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? (head + body).write(to: f, atomically: true, encoding: .utf8)
@@ -253,16 +253,10 @@ public enum CaptainLink {
     public static func label(_ name: String, _ project: String?) -> String { name + ((project ?? "").isEmpty ? "" : "（\(project!)）") }
 
     /// 擋下時給 AI 的理由
-    /// 使用者打了「放行」卻沒有單可放（單號不對、別的 session 的單、超過一天）：明講，不要讓 AI 以為放行了
-    public static func releaseMissText(id: String?) -> String {
-        "使用者打了「放行」\(id.map { "（單號 \($0)）" } ?? "")，但這個 session 沒有找到一天內等放行的單，所以這次沒有放行任何東西。"
-            + "如果要跑的是之前被擋的指令，直接再跑一次：會開一張新單，請使用者再打一次「放行」。"
-    }
-
     public static func denyReason(_ item: CaptainInboxItem) -> String {
         let owner = LocalConfig.current.ownerName
         return "⛔️ 這個指令需要放行才能跑（\(item.kinds.joined(separator: "、"))，單號 \(item.id)）。已通知秘書，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
-            + "要放行請秘書轉述\(owner)的決定（秘書跑 showork release \(item.id)），或\(owner)在這個 session 直接打「放行」。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
+            + "要放行請秘書轉述\(owner)的決定（秘書跑 showork release \(item.id)），或\(owner)在這個 session 打：放行！\(item.id)（要用打的、要有驚嘆號；說「部署」「push」不算，語音聽寫通常沒有驚嘆號）。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
             + "等的時候用 showork card --status blocked 回報卡在哪；能改用暫存區（scratchpad、/tmp）的就改用。"
     }
 
@@ -270,7 +264,7 @@ public enum CaptainLink {
     public static func blockText(_ item: CaptainInboxItem) -> String {
         let owner = LocalConfig.current.ownerName
         return "【動作預告・擋下 \(item.id)】\(label(item.name, item.project))：\(item.kinds.joined(separator: "、"))・\(item.text)\n"
-            + "（已擋下等放行。\(owner)明說同意這個動作才 showork release \(item.id)；秘書不能自己決定放行對外動作）"
+            + "（已擋下等放行。\(owner)說「放行！」才可 showork release \(item.id)；秘書不能自己決定放行對外動作）"
     }
 
     /// 要不要立刻推給秘書：只有擋下等放行的；開工卡和不擋的預告只寫收件匣（11-24 Keng）
@@ -493,7 +487,7 @@ public enum CaptainInbox {
     }
 }
 
-/// 戰情中心回答＝事先放行（10-31 使用者：「我交代你做事還要放行」）。
+/// 事先放行。11-25 起只有「放行！」開頭、點名種類的才記（ReleaseWord）；以下是以前的規則，種類判斷沿用：
 /// 使用者在戰情中心按選項／打字回答某個 AI 的問題時，答案裡明說的對外動作（例如「開 PR」「LINE 通知」）
 /// 之後被「擋」規則攔下就直接算放行：同一個 session、30 分鐘內、每種動作一次，照樣寫 releases.jsonl（source＝戰情中心回答）並通知秘書。
 /// 點名這個動作的小句有否定字（不要／先不／別⋯）就不算；沒點名的動作照擋。rm 不在內（刪檔一律要明確放行；mv 10-31 起只通知不擋）。
@@ -573,7 +567,7 @@ extension CaptainInbox {
     }
 
     /// 戰情中心送出回答時記下（只留 24 小時內）
-    public static func recordAnswer(sid: String, answer: String, question: String?, now: Date) {
+    static func recordAnswer(sid: String, answer: String, question: String?, now: Date) {
         let xs = loadPreapprovals().filter { now.timeIntervalSince($0.at) < 86400 }
         savePreapprovals(xs + [Preapproval(at: now, sid: sid, answer: answer, question: question)])
     }
@@ -585,7 +579,7 @@ extension CaptainInbox {
         guard let k = xs.indices.last(where: { i in
             let p = xs[i]
             return p.sid == sid && now.timeIntervalSince(p.at) < releaseTTL && now >= p.at
-                && rules.allSatisfy { r in !p.used.contains(r) && authorizes(p.answer, rule: r) }
+                && p.used.isEmpty && rules.allSatisfy { ReleaseWord.grants(p.answer, rule: $0) }      // 一句一次；舊版記的自然語言沒有暗號，用不了
         }) else { return nil }
         xs[k].used += rules
         savePreapprovals(xs)
@@ -599,18 +593,11 @@ extension CaptainInbox {
         xs.remove(at: i); savePreapprovals(xs)          // 只拿剛記的那一筆
     }
 
-    /// 使用者在終端機送出一句話（UserPromptSubmit）：記成事先放行；鍵盤打的、而且點名了等著的單，當場放行。
-    /// 答案卡打進去的（TypedMark）只記事先放行，等那個指令重跑才過。每句只記一次
-    public static func typedPrompt(sid: String, prompt p: String, who: String, now: Date) -> CaptainInboxItem? {
-        guard !Peer.quotesPeer(p) else { return nil }        // 夾著別的 session 的訊息：不算本人打的
+    /// 使用者在終端機送出一句話（UserPromptSubmit）。答案卡打進去的（TypedMark）不算放行
+    public static func typedPrompt(sid: String, prompt p: String, who: String, now: Date) -> Decision {
+        guard !Peer.quotesPeer(p) else { return .none }        // 夾著別的 session 的訊息：不算本人打的
         let fromCard = TypedMark.take(sid: sid, prompt: p, now: now)
-        recordAnswer(sid: sid, answer: p, question: nil, now: now)
-        guard !fromCard else { return nil }
-        let waiting = all().filter { $0.kind == .block && $0.sid == sid && $0.released == nil && now.timeIntervalSince($0.at) < releaseTTL }
-        guard let item = waiting.last(where: { i in !i.kinds.isEmpty && i.kinds.allSatisfy { authorizes(p, rule: $0) } }),
-              let pre = usePreapproval(sid: sid, rules: item.kinds, now: now) else { return nil }
-        _ = release(id: item.id, target: sid, by: sid, byName: "使用者（在 \(who) 的終端機下指令：\(pre.answer.prefix(40))）", source: "使用者輸入", now: now)
-        return item
+        return decide(sid: sid, text: p, speaker: fromCard ? .none : .keyboard, by: sid, byName: "使用者（在 \(who) 的終端機）", source: "使用者輸入", now: now)
     }
 
     /// 事先放行的擋單：直接記成已放行＋已用，寫稽核紀錄

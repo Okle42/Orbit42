@@ -221,7 +221,8 @@ enum BoardActions {
     /// - Parameter resolvesAsk: 這是在回答排隊中最早那題 --ask（收件匣、回答卡）⇒ 送到了就從佇列拿掉；
     ///   一般傳話（網頁「傳話」、右側對話窗格）不算回答，題目照樣留著（Asks.swift；11-11）
     /// 誰觸發的：user＝Keng 在介面上按／打的（球體、Mac 卡片、已配對手機）；其他一律 other（指令列、別的 session⋯），不能冒充使用者輸入
-    enum AnswerSource { case user, other }
+    /// phone＝手機／網頁的答案卡；other＝指令列
+    enum AnswerSource { case user, phone, other }
 
     /// 答案能不能走「打進終端機」（純判斷）。放行、排了好幾題、開著權限框的不走：
     ///   放行有自己的單號規則；打字進去會讓 UserPromptSubmit 把排著的題全部當成答了；註明題目的字也會被當成使用者說的
@@ -256,8 +257,8 @@ enum BoardActions {
         }
         func byMessage(_ note: String) -> (sent: Bool, message: String) {
             // 手機／網頁打的字（補充或只打字）：送得到，但整句不當放行、不記事先放行（補充可能是反話）
-            let typed = source == .other && !(pick?.free?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
-            let m = answer(c, text: raw, ask: ask, queued: queued, grants: !typed)
+            let typed = source == .phone && !(pick?.free?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+            let m = answer(c, text: raw, ask: ask, queued: queued, speaker: typed || source == .other ? .none : .card, phoneTyped: typed)
             let left = AskQueue.load(sid).contains { $0.id == ask.id }      // 送到的題目已經拿掉；還在＝沒送出（只拷貝到剪貼簿）
             AskQueue.unclaim(sid: sid, id: ask.id)
             return (!left, left ? m : m + note)
@@ -269,7 +270,7 @@ enum BoardActions {
         // 貼字前一刻再讀一次：那題還在、還是這個 session 唯一的一題、送的字還對得上
         let started = type(sid, t, { typable(c, pick: pick, source: source, asks: AskQueue.load(sid)) == t }) { r in
             switch r {
-            case .sent, .sentDropped:         // 放行紀錄（recordAnswer）由 UserPromptSubmit 的 hook 記，這裡不再記一次
+            case .sent, .sentDropped:         // 打進終端機的不算放行（TypedMark）
                 AskQueue.resolve(sid: sid, id: ask.id)
                 if testHook == nil { BoardModel.shared.append(["ev": "answer", "id": sid, "project": c.project, "text": t, "via": "term"]) }
                 tellCaptain(c, answer: t, question: ask.ask)
@@ -286,40 +287,34 @@ enum BoardActions {
         return started ? (false, "正在打進「\(c.title)」的終端機") : byMessage(off)
     }
 
-    /// grants＝false：這句不能放行任何東西，也只走訊息，不打進終端機（打進去 hook 會把整句記成事先放行）
-    static func answer(_ c: BoardCard, text: String, resolvesAsk: Bool = true, ask given: PendingAsk? = nil, queued: Int? = nil, grants: Bool = true) -> String {
+    /// speaker／word：放行怎麼判（CaptainInbox.decide；word＝要判的那段字，預設整句）。phoneTyped：標明手機打字、只走訊息不打進終端機
+    static func answer(_ c: BoardCard, text: String, resolvesAsk: Bool = true, ask given: PendingAsk? = nil, queued: Int? = nil, speaker: CaptainInbox.Speaker = .card, word: String? = nil, phoneTyped: Bool = false) -> String {
         var line = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
         let ask = given ?? (resolvesAsk ? c.asks.first : nil)
         let question = ask?.ask ?? c.report?.ask
         let said = line
         let recordedAt = Date()
         var ok = given == nil           // 認題目的（given）：真的送到才轉秘書、才留事先放行
-        defer { if ok { tellCaptain(c, answer: grants ? said : Answered.phoneTyped + said, question: question) } else if grants { CaptainInbox.dropAnswer(sid: c.sessionId, answer: said, at: recordedAt) } }
+        defer { if ok { tellCaptain(c, answer: phoneTyped ? Answered.phoneTyped + said : said, question: question) } else { CaptainInbox.dropAnswer(sid: c.sessionId, answer: word ?? said, at: recordedAt) } }
         // 同一個 AI 排了好幾題：答案後面註明答的是哪一題（不然它分不出來）
         if let a = ask, (queued ?? c.asks.count) > 1 { line += "（回答的是：\(a.ask.prefix(60))）" }
-        if !grants { line = Answered.phoneTyped + line }
+        if phoneTyped { line = Answered.phoneTyped + line }
         func delivered(_ msg: String) -> String {
             ok = true
             if let a = ask { AskQueue.resolve(sid: c.sessionId, id: a.id) }
             return msg
         }
-        // 會變成它的輸入的路（tmux、戰情中心自己持有的）hook 會記一次事先放行，這裡就不記；用記號讓 hook 知道不是鍵盤打的（放行不提早）
-        let viaPrompt = SessionHost.shared.handle(for: c.sessionId) != nil || tmuxPane(of: c.pid) != nil
-        // 10-31：戰情中心的回答本身就是使用者的決定 ⇒ 答「放行」直接放行這個 AI 等著的單；答案點名的對外動作記成事先放行（CaptainInbox.usePreapproval）
-        if !grants {
-        } else if line.hasPrefix("放行") {
-            // 11-14：放行落空（沒有一天內的單）以前是靜默略過，AI 以為放行了、重跑又被擋 ⇒ 跟終端機打字一樣明講
-            if CaptainInbox.release(id: nil, target: c.sessionId, by: "戰情中心", byName: "使用者（戰情中心回答）", source: "戰情中心回答", now: Date()) == nil {
-                line += "（戰情中心：\(CaptainLink.releaseMissText(id: nil))）"
-            }
-        } else if !viaPrompt || !hookKnowsMark() || !TypedMark.put(sid: c.sessionId, text: line) {
-            CaptainInbox.recordAnswer(sid: c.sessionId, answer: said, question: question, now: recordedAt)   // 不含「回答的是」註記（題目的問號不能害答案被當問句）
+        // 會變成它的輸入的路（tmux、戰情中心自己持有的）：留記號讓 hook 不再判一次；留不了就不在這裡放行
+        let viaPrompt = !phoneTyped && (SessionHost.shared.handle(for: c.sessionId) != nil || tmuxPane(of: c.pid) != nil)
+        let marked = !viaPrompt || (hookKnowsMark() && TypedMark.put(sid: c.sessionId, text: line))
+        if marked, case .missed(let m) = CaptainInbox.decide(sid: c.sessionId, text: word ?? said, speaker: speaker, by: "戰情中心", byName: "使用者（戰情中心回答）", source: "戰情中心回答", question: question, now: recordedAt) {
+            line += "（戰情中心：\(m)）"
         }
         if let t = testDeliver { return t(line) ? delivered("已送給「\(c.title)」") : "沒送到" }
-        if grants, let h = SessionHost.shared.handle(for: c.sessionId), let s = try? SessionHost.shared.ensure(h), s.send(line) {
+        if !phoneTyped, let h = SessionHost.shared.handle(for: c.sessionId), let s = try? SessionHost.shared.ensure(h), s.send(line) {
             return delivered("已送進「\(c.title)」")
         }
-        if grants, tmuxPane(of: c.pid) != nil {
+        if !phoneTyped, tmuxPane(of: c.pid) != nil {
             if case .typed = sendBack(c, text: line) { return delivered("已送進「\(c.title)」") }
         }
         if let r = Peer.find(c.sessionId) {
@@ -329,7 +324,7 @@ enum BoardActions {
             case .failure(let e): NSLog("answer peer failed: \(e.message)")
             }
         }
-        if !grants { return "沒送到「\(c.title)」，請到它的終端機回答" }
+        if phoneTyped { return "沒送到「\(c.title)」，請到它的終端機回答" }
         if case .copied(let m) = sendBack(c, text: line) { return m }      // 只拷貝、還沒真的送到：題目留著
         return delivered("已送進「\(c.title)」")
     }

@@ -205,9 +205,9 @@ public sealed class HookTests : IDisposable
         Assert.Equal(id1, DenyId(HookCli.GuardPush(Stdin("S3", "cd 專案A && " + cmd), T0.AddSeconds(5), NoGit, NoView)));   // 沒命中的段落不影響指紋
         Assert.Single(Directory.GetFiles(Path.Combine(Board, "captain-inbox")));
         // 別的 session 打放行：放不到這張
-        HookCli.Title(Prompt("S9", "放行"), null, T0.AddSeconds(8), "/x/showork");
+        HookCli.Title(Prompt("S9", "放行！"), null, T0.AddSeconds(8), "/x/showork");
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S3", cmd), T0.AddSeconds(9), NoGit, NoView)));
-        var t = Obj(HookCli.Title(Prompt("S3", "放行"), null, T0.AddSeconds(10), "/x/showork"));
+        var t = Obj(HookCli.Title(Prompt("S3", "放行！"), null, T0.AddSeconds(10), "/x/showork"));
         Assert.StartsWith($"使用者剛放行了單號 {id1}", t["hookSpecificOutput"]!["additionalContext"]!.GetValue<string>());
         Assert.Null(HookCli.GuardPush(Stdin("S3", cmd), T0.AddSeconds(20), NoGit, NoView));                // 放行一次
         var item = CaptainInbox.Item(id1!)!;
@@ -217,7 +217,7 @@ public sealed class HookTests : IDisposable
         var log = Assert.Single(CaptainInbox.Releases());
         Assert.True(log.Str("id") == id1 && log.Str("source") == "使用者輸入" && log.Str("target") == "S3" && log.Str("by") == "S3");
         // 放行 30 分鐘過期
-        HookCli.Title(Prompt("S3", $"放行 {id2!.ToLowerInvariant()}"), null, T0.AddSeconds(40), "/x/showork");
+        HookCli.Title(Prompt("S3", $"放行！{id2!.ToLowerInvariant()}"), null, T0.AddSeconds(40), "/x/showork");
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S3", cmd), T0.AddSeconds(40 + 1801), NoGit, NoView)));
         // 不擋的（mv）只進收件匣
         Assert.Null(HookCli.GuardPush(Stdin("S3", "mv a.txt b.txt"), T0, NoGit, NoView));
@@ -280,7 +280,6 @@ public sealed class HookTests : IDisposable
         Assert.Equal("BNEW1", CaptainInbox.Waiting("a", fp, later.AddSeconds(5))!.Id);
         Assert.Equal("BNEW1", CaptainInbox.Release(null, "a", "a", "使用者", "使用者輸入", later.AddSeconds(10))!.Id);
         Assert.True(CaptainInbox.Consume("a", fp, later.AddSeconds(20)));
-        Assert.Contains("沒有放行任何東西", CaptainLink.ReleaseMissText(null));
     }
 
     // MARK: 事先放行
@@ -299,10 +298,10 @@ public sealed class HookTests : IDisposable
         Assert.False(CaptainInbox.Authorizes("刪掉吧", rm));
         Assert.True(CaptainInbox.Authorizes("好，上傳 TestFlight", "App 上傳 App Store Connect"));
         Assert.Null(CaptainInbox.UsePreapproval("a", new() { gh }, T0));
-        CaptainInbox.RecordAnswer("a", "開 PR，用 LINE 通知對方", "要開 PR 嗎？", T0);
+        CaptainInbox.RecordAnswer("a", "放行！開 PR，用 LINE 通知對方", "要開 PR 嗎？", T0);
         Assert.Null(CaptainInbox.UsePreapproval("b", new() { gh }, T0.AddSeconds(10)));
         Assert.Null(CaptainInbox.UsePreapproval("a", new() { gh, rm }, T0.AddSeconds(10)));
-        Assert.StartsWith("開 PR", CaptainInbox.UsePreapproval("a", new() { gh }, T0.AddSeconds(10))!.Answer);
+        Assert.StartsWith("放行！開 PR", CaptainInbox.UsePreapproval("a", new() { gh }, T0.AddSeconds(10))!.Answer);
         Assert.Null(CaptainInbox.UsePreapproval("a", new() { gh }, T0.AddSeconds(20)));            // 每種一次
         Assert.Null(CaptainInbox.UsePreapproval("a", new() { line }, T0.AddSeconds(1801)));        // 30 分鐘過期
         var j = Obj("{\"x\":" + File.ReadAllText(Path.Combine(Board, "permits", "preapprovals.json")) + "}")["x"]!.AsArray().Single()!;
@@ -312,14 +311,14 @@ public sealed class HookTests : IDisposable
     [Fact] // guard-push 走事先放行：點名的照常跑、記成已放行＋已用、稽核紀錄 source＝戰情中心回答；同一種第二次照擋；rm 照擋
     public void PreapprovalThroughGuard()
     {
-        CaptainInbox.RecordAnswer("S5", "好，用 LINE 通知對方", "要通知嗎？", T0);
+        CaptainInbox.RecordAnswer("S5", "放行！用 LINE 通知對方", "要通知嗎？", T0);
         var line = "python3 ~/demo/line_send.py 對方 '晚上見'";
         Assert.Null(HookCli.GuardPush(Stdin("S5", line), T0.AddSeconds(5), NoGit, NoView));
         var i = Assert.Single(CaptainInbox.All());
         Assert.True(i.Released == T0.AddSeconds(5) && i.Used == T0.AddSeconds(5) && !i.Delivered);       // 沒有秘書：留在收件匣
         Assert.Equal("戰情中心回答", Assert.Single(CaptainInbox.Releases()).Str("source"));
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S5", line), T0.AddSeconds(6), NoGit, NoView)));
-        CaptainInbox.RecordAnswer("S5", "刪掉吧，部署也可以", null, T0.AddSeconds(7));
+        CaptainInbox.RecordAnswer("S5", "放行！刪掉吧，部署也可以", null, T0.AddSeconds(7));
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S5", "rm -rf build"), T0.AddSeconds(8), NoGit, NoView)));
         Assert.Null(HookCli.GuardPush(Stdin("S5", "firebase deploy"), T0.AddSeconds(9), NoGit, NoView));
         Assert.NotNull(DenyId(HookCli.GuardPush(Stdin("S5", line), T0.AddSeconds(31 * 60), NoGit, NoView)));

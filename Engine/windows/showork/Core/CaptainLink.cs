@@ -107,7 +107,7 @@ static partial class CaptainLink
             var owner = LocalConfig.Current.OwnerName;
             var head = $"# 動作預告（T1024033803 ②，{RulesVersion}）：一行「類別<TAB>擋|告<TAB>正規表示式」，不分大小寫。\n"
                 + "# 比對的是「一段指令」：以 ; && || | 換行切開、去掉 sudo／env／VAR=值 前綴，引號內容換成 Q（ssh 那段保留引號內容），heredoc 內文拿掉 ⇒ ^ 就是指令的第一個詞。\n"
-                + $"# 擋＝先擋下、等秘書轉述{owner}的決定（showork release）或{owner}在那個 session 打「放行」；告＝只通知秘書不擋。# 開頭是註解，刪掉這個檔會重寫預設\n";
+                + $"# 擋＝先擋下、等秘書轉述{owner}的決定（showork release）或{owner}在那個 session 打「放行！單號」；告＝只通知秘書不擋。# 開頭是註解，刪掉這個檔會重寫預設\n";
             var rules = DefaultRules;
             var body = string.Join("\n", rules.Select(r => $"{r.Name}\t{(r.Block ? "擋" : "告")}\t{r.Pattern}")) + "\n";
             HookJson.WriteAtomic(f, head + body);
@@ -276,16 +276,11 @@ static partial class CaptainLink
     public static string Label(string name, string? project) => name + (string.IsNullOrEmpty(project) ? "" : $"（{project}）");
 
     /// 擋下時給 AI 的理由
-    /// 使用者打了「放行」卻沒有單可放（單號不對、別的 session 的單、超過一天）：明講，不要讓 AI 以為放行了
-    public static string ReleaseMissText(string? id) =>
-        $"使用者打了「放行」{(id != null ? $"（單號 {id}）" : "")}，但這個 session 沒有找到一天內等放行的單，所以這次沒有放行任何東西。"
-        + "如果要跑的是之前被擋的指令，直接再跑一次：會開一張新單，請使用者再打一次「放行」。";
-
     public static string DenyReason(InboxItem item)
     {
         var owner = LocalConfig.Current.OwnerName;
         return $"⛔️ 這個指令需要放行才能跑（{string.Join("、", item.Kinds)}，單號 {item.Id}）。已通知秘書，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
-            + $"要放行請秘書轉述{owner}的決定（秘書跑 showork release {item.Id}），或{owner}在這個 session 直接打「放行」。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
+            + $"要放行請秘書轉述{owner}的決定（秘書跑 showork release {item.Id}），或{owner}在這個 session 打：放行！{item.Id}（要用打的、要有驚嘆號；說「部署」「push」不算，語音聽寫通常沒有驚嘆號）。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
             + "等的時候用 showork card --status blocked 回報卡在哪；能改用暫存區（scratchpad、/tmp）的就改用。";
     }
 
@@ -294,6 +289,6 @@ static partial class CaptainLink
     {
         var owner = LocalConfig.Current.OwnerName;
         return $"【動作預告・擋下 {item.Id}】{Label(item.Name, item.Project)}：{string.Join("、", item.Kinds)}・{item.Text}\n"
-            + $"（已擋下等放行。{owner}明說同意這個動作才 showork release {item.Id}；秘書不能自己決定放行對外動作）";
+            + $"（已擋下等放行。{owner}說「放行！」才可 showork release {item.Id}；秘書不能自己決定放行對外動作）";
     }
 }

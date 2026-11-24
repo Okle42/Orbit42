@@ -180,7 +180,7 @@ public enum AskQueue {
     /// 使用者本人在終端機打的字才算回答：其他 session／看板轉送／系統訊息（<…> 標籤，含戰情中心回答）不算；
     /// 「放行」是在回權限擋單，不是回答問題
     public static func isTerminalAnswer(_ prompt: String?) -> Bool {
-        guard CaptainLink.needsStart(prompt: prompt) else { return false }
+        guard CaptainLink.needsStart(prompt: prompt), !Peer.quotesPeer(prompt ?? "") else { return false }
         return !(prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("放行")
     }
 

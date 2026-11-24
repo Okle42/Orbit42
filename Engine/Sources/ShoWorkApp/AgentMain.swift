@@ -410,7 +410,7 @@ if argv.count >= 3, argv[1] == "--board-act" {
         case "approve": BoardActions.approve(c); print("ok"); exit(0)
         case "wrapup": print(BoardActions.wrapUp(c)); exit(0)
         case "answer":          // 有題目就跟介面同一把鎖（只送一次），不打字
-            print(c.asks.first.map { q in BoardActions.answer(c, pick: AnswerPick(askId: q.id, text: text, options: q.options ?? Inbox.genericOptions), source: .other) { _ in } } ?? BoardActions.answer(c, text: text)); exit(0)
+            print(c.asks.first.map { q in BoardActions.answer(c, pick: AnswerPick(askId: q.id, text: text, options: q.options ?? Inbox.genericOptions), source: .other) { _ in } } ?? BoardActions.answer(c, text: text, speaker: .none)); exit(0)
         case "park": BoardActions.park(c, note: text); print("ok"); exit(0)
         case "sendback":
             switch BoardActions.sendBack(c, text: text) { case .typed: print("typed"); case .copied(let m): print("copied", m) }

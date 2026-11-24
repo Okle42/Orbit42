@@ -180,6 +180,40 @@ static class CaptainInbox
         return named.Count > 0 && named.All(c => !Negations.Any(n => c.Contains(n, StringComparison.Ordinal)) && !c.Contains('不'));
     }
 
+    public static List<string> KindsNamed(string t) => PreapprovalWords.Select(p => p.Rule).Where(r => Authorizes(t, r)).ToList();
+    static readonly string[] Deferrals = { "再說", "再決定", "再看", "再談", "再議", "明天", "後天", "下週", "下禮拜", "下次", "改天", "晚點", "晚一點", "回頭", "之後", "以後", "給我看", "還沒", "了沒", "考慮", "想想", "嗎", "？", "?", "等", "之前", "已經", "如果", "要不要", "是否" };
+    static readonly string[] QuestionMarkers = { "？", "?", "嗎", "嘛", "幹麻", "能幹嘛", "要幹嘛", "是什麼", "為什麼", "為何", "怎麼", "怎樣", "如何", "什麼意思", "什麼", "可以嗎", "好嗎", "呢", "哪", "多少", "要不要", "是否", "對不對", "有沒有", "會不會", "能不能", "行不行", "可不可以" };
+    public static bool IsQuestion(string s) => QuestionMarkers.Any(m => s.Contains(m, StringComparison.Ordinal));
+    public static bool IsNegated(string s) => s.Contains('不') || Negations.Any(n => s.Contains(n, StringComparison.Ordinal)) || Deferrals.Any(n => s.Contains(n, StringComparison.Ordinal));
+    public static List<InboxItem> Open(string sid, DateTime now) => All().Where(i => i.Kind == "block" && i.Sid == sid && i.Released == null && now - i.At < BlockWindow).ToList();
+
+    /// 唯一會放行／記事先放行的地方（同 Mac decide；秘書 release 指令另有條件）。回傳：放行的單、記下的種類、沒放行的說明
+    public static (InboxItem? Released, string? Recorded, string? Missed) Decide(string sid, string text, string by, string byName, string source, string? question, DateTime now)
+    {
+        (InboxItem?, string?, string?) Miss(string why)
+        {
+            var ids = Open(sid, now).Select(i => i.Id).ToList();
+            return (null, null, $"使用者打了「放行！」，但這次沒有放行任何東西：{why}。" + (ids.Count == 0 ? "這個 session 沒有等放行的單。" : $"等放行的單：{string.Join("、", ids)}。") + ReleaseWord.How + "。");
+        }
+        var (k, v) = ReleaseWord.Parse(text);
+        switch (k)
+        {
+            case "bad": return Miss(v);
+            case "latest":
+                var xs = Open(sid, now);
+                if (xs.Count != 1) return Miss(xs.Count == 0 ? "沒有單可放" : $"有 {xs.Count} 張單在等，要寫單號");
+                return Release(xs[0].Id, sid, by, byName, source, now) is { } one ? (one, null, null) : Miss("找不到單");
+            case "id":
+                return Release(v, sid, by, byName, source, now) is { } it ? (it, null, null) : Miss($"找不到單號 {v}（打錯、別的 session 的、已放行過、或超過一天）");
+            case "kinds":
+                var ks = KindsNamed(v);
+                if (ks.Count == 0) return Miss("看不出要放行哪一種動作或哪個單號");
+                RecordAnswer(sid, text, question, now);
+                return (null, string.Join("、", ks), null);
+            default: return (null, null, null);
+        }
+    }
+
     static List<Preapproval> LoadPreapprovals() =>
         HookJson.Parse(HookJson.ReadText(PreapprovalLog)) is JsonArray a ? a.Select(Preapproval.From).OfType<Preapproval>().ToList() : new();
 
@@ -203,7 +237,7 @@ static class CaptainInbox
         for (int i = xs.Count - 1; i >= 0; i--)
         {
             var p = xs[i];
-            if (p.Sid == sid && now - p.At < ReleaseTTL && now >= p.At && rules.All(r => !p.Used.Contains(r) && Authorizes(p.Answer, r))) { k = i; break; }
+            if (p.Sid == sid && now - p.At < ReleaseTTL && now >= p.At && p.Used.Count == 0 && rules.All(r => ReleaseWord.Grants(p.Answer, r))) { k = i; break; }
         }
         if (k < 0) return null;
         xs[k].Used.AddRange(rules);
@@ -326,7 +360,7 @@ static partial class CaptainStore
                全部看 "{showork}" b1 read。把重複出現的坑、好方法整理進派工（任務裡直接附上該注意的事），值得改成規則的提給使用者。
             8. 開工卡：組員收到使用者直接下的新任務時，動手前會發開工卡（打算怎麼做、會動到什麼、有沒有對外動作），只進你的收件匣、不推給你；組員不等你，有問題就 SendMessage 修正，下一輪送達。
             9. 動作預告：組員要跑高風險指令前會留一筆「動作預告」。rm 到暫存區以外、firebase deploy、App 上傳（-exportArchive／altool 等）、line_send.py、gh 對外發言（issue／PR 留言或開單、PR review、release、gh api 寫入；Okle42 私有 repo 除外）會先擋下等放行；
-               只有{owner}已經明說同意的動作（例如他說「push」「部署」「傳給學弟」）你才能 "{showork}" release <單號>，對外動作不能自己決定放行。每次放行都會記在 board/permits/releases.jsonl。
+               {owner}要說「放行！」你才可 "{showork}" release <單號>，對外動作不能自己決定放行；問句不算，只說「push」「部署」也不算，標【手機打字，不是放行】的不算。每次放行都會記在 board/permits/releases.jsonl。
                其他（mv 到暫存區以外、xcodebuild archive 本機打包、defaults write、寫 ~/.claude/scripts|data、ssh 遠端 Windows 寫入）只記在你的收件匣，不推給你。
                開工卡、預告、擋下都會留在收件匣；處理過的用 "{showork}" captain ack <單號｜all> 標掉，鬧鐘的「未處理」只算沒 ack 的。
             10. 巡檢：看板每 30 分鐘看一次，只有要你處理的事（有人卡住／待審、ctx 到門檻、有派工單卻閒太久、收件匣有沒 ack 的擋下）而且跟上次推的不一樣，才送「【巡檢時間】要處理：⋯」；沒事不送。

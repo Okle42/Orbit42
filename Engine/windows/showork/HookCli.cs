@@ -184,29 +184,25 @@ static class HookCli
         var o = HookInput(stdin);
         var sid = envSid ?? (o.Str("session_id") is { Length: > 0 } s ? s : null);
         var ev = o.Str("hook_event_name"); var prompt = o.Str("prompt"); var cwd = o.Str("cwd");
-        string? nag = null, typed = null, handoverNote = null;
+        string? nag = null, handoverNote = null;
         if (ev == "UserPromptSubmit" && o.Str("session_id") is { Length: > 0 } js && CaptainStore.Captain() == js) CaptainStore.Stamp(js, ClaudePid(), now);
-        // 11-01 使用者：「我叫你傳 LINE 還要再打放行」⇒ 使用者在 session 直接打的指令也算事先放行（同戰情中心回答：點名的動作、30 分鐘、每種一次、否定句不算）。
-        //   已經擋著的單，這則指令點名了就直接放行。其他 session／系統訊息（NeedsStart 擋掉的 <…> 標籤）不算。（Mac 2ce3a8a）
-        if (ev == "UserPromptSubmit" && sid != null && CaptainLink.NeedsStart(prompt) && !Peer.QuotesPeer(prompt!) && !prompt!.Trim().StartsWith("放行", StringComparison.Ordinal))
-            typed = TypedRelease(sid, prompt.Trim(), now);
+        // 放行只認「放行！」開頭（ReleaseWord）；其他話不記任何放行。其他 session／系統訊息（NeedsStart 擋掉的 <…> 標籤）不算
         // 收尾後只有使用者本人又下指令才不自動 /clear；其他 session／看板的訊息回一段「交接中」提醒（T1026230337）
         if (ev == "UserPromptSubmit" && sid != null) handoverNote = Handover.NoteNewPrompt(sid, prompt, now);
         if (ev == "UserPromptSubmit" && sid != null && CaptainLink.NeedsStart(prompt))
         {
             var p = prompt!.Trim();
-            if (p.StartsWith("放行", StringComparison.Ordinal))
+            var who = NicknameStore.Get(sid)?.Name ?? "使用者";
+            var (freed, kinds, missed) = CaptainInbox.Decide(sid, p, sid, $"使用者（在 {who} 的終端機）", "使用者輸入", null, now);
+            if (freed is { } i)
             {
-                var id = SwiftText.TrimSpaces(p[2..]).Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-                var who = NicknameStore.Get(sid)?.Name ?? "使用者";
-                if (CaptainInbox.Release(id, sid, sid, $"使用者（在 {who} 的終端機）", "使用者輸入", now) is { } i)
-                {
-                    if (CaptainStore.Captain() is { } cap && cap != sid && Peer.Find(cap) is { } to)
-                        Peer.Send(to, $"【已放行 {i.Id}】使用者在 {who} 的終端機放行：{i.Text}", "AI工作戰情中心（動作預告）");
-                    nag = $"使用者剛放行了單號 {i.Id}（{i.Text}）。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。";
-                }
-                else nag = CaptainLink.ReleaseMissText(id);
+                if (CaptainStore.Captain() is { } cap && cap != sid && Peer.Find(cap) is { } to)
+                    Peer.Send(to, $"【已放行 {i.Id}】使用者在 {who} 的終端機放行：{i.Text}", "AI工作戰情中心（動作預告）");
+                nag = $"使用者剛放行了單號 {i.Id}（{i.Text}）。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。";
             }
+            else if (kinds != null) nag = $"使用者事先放行了：{kinds}（30 分鐘內、一次）。";
+            else if (missed != null) nag = missed;
+            else if (ReleaseWord.NearMiss(p)) nag = $"這句沒有放行任何東西。{ReleaseWord.How}。";
             else if (CaptainStore.Captain() != sid && !LocalConfig.Current.SkipsKickoff(cwd ?? ""))
             {
                 var last = CaptainLink.LastPrompt(sid);
@@ -217,24 +213,12 @@ static class HookCli
             }
         }
         if (sid == null) return "";
-        var ctx = string.Join("\n", new[] { typed, nag, handoverNote }.Where(x => x != null));
+        var ctx = string.Join("\n", new[] { nag, handoverNote }.Where(x => x != null));
         var n = NicknameStore.Get(sid);
         if (n != null && CaptainStore.Captain() == sid) n.Name = Nicknames.CaptainTitle;      // 秘書的收件地址只叫「秘書」
         if (n != null) NicknameStore.Touch(sid, now);
         var outp = Nicknames.HookOutput(n, ev, ctx.Length == 0 ? null : ctx);
         return outp.Length == 0 ? "" : outp + "\n";
-    }
-
-    /// 使用者打的指令點名了被擋的動作 ⇒ 記成事先放行；已經擋著的單直接放行，回給 AI 的一句話（沒有＝null）
-    public static string? TypedRelease(string sid, string p, DateTime now)
-    {
-        CaptainInbox.RecordAnswer(sid, p, null, now);
-        var waiting = CaptainInbox.All().Where(i => i.Kind == "block" && i.Sid == sid && i.Released == null && now - i.At < CaptainInbox.ReleaseTTL).ToList();
-        if (waiting.LastOrDefault(i => i.Kinds.Count > 0 && i.Kinds.All(k => CaptainInbox.Authorizes(p, k))) is not { } item
-            || CaptainInbox.UsePreapproval(sid, item.Kinds, now) is not { } pre) return null;
-        var who = NicknameStore.Get(sid)?.Name ?? "使用者";
-        CaptainInbox.Release(item.Id, sid, sid, $"使用者（在 {who} 的終端機下指令：{SwiftText.Prefix(pre.Answer, 40)}）", "使用者輸入", now);
-        return $"使用者這則指令已點名放行單號 {item.Id}（{item.Text}）。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。";
     }
 
     // MARK: guard-push
@@ -272,7 +256,7 @@ static class HookCli
                     // 戰情中心回答已點名這個動作＝事先放行：記成已放行＋已用、通知秘書，照常往下跑
                     var item = CaptainInbox.ReleaseByAnswer(CaptainInbox.Waiting(sid, fp, now) ?? NewBlock(CaptainLink.HitSummary(cmd, hs)), pre, now);
                     if (captain != null && Peer.Find(captain) is { } to
-                        && Peer.Send(to, $"【已放行 {item.Id}】{CaptainLink.Label(name, project)}：使用者在戰情中心回答「{pre.Answer}」已點名這個動作・{item.Text}", "AI工作戰情中心（動作預告）").Id != null)
+                        && Peer.Send(to, $"【已放行 {item.Id}】{CaptainLink.Label(name, project)}：使用者事先放行「{pre.Answer}」・{item.Text}", "AI工作戰情中心（動作預告）").Id != null)
                     { item.Delivered = true; CaptainInbox.Save(item); }
                 }
                 else if (blocks.Count > 0 && !released)
@@ -388,12 +372,12 @@ static class HookCli
         return (0, sb.ToString(), "");
     }
 
-    /// 秘書放行被擋下的動作：只能用在使用者已經明說同意的事；每次都記在 board\permits\releases.jsonl
+    /// 秘書放行被擋下的動作：只能用在使用者說了「放行！」的事；每次都記在 board\permits\releases.jsonl
     public static (int Code, string Out, string Err) Release(List<string> a, string? sid, DateTime now)
     {
         if (a.FirstOrDefault() is not { } id) return (1, "", "用法：showork release <單號>（單號在【動作預告・擋下】那則訊息裡）\n");
         if (sid == null || CaptainStore.Captain() != sid)
-            return (1, "", "只有現任秘書能放行。使用者要放行，請在被擋的那個 session 直接打「放行」。\n");
+            return (1, "", "只有現任秘書能放行。使用者要放行，請在被擋的那個 session 打「放行！單號」。\n");
         if (CaptainInbox.Release(id, null, sid, Nicknames.CaptainTitle, "release 指令", now) is not { } i)
             return (1, "", $"找不到等放行的單號 {id}（打錯、已放行過、或超過 24 小時）\n");
         if (Peer.Find(i.Sid) is { } r)

@@ -41,10 +41,10 @@ enum CaptainCLI {
             }
             return 0
         case "release":
-            // 秘書放行被擋下的動作：只能用在 Kang 已經明說同意的事；每次都記在 board/permits/releases.jsonl
+            // 秘書放行被擋下的動作：只能用在 Kang 說了「放行！」的事；每次都記在 board/permits/releases.jsonl
             guard let id = a.first else { err("用法：showork release <單號>（單號在【動作預告・擋下】那則訊息裡）"); return 1 }
             guard let sid = mySession, CaptainStore.captain()?.sessionId == sid else {
-                err("只有現任秘書能放行。使用者要放行，請在被擋的那個 session 直接打「放行」。"); return 1
+                err("只有現任秘書能放行。使用者要放行，請在被擋的那個 session 打「放行！單號」。"); return 1
             }
             guard let i = CaptainInbox.release(id: id, target: nil, by: sid, byName: Nicknames.captainTitle, source: "release 指令", now: Date()) else {
                 err("找不到等放行的單號 \(id)（打錯、已放行過、或超過 24 小時）"); return 1

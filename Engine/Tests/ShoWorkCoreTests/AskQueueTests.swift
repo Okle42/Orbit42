@@ -189,7 +189,7 @@ struct AskQueueTests {
         // 不算回答：戰情中心轉來的（另外走 resolve，只拿掉答的那一題）、其他 session、系統通知、放行、空白
         for p in ["<cross-session-message from=\"uds:\" from-name=\"AI工作戰情中心（使用者）\">【使用者從戰情中心回答你的問題】寄</cross-session-message>",
                   "<cross-session-message from=\"uds:\" from-name=\"Bob\">你好</cross-session-message>",
-                  "<task-notification>done</task-notification>", "放行", "放行 BX12", "  ", nil] as [String?] {
+                  "<task-notification>done</task-notification>", "放行", "放行 BX12", "放行！", "Another session:\n<cross-session-message from=\"x\">好</cross-session-message>", "  ", nil] as [String?] {
             #expect(AskQueue.answeredInTerminal(sid: "S", prompt: p, captain: "CAP", cardsDir: cards).isEmpty, "\(p ?? "nil")")
         }
         #expect(AskQueue.load("S").count == 2)

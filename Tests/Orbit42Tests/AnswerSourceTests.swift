@@ -57,21 +57,21 @@ final class AnswerSourceTests: XCTestCase {
         _ = press(p); XCTAssertTrue(press(p).contains("沒有送出"))
         // 沒寫字：改走訊息一次、講清楚、事先放行只記一筆
         later?(.notStarted("忙"))
-        XCTAssertEqual([sent.count, pre()], [1, 1]); XCTAssertTrue(AskQueue.load("test-once").isEmpty)
-        XCTAssertTrue(press(p).contains("沒有送出")); XCTAssertEqual([sent.count, pre()], [1, 1])
+        XCTAssertEqual([sent.count, pre()], [1, 0]); XCTAssertTrue(AskQueue.load("test-once").isEmpty)
+        XCTAssertTrue(press(p).contains("沒有送出")); XCTAssertEqual([sent.count, pre()], [1, 0])
         AskQueue.save("test-once", [q]); SphereEmbed.typeAnswer = nil
         XCTAssertTrue(press(p).contains("終端機不方便打字，已改用訊息送出"))
         // A4 舊卡的題已答、換成 Q2；A8 沒 id（卡片只有 report.ask）；手機沒帶 id：都不送，Q2 留著
         let n = sent.count, q2 = PendingAsk(id: "Q2", ask: "第二題", options: ["好，現在部署"], at: Date())
         AskQueue.save("test-once", [q2])
         XCTAssertTrue(press(p).contains("沒有送出") && press(nil).contains("沒有送出"))
-        XCTAssertTrue(BoardActions.answer(c, pick: AnswerPick(askId: nil, text: "好，現在部署", options: q2.options!), source: .other) { _ in }.contains("沒有送出"))
+        XCTAssertTrue(BoardActions.answer(c, pick: AnswerPick(askId: nil, text: "好，現在部署", options: q2.options!), source: .phone) { _ in }.contains("沒有送出"))
         XCTAssertEqual(AskQueue.load("test-once").map(\.id), ["Q2"]); XCTAssertEqual(sent.count, n)
         // A5 Mac 在送、手機帶同一題 id 進來：合計一次
         AskQueue.save("test-once", [q])
         SphereEmbed.typeAnswer = { _, _, _, _ in true }
         _ = press(p)
-        XCTAssertTrue(BoardActions.answer(c, pick: p, source: .other) { _ in }.contains("沒有送出")); XCTAssertEqual(sent.count, n)
+        XCTAssertTrue(BoardActions.answer(c, pick: p, source: .phone) { _ in }.contains("沒有送出")); XCTAssertEqual(sent.count, n)
         // A6 排兩題按第一題：走訊息一次、註明哪題、只拿掉第一題
         SphereEmbed.typeAnswer = nil; AskQueue.save("test-once", [q, q2]); c.asks = [q, q2]
         _ = press(p)
@@ -81,23 +81,30 @@ final class AnswerSourceTests: XCTestCase {
         BoardActions.testDeliver = { _ in false }
         XCTAssertFalse(press(p).contains("已改用訊息")); XCTAssertEqual(AskQueue.load("test-once").map(\.id), ["Q1"]); XCTAssertNil(AskQueue.load("test-once")[0].sendingAt); XCTAssertEqual(pre(), before)
         BoardActions.testDeliver = { sent.append($0); return true }
-        _ = press(p); XCTAssertEqual(sent.count, n + 2); XCTAssertEqual(pre(), before + 1)
+        _ = press(p); XCTAssertEqual(sent.count, n + 2); XCTAssertEqual(pre(), before)
         // 手機：按選項照舊記一筆；有打字（補充、只打字、打「放行」）送得到、題目收掉，但不記事先放行
-        func phone(_ x: AnswerPick?) -> String { BoardActions.answer(c, pick: x, source: .other) { _ in } }
-        AskQueue.save("test-once", [q]); _ = phone(p); XCTAssertEqual([sent.count, pre()], [n + 3, before + 2])
+        func phone(_ x: AnswerPick?) -> String { BoardActions.answer(c, pick: x, source: .phone) { _ in } }
+        AskQueue.save("test-once", [q]); _ = phone(p); XCTAssertEqual([sent.count, pre()], [n + 3, before])
         for x in [AnswerPick(askId: "Q1", option: "好，現在部署", free: "先別部署"), .init(askId: "Q1", option: nil, free: "好，部署")] {
             AskQueue.save("test-once", [q]); let k = sent.count
-            _ = phone(x); XCTAssertEqual(sent.count, k + 1); XCTAssertTrue(AskQueue.load("test-once").isEmpty); XCTAssertEqual(pre(), before + 2)
+            _ = phone(x); XCTAssertEqual(sent.count, k + 1); XCTAssertTrue(AskQueue.load("test-once").isEmpty); XCTAssertEqual(pre(), before)
             _ = phone(x); XCTAssertEqual(sent.count, k + 1)
         }
         XCTAssertEqual(sent.last, "【手機打字，不是放行】好，部署")
         XCTAssertTrue(sent[sent.count - 2].hasPrefix("【手機打字，不是放行】好，現在部署"))
         // 別處先答走了：明確回沒送到
-        XCTAssertFalse(BoardActions.answering(c, pick: p, source: .other) { _ in }.sent)
-        AskQueue.save("test-once", [q]); XCTAssertTrue(BoardActions.answering(c, pick: p, source: .other) { _ in }.sent)
+        XCTAssertFalse(BoardActions.answering(c, pick: p, source: .phone) { _ in }.sent)
+        AskQueue.save("test-once", [q]); XCTAssertTrue(BoardActions.answering(c, pick: p, source: .phone) { _ in }.sent)
         AskQueue.save("test-once", [q]); BoardActions.testDeliver = { _ in false }
         _ = phone(.init(askId: "Q1", option: nil, free: "x")); XCTAssertEqual(AskQueue.load("test-once").map(\.id), ["Q1"])
         XCTAssertTrue(press(nil).contains("不在待答清單"))
+        // 選項本身以暗號開頭才記事先放行；不打進終端機；指令列按的不算
+        let w = PendingAsk(id: "Q1", ask: "部署嗎", options: ["放行！部署"], at: Date()), wp = AnswerPick(askId: "Q1", option: "放行！部署")
+        BoardActions.testDeliver = { sent.append($0); return true }
+        AskQueue.save("test-once", [w]); _ = BoardActions.answer(c, pick: wp, source: .other) { _ in }; XCTAssertEqual(pre(), before)
+        AskQueue.save("test-once", [w]); XCTAssertNil(BoardActions.typable(c, pick: wp, source: .user, asks: [w]))
+        _ = press(wp); XCTAssertEqual(pre(), before + 1)
+        AskQueue.save("test-once", [w]); _ = phone(wp); XCTAssertEqual(pre(), before + 2)
     }
     /// 舊的 showork（不認得 caps）、不存在的：不打字
     func testOldHookMeansNoTyping() throws {

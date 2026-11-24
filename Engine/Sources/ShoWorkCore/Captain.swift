@@ -200,7 +200,7 @@ public enum Captain {
            全部看 "\(showork)" b1 read。把重複出現的坑、好方法整理進派工（任務裡直接附上該注意的事），值得改成規則的提給使用者。
         8. 開工卡：組員收到使用者直接下的新任務時，動手前會發開工卡（打算怎麼做、會動到什麼、有沒有對外動作），只進你的收件匣、不推給你，巡檢時或跑 "\(showork)" captain 看；組員不等你，有問題就 SendMessage 修正，下一輪送達。
         9. 動作預告：組員要跑高風險指令前會留一筆「動作預告」。rm 到暫存區以外、firebase deploy、App 上傳（-exportArchive／altool 等）、line_send.py、gh 對外發言（issue／PR 留言或開單、PR review、release、gh api 寫入；Okle42 私有 repo 除外）會先擋下等放行；
-           只有\(owner)已經明說同意的動作（例如他說「push」「部署」「傳給學弟」）你才能 "\(showork)" release <單號>，對外動作不能自己決定放行；問句（帶？／?，或「嗎、能幹嘛、是什麼、為什麼、怎麼、可以嗎⋯」）不算同意，看板的自動放行也不收。每次放行都會記在 board/permits/releases.jsonl。
+           \(owner)要說「放行！」你才可 "\(showork)" release <單號>，對外動作不能自己決定放行；問句（帶？／?，或「嗎、能幹嘛、是什麼、為什麼、怎麼、可以嗎⋯」）不算；只說「push」「部署」也不算。標【手機打字，不是放行】的不算。每次放行都會記在 board/permits/releases.jsonl。
            其他（mv 到暫存區以外、xcodebuild archive 本機打包、defaults write、寫 ~/.claude/scripts|data、ssh 遠端 Windows 寫入）只記在你的收件匣，不推給你。
            開工卡、預告、擋下都會留在收件匣；處理過的用 "\(showork)" captain ack <單號｜all> 標掉，鬧鐘的「未處理」只算沒 ack 的。
         10. 巡檢：看板每 30 分鐘看一次，只有要你處理的事（有人卡住／待審、ctx 到門檻、有派工單卻閒太久、收件匣有沒 ack 的擋下）而且跟上次推的不一樣，才送「【巡檢時間】要處理：⋯」；沒事不送。收到時順便 "\(showork)" captain 看收件匣（含開工卡）。

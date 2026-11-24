@@ -121,16 +121,12 @@ if args.first == "title" {
     }
     // 開工卡（T1024033803 ①）：使用者直接下的指令 ⇒ 提醒動手前先發；秘書自己不用（秘書只審不做）；local.json 的 noKickoffRepos（例如 LINE 秘書）不發
     //   距上一道使用者指令超過 10 分鐘＝完整提醒；10 分鐘內＝只在換了任務時才發
-    //   使用者打「放行」／「放行 <單號>」＝放行這個 session 被擋下的指令（寫 board/permits/releases.jsonl）
+    //   使用者打「放行！」／「放行！<單號>」＝放行這個 session 被擋下的指令（寫 board/permits/releases.jsonl）
     // 收尾後只有使用者本人又下指令才不自動 /clear；其他 session／看板的訊息回一段「交接中」提醒（T1026230337）
-    // 11-01 使用者：「我叫你傳 LINE 還要再打放行」⇒ 使用者在 session 直接打的指令也算事先放行（同戰情中心回答：點名的動作、30 分鐘、每種一次、否定句不算）。
-    //   已經擋著的單，這則指令點名了就直接放行。其他 session／系統訊息（needsStart 擋掉的 <…> 標籤）不算。
-    let typedRelease: String? = {
-        guard event == "UserPromptSubmit", let sid, CaptainLink.needsStart(prompt: prompt) else { return nil }
-        let p = (prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !p.hasPrefix("放行") else { return nil }
-        guard let item = CaptainInbox.typedPrompt(sid: sid, prompt: p, who: NicknameStore.get(sid)?.name ?? "使用者", now: Date()) else { return nil }
-        return "使用者這則指令已點名放行單號 \(item.id)（\(item.text)）。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。"
+    // 放行只認「放行！」開頭（ReleaseWord，Keng 11-25）；其他話不記任何放行。其他 session／系統訊息（needsStart 擋掉的 <…> 標籤）不算。
+    let release: CaptainInbox.Decision = {
+        guard event == "UserPromptSubmit", let sid, CaptainLink.needsStart(prompt: prompt) else { return .none }
+        return CaptainInbox.typedPrompt(sid: sid, prompt: prompt ?? "", who: NicknameStore.get(sid)?.name ?? "使用者", now: Date())
     }()
     let handoverNote = event == "UserPromptSubmit" ? sid.flatMap { Handover.noteNewPrompt(sid: $0, prompt: prompt) } : nil
     // 11-14 使用者：在終端機回答了，戰情中心「等你回答」的題還掛著 ⇒ 本人在這個 session 打字就清掉（Asks.swift）
@@ -138,16 +134,16 @@ if args.first == "title" {
     let startNag: String? = {
         guard event == "UserPromptSubmit", let sid, CaptainLink.needsStart(prompt: prompt) else { return nil }
         let p = (prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if p.hasPrefix("放行") {
-            let id = p.dropFirst(2).trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init).flatMap { $0.isEmpty ? nil : $0 }
+        switch release {
+        case .released(let i):
             let who = NicknameStore.get(sid)?.name ?? "使用者"
-            if let i = CaptainInbox.release(id: id, target: sid, by: sid, byName: "使用者（在 \(who) 的終端機）", source: "使用者輸入", now: Date()) {
-                if let cap = CaptainStore.captain(), cap.sessionId != sid, let to = Peer.find(cap.sessionId) {
-                    _ = Peer.send(to: to, text: "【已放行 \(i.id)】使用者在 \(who) 的終端機放行：\(i.text)", fromName: "AI工作戰情中心（動作預告）")
-                }
-                return "使用者剛放行了單號 \(i.id)（\(i.text)）。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。"
+            if let cap = CaptainStore.captain(), cap.sessionId != sid, let to = Peer.find(cap.sessionId) {
+                _ = Peer.send(to: to, text: "【已放行 \(i.id)】使用者在 \(who) 的終端機放行：\(i.text)", fromName: "AI工作戰情中心（動作預告）")
             }
-            return CaptainLink.releaseMissText(id: id)
+            return "使用者剛放行了單號 \(i.id)（\(i.text)）。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。"
+        case .recorded(let k): return "使用者事先放行了：\(k)（30 分鐘內、一次）。"
+        case .missed(let m): return m
+        case .none: if ReleaseWord.nearMiss(p) { return "這句沒有放行任何東西。" + ReleaseWord.how + "。" }
         }
         guard CaptainStore.captain()?.sessionId != sid, !LocalConfig.current.skipsKickoff(cwd: cwdPath ?? "") else { return nil }
         let last = CaptainLink.lastPrompt(sid)
@@ -158,7 +154,7 @@ if args.first == "title" {
         }
         return CaptainLink.startContext(showork: showork)
     }()
-    let context = [typedRelease, startNag, handoverNote].compactMap { $0 }.joined(separator: "\n")
+    let context = [startNag, handoverNote].compactMap { $0 }.joined(separator: "\n")
     let ctx: String? = context.isEmpty ? nil : context
     if let sid, NicknameStore.get(sid) == nil, let ctx {
         print(Nicknames.hookOutput(nil, done: done, event: event, context: ctx))
@@ -231,12 +227,12 @@ if args.first == "guard-push" {
             let released = !blocks.isEmpty && CaptainInbox.consume(sid: sid, fingerprint: fp, now: now)
             if !blocks.isEmpty, !released,
                let pre = CaptainInbox.usePreapproval(sid: sid, rules: blocks.map(\.name), now: now) {
-                // 戰情中心回答已點名這個動作＝事先放行：記成已放行＋已用、通知秘書，照常往下跑
+                // 使用者事先放行（放行！種類）：記成已放行＋已用、通知秘書，照常往下跑
                 let base = CaptainInbox.waiting(sid: sid, fingerprint: fp, now: now) ?? CaptainInboxItem(id: CaptainInbox.newID(.block), kind: .block, at: now, sid: sid, name: name,
                                                                                                project: project, kinds: hits.map(\.name), text: CaptainLink.hitSummary(cmd, hs), fingerprint: fp)
                 var item = CaptainInbox.releaseByAnswer(base, answer: pre, now: now)
                 if let cap = CaptainStore.captain(), let to = Peer.find(cap.sessionId),
-                   case .success = Peer.send(to: to, text: "【已放行 \(item.id)】\(CaptainLink.label(name, project))：使用者在戰情中心回答「\(pre.answer)」已點名這個動作・\(item.text)", fromName: "AI工作戰情中心（動作預告）") {
+                   case .success = Peer.send(to: to, text: "【已放行 \(item.id)】\(CaptainLink.label(name, project))：使用者事先放行「\(pre.answer)」・\(item.text)", fromName: "AI工作戰情中心（動作預告）") {
                     item.delivered = true; CaptainInbox.save(item)
                 }
             } else if !blocks.isEmpty, !released {
