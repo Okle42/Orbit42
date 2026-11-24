@@ -180,7 +180,7 @@ struct MainView: View {
         .task {
             sphere.start()
             // 測試：ORBIT_PHONE_TAB=sat ⇒ 一開就到衛星分頁、打開第一顆（模擬器沒辦法用指令點畫面）
-            if ProcessInfo.processInfo.environment["ORBIT_PHONE_TAB"] == "sat" { await loadSats(); tab = 1; wantTab = ProcessInfo.processInfo.environment["ORBIT_PHONE_PANE"]; if let s = sats.first { path = [s] } }
+            if ProcessInfo.processInfo.environment["ORBIT_PHONE_TAB"] == "sat" { await loadSats(); tab = 1; wantTab = ProcessInfo.processInfo.environment["ORBIT_PHONE_PANE"]; if let s = sats.first(where: { !$0.moons.isEmpty }) ?? sats.first { path = [s] } }
             await satLoop()
         }
         .onReceive(VoiceInput.shared.$listening) { if $0 { tab = 0 } }      // 11-24 動作按鈕／控制中心開始聽 ⇒ 回球體分頁（字幕在那）
