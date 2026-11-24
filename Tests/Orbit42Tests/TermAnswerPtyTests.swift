@@ -14,16 +14,21 @@ def draw():
     top = "─" * 40 + " Fake1 ─"
     rows = ["Do you want to proceed?", "❯ 1. Yes", "Esc to cancel"] if mode == "menu" else [top, "❯ " + buf, "─" * 48]
     sys.stdout.write("\\x1b]9;" + json.dumps(rows) + "\\x07"); sys.stdout.flush()
+def late(t):
+    global buf
+    buf += t; draw()
 draw()
-data = b""
+data = b""; first = True
 while True:
     d = os.read(0, 4096)
     if not d: break
     open(log + ".raw", "ab").write(d)
     data += d
+    if mode == "slow" and first: first = False; import time; time.sleep(3)
     while b"\\x1b[200~" in data and b"\\x1b[201~" in data:
         a, rest = data.split(b"\\x1b[200~", 1); t, data = rest.split(b"\\x1b[201~", 1)
-        if mode == "half" or mode == "sticky": buf += t.decode()[:3]
+        if mode == "late": import threading; threading.Timer(2.0, late, [t.decode()]).start()
+        elif mode == "half" or mode == "sticky": buf += t.decode()[:3]
         elif mode != "deaf": buf += t.decode()
         draw()
     if b"\\x15" in data:
@@ -90,14 +95,11 @@ while True:
     }
     /// 貼了卻沒出現在框裡：不按 Enter、不回 notStarted（不然會再走訊息送第二次）
     func testNoEnterIfPasteNotSeen() async throws {
-        // 沒出現、只出現一半：清得掉（畫面真的空了）才算沒打過；清不掉＝沒確認到。都不按 Enter
-        for m in ["deaf", "half", "sticky"] {
+        // 沒出現、只出現一半：清得掉清不掉都算沒確認到（寫過就不改走訊息）。都不按 Enter
+        for m in ["deaf", "half", "sticky", "late", "slow"] {
             let (r, log, raw) = try await run(m)
-            switch r {
-            case .notStarted where m != "sticky": break
-            case .unsure where m == "sticky": break
-            default: XCTFail("\(m) \(r)")
-            }
+            guard case .unsure(let why) = r else { XCTFail("\(m) \(r)"); continue }
+            XCTAssertTrue(why.contains("可能有字"))
             XCTAssertTrue(log.isEmpty && !raw.contains(0x0D), m)
         }
     }
@@ -108,10 +110,7 @@ while True:
             XCTAssertFalse(TermAnswer.confirmed(Data(log.utf8), text: "好，推上去（完整一句，超過四十個字也不能被剪掉，一路到句尾都要在，最後一個字是完）"), m)
             if case .unsure(let why) = r {
                 XCTAssertTrue(why.contains("「abc⏎」沒有送進去"), why); XCTAssertTrue(!raw.contains(0x0D) && log.isEmpty, m)
-            } else {                                // 卡片的字已確定清乾淨：只剩 Keng 自己打的
-                guard case .notStarted = r else { return XCTFail("\(m) \(r)") }
-                XCTAssertFalse(log.contains("\u{597D}"), m)
-            }
+            } else { XCTFail("\(m) \(r)") }
         }
     }
     func testUnsureIfNotInConversation() async throws {

@@ -169,7 +169,7 @@ struct OfficeView: View {
                        if OfficeDemo.mode != nil || BoardWindow.testMode { onToast("測試：不送出「\(text)」"); return }
                        answered[it.card.sessionId] = Date()
                        if answeringId == it.id { answeringId = nil }
-                       onToast(BoardActions.answer(it.card, text: text, pick: AnswerPick(askId: it.askId, text: text, options: it.options), source: .user) { onToast($0) })
+                       onToast(BoardActions.answer(it.card, pick: AnswerPick(askId: it.askId, text: text, options: it.options), source: .user) { onToast($0) })
                    },
                    onPermit: { it, a in
                        if OfficeDemo.mode != nil || BoardWindow.testMode { onToast("測試：不回答權限（\(a.decision.rawValue)）"); return }
@@ -270,7 +270,7 @@ struct OfficeView: View {
                     AnswerCard(card: c, onJump: { jump(c.id) }, onClose: { answeringId = nil }, onSend: { text in
                         // 示範資料的卡片借用真 session 的 pid：絕不能真的打字進去（10-20 審查）
                         if OfficeDemo.mode != nil { onToast("示範資料：不送出（\(text.count) 字）"); answeringId = nil; return }
-                        onToast(BoardActions.answer(c, text: text, pick: AnswerPick(askId: c.asks.first?.id, text: text, options: c.asks.first?.options ?? Inbox.genericOptions), source: .user) { onToast($0) })
+                        onToast(BoardActions.answer(c, pick: AnswerPick(askId: c.asks.first?.id, text: text, options: c.asks.first?.options ?? Inbox.genericOptions), source: .user) { onToast($0) })
                         answeringId = nil
                     })
                     .padding(12).transition(.opacity)

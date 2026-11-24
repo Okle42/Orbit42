@@ -83,6 +83,53 @@ struct AskQueueTests {
         #expect(build(glow: .working, status: "busy", report: next, asks: []).column == .active)
     }
 
+    @Test("一題只送一次：同時按 20 下只成功一次；送出中、沒確認到、答過、過期、別的 session、選項對不上都不給")
+    func claim() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("claim-\(UUID().uuidString)")
+        setenv("SHOWORK_ASKS_DIR", dir.path, 1)
+        defer { unsetenv("SHOWORK_ASKS_DIR"); try? FileManager.default.removeItem(at: dir) }
+        let n = now, q = PendingAsk(id: "Q1", ask: "部署嗎", options: ["好，現在部署", "不要"], at: n), p = AnswerPick(askId: "Q1", option: "好，現在部署")
+        func go(_ x: AnswerPick?, _ sid: String = "S", _ t: Date? = nil) -> AskQueue.Claim { AskQueue.claim(sid: sid, pick: x, now: t ?? n) }
+        AskQueue.save("S", [q])
+        let lock = NSLock(); nonisolated(unsafe) var oks = 0, busy = 0
+        DispatchQueue.concurrentPerform(iterations: 20) { _ in
+            let r = AskQueue.claim(sid: "S", pick: p, now: n)
+            lock.withLock { if case .ok = r { oks += 1 } else if r == .busy { busy += 1 } }
+        }
+        #expect(oks == 1 && busy == 19)
+        AskQueue.unclaim(sid: "S", id: "Q1")
+        #expect(go(p) == .ok(q, text: "好，現在部署", queued: 1))
+        AskQueue.markUnsure(sid: "S", id: "Q1", now: n)
+        #expect(go(p) == .busy)                                       // 沒確認到：不能再按成第二次送達
+        AskQueue.resolve(sid: "S", id: "Q1", cardsDir: dir)
+        #expect(go(p) == .gone)
+        AskQueue.save("S", [q])
+        #expect(AskQueue.answeredInTerminal(sid: "S", prompt: "不要", captain: nil, cardsDir: dir).count == 1 && go(p) == .gone)     // 終端機已答
+        AskQueue.save("S", [q])
+        #expect(go(.init(askId: "Q1", option: "rm 全部並部署")) == .gone && go(p, "別的") == .gone && go(nil) == .gone && go(.init(askId: "Q9", option: "不要")) == .gone)
+        #expect(go(p, "S", n + AskQueue.ttl + 1) == .gone)
+        #expect(AskQueue.load("S") == [q])                            // 被拒的都沒動到題目
+        #expect(AskQueue.withdraw(sid: "S", id: "all") == 1 && go(p) == .gone)
+        // 送到一半：終端機答掉 ⇒ 之後不會復活；又多一題 ⇒ 兩邊都不掉
+        AskQueue.save("S", [q]); _ = go(p)
+        _ = AskQueue.answeredInTerminal(sid: "S", prompt: "不要", captain: nil, cardsDir: dir)
+        AskQueue.unclaim(sid: "S", id: "Q1"); AskQueue.markUnsure(sid: "S", id: "Q1")
+        #expect(AskQueue.load("S").isEmpty)
+        AskQueue.save("S", [q]); _ = go(p)
+        AskQueue.record(sid: "S", report: SelfReport(status: .review, ask: "新的題", at: n), now: n)
+        #expect(AskQueue.load("S").map(\.ask) == ["部署嗎", "新的題"] && go(p) == .busy)
+        AskQueue.resolve(sid: "S", id: "Q1", cardsDir: dir)
+        #expect(AskQueue.load("S").map(\.ask) == ["新的題"])
+        // 同時排 20 題不互蓋
+        AskQueue.save("S", [])
+        DispatchQueue.concurrentPerform(iterations: 20) { i in _ = AskQueue.record(sid: "S", report: SelfReport(status: .review, ask: "並行\(i)", at: n), now: n) }
+        #expect(AskQueue.load("S").count == 20)
+        // App 送到一半當掉：不自動重送，過一分鐘顯示成沒確認到
+        var dead = q; dead.sendingAt = Date(timeIntervalSinceNow: -61)
+        AskQueue.save("S", [dead])
+        #expect(dead.shown.contains("請到它的終端機看") && go(p) == .busy)
+    }
+
     @Test("檔案：showork card 排隊、回答拿掉並清卡片檔同一題、撤回、舊 BoardCard JSON 讀得回來")
     func files() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("asks-\(UUID().uuidString)")

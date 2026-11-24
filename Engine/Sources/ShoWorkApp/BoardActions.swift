@@ -222,7 +222,6 @@ enum BoardActions {
     ///   一般傳話（網頁「傳話」、右側對話窗格）不算回答，題目照樣留著（Asks.swift；11-11）
     /// 誰觸發的：user＝Keng 在介面上按／打的（球體、Mac 卡片、已配對手機）；其他一律 other（指令列、別的 session⋯），不能冒充使用者輸入
     enum AnswerSource { case user, other }
-    private static var typingInto = Set<String>()
 
     /// 答案能不能走「打進終端機」（純判斷）。放行、排了好幾題、開著權限框的不走：
     ///   放行有自己的單號規則；打字進去會讓 UserPromptSubmit 把排著的題全部當成答了；註明題目的字也會被當成使用者說的
@@ -233,63 +232,82 @@ enum BoardActions {
     }
 
     /// hook 用的 showork 看得懂記號嗎（舊版看不懂會提早放行 ⇒ 不打字，走訊息）
+    static var testHook: Bool?                          // 測試用
+    static var testDeliver: ((String) -> Bool)?         // 測試用：代替訊息送達
     static func hookKnowsMark(_ exe: String = TaskRouter.showork) -> Bool {
-        Tools.run(exe, ["caps"], timeout: 2).out.split(separator: "\n").contains("typed-mark")
+        if let t = testHook { return t }
+        return Tools.run(exe, ["caps"], timeout: 2).out.split(separator: "\n").contains("typed-mark")
     }
 
     /// 按答案卡：有開著的衛星終端機就打進去（跟自己打字一樣），看不準才走原本的訊息。done＝之後的結果（打進去、改走訊息、沒確認到）
-    static func answer(_ c: BoardCard, text: String, pick: AnswerPick?, source: AnswerSource, done: @escaping @MainActor (String) -> Void) -> String {
-        if typingInto.contains(c.sessionId) { return "「\(c.title)」上一個答案還在送" }
-        guard let t = typable(c, pick: pick, source: source, asks: AskQueue.load(c.sessionId)), SessionHost.shared.handle(for: c.sessionId) == nil,
-              let type = SphereEmbed.typeAnswer, hookKnowsMark() else { return answer(c, text: text) }
-        let ask = AskQueue.load(c.sessionId).first { $0.id == pick?.askId }, question = ask?.ask
-        typingInto.insert(c.sessionId)
+    static func answer(_ c: BoardCard, pick: AnswerPick?, source: AnswerSource, done: @escaping @MainActor (String) -> Void) -> String {
+        let sid = c.sessionId, gone = "「\(c.title)」這題已經答過或已收掉，沒有送出"
+        // 驗題目與選項、標成送出中：一把鎖。不行就什麼都不送、不記、不轉
+        let ask: PendingAsk, raw: String, queued: Int
+        switch AskQueue.claim(sid: sid, pick: pick) {
+        case .ok(let q, let t, let n): ask = q; raw = t; queued = n
+        case .gone: return gone
+        case .busy: return "「\(c.title)」這題上一個答案還在送，或沒確認有沒有送到，這次沒有送出；請到它的終端機看"
+        }
+        func byMessage(_ note: String) -> String {
+            let m = answer(c, text: raw, ask: ask, queued: queued)
+            let left = AskQueue.load(sid).contains { $0.id == ask.id }      // 送到的題目已經拿掉；還在＝沒送出（只拷貝到剪貼簿）
+            AskQueue.unclaim(sid: sid, id: ask.id)
+            return left ? m : m + note
+        }
+        guard source == .user else { return byMessage("") }
+        let off = "（終端機不方便打字，已改用訊息送出）"
+        guard let t = typable(c, pick: pick, source: source, asks: AskQueue.load(sid)), SessionHost.shared.handle(for: sid) == nil,
+              let type = SphereEmbed.typeAnswer, hookKnowsMark() else { return byMessage(off) }
         // 貼字前一刻再讀一次：那題還在、還是這個 session 唯一的一題、送的字還對得上
-        let started = type(c.sessionId, t, { typable(c, pick: pick, source: source, asks: AskQueue.load(c.sessionId)) == t }) { r in
-            typingInto.remove(c.sessionId)
+        let started = type(sid, t, { typable(c, pick: pick, source: source, asks: AskQueue.load(sid)) == t }) { r in
             switch r {
             case .sent, .sentDropped:         // 放行紀錄（recordAnswer）由 UserPromptSubmit 的 hook 記，這裡不再記一次
-                if let a = ask { AskQueue.resolve(sid: c.sessionId, id: a.id) }
-                BoardModel.shared.append(["ev": "answer", "id": c.sessionId, "project": c.project, "text": t, "via": "term"])
-                tellCaptain(c, answer: t, question: question)
+                AskQueue.resolve(sid: sid, id: ask.id)
+                if testHook == nil { BoardModel.shared.append(["ev": "answer", "id": sid, "project": c.project, "text": t, "via": "term"]) }
+                tellCaptain(c, answer: t, question: ask.ask)
                 if case .sentDropped(let what) = r { done("已打進「\(c.title)」的終端機；\(what)") } else { done("已打進「\(c.title)」的終端機") }
-            case .notStarted(let why):
-                // 等的時候他自己在終端機答掉了 ⇒ 不要再送一次
-                if let a = ask, !AskQueue.load(c.sessionId).contains(where: { $0.id == a.id }) { done("「\(c.title)」這題已經答過了"); return }
-                done(answer(c, text: text) + "（\(why)，改用訊息送達）")
+            case .notStarted:       // 一個位元組都沒寫：題目還在、選項還對才改走訊息
+                guard let q = AskQueue.load(sid).first(where: { $0.id == ask.id }), pick?.text(for: q) == raw else { AskQueue.unclaim(sid: sid, id: ask.id); done(gone); return }
+                done(byMessage(off))
             case .unsure(let why):      // 寫過字了：絕不再走訊息，題目留著
-                if let a = ask { AskQueue.markUnsure(sid: c.sessionId, id: a.id) }
-                BoardModel.shared.append(["ev": "answer-unsure", "id": c.sessionId, "project": c.project, "text": t, "why": why])
+                AskQueue.markUnsure(sid: sid, id: ask.id)
+                if testHook == nil { BoardModel.shared.append(["ev": "answer-unsure", "id": sid, "project": c.project, "text": t, "why": why]) }
                 done("「\(c.title)」\(why)，請到它的終端機看一下；這題先留著")
             }
         }
-        if !started { typingInto.remove(c.sessionId); return answer(c, text: text) }
-        return "正在打進「\(c.title)」的終端機"
+        return started ? "正在打進「\(c.title)」的終端機" : byMessage(off)
     }
 
-    static func answer(_ c: BoardCard, text: String, resolvesAsk: Bool = true) -> String {
+    static func answer(_ c: BoardCard, text: String, resolvesAsk: Bool = true, ask given: PendingAsk? = nil, queued: Int? = nil) -> String {
         var line = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
-        let ask = resolvesAsk ? c.asks.first : nil
+        let ask = given ?? (resolvesAsk ? c.asks.first : nil)
         let question = ask?.ask ?? c.report?.ask
         let said = line
-        defer { tellCaptain(c, answer: said, question: question) }
+        let recordedAt = Date()
+        var ok = given == nil           // 認題目的（given）：真的送到才轉秘書、才留事先放行
+        defer { if ok { tellCaptain(c, answer: said, question: question) } else { CaptainInbox.dropAnswer(sid: c.sessionId, answer: said, at: recordedAt) } }
         // 同一個 AI 排了好幾題：答案後面註明答的是哪一題（不然它分不出來）
-        if let a = ask, c.asks.count > 1 { line += "（回答的是：\(a.ask.prefix(60))）" }
+        if let a = ask, (queued ?? c.asks.count) > 1 { line += "（回答的是：\(a.ask.prefix(60))）" }
         func delivered(_ msg: String) -> String {
+            ok = true
             if let a = ask { AskQueue.resolve(sid: c.sessionId, id: a.id) }
             return msg
         }
+        // 會變成它的輸入的路（tmux、戰情中心自己持有的）hook 會記一次事先放行，這裡就不記；用記號讓 hook 知道不是鍵盤打的（放行不提早）
+        let viaPrompt = SessionHost.shared.handle(for: c.sessionId) != nil || tmuxPane(of: c.pid) != nil
         // 10-31：戰情中心的回答本身就是使用者的決定 ⇒ 答「放行」直接放行這個 AI 等著的單；答案點名的對外動作記成事先放行（CaptainInbox.usePreapproval）
         if line.hasPrefix("放行") {
             // 11-14：放行落空（沒有一天內的單）以前是靜默略過，AI 以為放行了、重跑又被擋 ⇒ 跟終端機打字一樣明講
             if CaptainInbox.release(id: nil, target: c.sessionId, by: "戰情中心", byName: "使用者（戰情中心回答）", source: "戰情中心回答", now: Date()) == nil {
                 line += "（戰情中心：\(CaptainLink.releaseMissText(id: nil))）"
             }
-        } else {
-            CaptainInbox.recordAnswer(sid: c.sessionId, answer: said, question: question, now: Date())   // 不含「回答的是」註記（題目的問號不能害答案被當問句）
+        } else if !viaPrompt || !hookKnowsMark() || !TypedMark.put(sid: c.sessionId, text: line) {
+            CaptainInbox.recordAnswer(sid: c.sessionId, answer: said, question: question, now: recordedAt)   // 不含「回答的是」註記（題目的問號不能害答案被當問句）
         }
+        if let t = testDeliver { return t(line) ? delivered("已送給「\(c.title)」") : "沒送到" }
         if let h = SessionHost.shared.handle(for: c.sessionId), let s = try? SessionHost.shared.ensure(h), s.send(line) {
-            return "已送進「\(c.title)」"
+            return delivered("已送進「\(c.title)」")
         }
         if tmuxPane(of: c.pid) != nil {
             if case .typed = sendBack(c, text: line) { return delivered("已送進「\(c.title)」") }
@@ -308,7 +326,7 @@ enum BoardActions {
     /// 使用者答了組員卡片的問題 ⇒ 轉秘書一則「【使用者已答】」、清掉秘書卡片上同一題（秘書 Penny 10-25：別再重複問 Kang）。
     /// 答的是秘書自己的卡片就不用轉
     private static func tellCaptain(_ c: BoardCard, answer: String, question q: String?) {
-        guard let cap = CaptainStore.captain()?.sessionId, cap != c.sessionId else { return }
+        guard testHook == nil, let cap = CaptainStore.captain()?.sessionId, cap != c.sessionId else { return }
         Answered.clearCaptainCard(sid: cap, question: q)
         AskQueue.resolve(sid: cap, question: q)
         let name = NicknameStore.get(c.sessionId)?.name ?? c.title

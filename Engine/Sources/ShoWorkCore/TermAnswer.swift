@@ -9,7 +9,7 @@ public enum TermAnswer {
     public enum Outcome: Sendable, Equatable {
         case sent                       // 對話紀錄裡看到這句了
         case sentDropped(String)        // 送到了，但你那段時間按的鍵沒補（畫面已變成選單／權限框）
-        case notStarted(String)         // 一個字都沒寫；原因
+        case notStarted(String)         // 一個位元組都沒寫；原因
         case unsure(String)             // 寫了但沒確認到；原因
     }
 
@@ -169,15 +169,15 @@ public enum TermAnswer {
             if let s = await io.screen(), holds(s, name: name, text: text) { ok = true; break }
         }
         if !ok || wrong(name) != nil {
-            // 不按 Enter，也不留字：貼之前框是空的、你的按鍵扣著 ⇒ 框裡只有剛貼的；清掉而且看到真的空了，才算沒打過
+            // 不按 Enter，盡量不留字（貼之前框是空的、你的按鍵扣著 ⇒ 框裡只有剛貼的）。寫過字就一律當沒確認到，不改走訊息
             if let s = await io.screen(), box(s, name: name) != nil {
                 io.write(Data([0x15]))          // Ctrl+U
                 for _ in 0..<10 {
                     await io.wait(0.1)
-                    if let s = await io.screen(), blocked(s, name: name) == nil { return .notStarted("貼上的字對不起來，已經清掉") }
+                    if let s = await io.screen(), blocked(s, name: name) == nil { break }      // 看起來空了也可能晚點才冒出來
                 }
             }
-            return .unsure("字可能留在輸入框，沒有按 Enter")
+            return .unsure("沒有按 Enter，輸入框裡可能有字（也可能晚一點才出現）")
         }
         io.write(Data("\r".utf8))
         for _ in 0..<50 {

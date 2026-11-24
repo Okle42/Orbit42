@@ -219,6 +219,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
         public var options: [String]
         public var canAnswer: Bool         // 只有「要你決定」（一般輸入框等你）能從網頁按選項；權限／選擇題／選單要回終端機或原生 App
         public var answeredAt: Date?
+        public var askId: String? = nil          // 回答時要帶回來（認得出答哪一題才送）
     }
     public struct Task: Codable, Sendable, Equatable {
         public var id: String
@@ -262,7 +263,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
                            summary: summary.map { String($0.prefix(400)) },
                            idleSeconds: c.lastActivity.map { max(0, Int(now.timeIntervalSince($0))) }, captain: c.captain,
                            question: it.map { $0.more > 0 ? $0.question + "（答完後面還有 \($0.more) 題）" : $0.question }, options: it?.kind == .reply ? it!.options : [],
-                           canAnswer: it?.kind == .reply, answeredAt: it?.answered)
+                           canAnswer: it?.kind == .reply, answeredAt: it?.answered, askId: it?.askId)
         }.sorted { a, b in
             let ra = a.question != nil ? 0 : rank[BoardColumn(rawValue: a.column) ?? .todo] ?? 9
             let rb = b.question != nil ? 0 : rank[BoardColumn(rawValue: b.column) ?? .todo] ?? 9
@@ -297,7 +298,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
 
 /// 網頁能做的事只有這五種：沒有跑指令、看檔案、關／重開 session、改名字或設定
 public enum WebAction: Equatable, Sendable {
-    case answer(session: String, text: String)     // 按卡片選項（跟原生收件匣同一條 BoardActions.answer）
+    case answer(session: String, text: String, askId: String? = nil)     // 按卡片選項（跟原生收件匣同一條 BoardActions.answer）
     case send(session: String, text: String)       // 傳話給某個 session（BoardActions.answer 同一條送法，前面加 sendPrefix）
     case dispatch(session: String, text: String)   // 開派工單（BoardActions.dispatch，跟看板「派工」同一條；內文加 sendPrefix）
     case cancel(task: String)                      // 取消派工單（Captain.cancel，跟 showork task cancel 同一條）
@@ -307,10 +308,10 @@ public enum WebAction: Equatable, Sendable {
         switch self { case .answer: "answer"; case .send: "send"; case .dispatch: "dispatch"; case .cancel: "cancel"; case .ack: "ack" }
     }
     public var target: String {
-        switch self { case .answer(let s, _), .send(let s, _), .dispatch(let s, _): s; case .cancel(let t): t; case .ack(let i): i }
+        switch self { case .answer(let s, _, _), .send(let s, _), .dispatch(let s, _): s; case .cancel(let t): t; case .ack(let i): i }
     }
     public var text: String? {
-        switch self { case .answer(_, let t), .send(_, let t), .dispatch(_, let t): t; default: nil }
+        switch self { case .answer(_, let t, _), .send(_, let t), .dispatch(_, let t): t; default: nil }
     }
 
     public static let paths = ["/api/answer", "/api/send", "/api/task", "/api/task/cancel", "/api/inbox/ack"]
@@ -334,7 +335,7 @@ public enum WebAction: Equatable, Sendable {
             let limit = path == "/api/answer" ? maxAnswer : maxText
             guard text.count <= limit else { return .failure(.init("太長了（最多 \(limit) 字）")) }
             switch path {
-            case "/api/answer": return .success(.answer(session: id, text: text))
+            case "/api/answer": return .success(.answer(session: id, text: text, askId: str("askId")))
             case "/api/send": return .success(.send(session: id, text: text))
             default: return .success(.dispatch(session: id, text: text))
             }

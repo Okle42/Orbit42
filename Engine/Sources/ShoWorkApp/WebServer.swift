@@ -158,11 +158,11 @@ final class WebServer {
         BoardModel.shared.append(["ev": "web-\(a.name)", "id": a.target, "peer": peer])
         defer { BoardModel.shared.refresh() }
         switch a {
-        case .answer(let id, let text):
+        case .answer(let id, let text, let askId):
             // 跟原生收件匣按選項同一條：BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝；轉秘書【使用者已答】；「放行」直接放行）
             return WebSnapshot.validate(answer: text, for: id, cards: cards).map { c in
                 answered[c.sessionId] = Date()
-                return BoardActions.answer(c, text: Inbox.message(text))      // 手機的請求沒帶題目 id，認不出答哪一題 ⇒ 照原本走訊息
+                return BoardActions.answer(c, pick: AnswerPick(askId: askId, text: text, options: Inbox.items([c]).first?.options ?? []), source: .other) { _ in }      // 沒帶題目 id（舊版 App）＝認不出答哪一題 ⇒ 不送
             }
         case .send(let id, let text):
             // 跟 3D 辦公室「跟他說」同一條（OfficeView onPersonSend → BoardActions.answer），前面加網頁前綴
