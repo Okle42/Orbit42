@@ -239,6 +239,7 @@ window.orbitTheme = name => {
   document.documentElement.dataset.theme = themeName;
   for (const t of terms.values()) t.doll?.setColor(dollColor());
   for (const t of terms.values()) { t.term.options.theme = THEME; t.term.options.minimumContrastRatio = themeName === "dark" ? (LOWDPI ? 3 : 1) : 4.5; }
+  for (const t of terms.values()) t.paintYou?.();
   if (was !== themeName) for (const id of t2031) post({ action: "input", id, data: `\x1b[?997;${themeName === "dark" ? 1 : 2}n` });
 };
 sysDark.addEventListener("change", () => { if (!new URLSearchParams(location.search).get("theme")) window.orbitTheme(); });
@@ -307,7 +308,7 @@ function makeTerm(id) {
     term.onRender(back);
   }
   if (!MIRROR) altBar(term, el);
-  const t = { term, fit, el, started: false }; terms.set(id, t); attachDoll(t); return t;
+  const t = { term, fit, el, started: false }; terms.set(id, t); attachDoll(t); attachYou(t); return t;
 }
 // 11-24 Keng「衛星右側的拖拉條不見了，我要用它上下捲動，風格要符合深淺色」：Claude Code 設成全螢幕模式（tui: fullscreen）時
 // 是它自己管捲動（alternate buffer），終端機沒有內容可捲 ⇒ 原生捲軸不會出現。這裡在全螢幕程式開著滑鼠模式時，自己畫一條拖拉條：
@@ -620,8 +621,128 @@ function placeDoll(t) {
   cv.style.transform = `translate(0px, ${Math.round((top - b.viewportY) * ch)}px)`;
   cv.style.display = "block";
 }
+/* 11-25 Keng「You 對話框亮邊」：okle42 mod 畫的 You 框，向下捲＝上邊亮、向上捲＝下邊亮，沿兩側漸收成灰，對邊灰；沒捲動維持最後方向。
+   直接改畫面緩衝區裡框線那幾格的字色（xterm 自己畫框線字元）：不疊圖層 ⇒ 不會雙線、錯位，也不擋選字、連結、滑鼠。
+   只在有輸出、捲動、切深淺時掃一次看得到的行，沒有動畫迴圈（prefers-reduced-motion 也就沒有動畫要關）。
+   認框：右上方有「You ●」標籤的圓角框；標籤被畫面上緣切掉時，用這個終端機記住的 You 框右邊界、且左邊不在畫面左側來認。 */
+const YOU_COLORS = { dark: ["#4fc36a", "#505050"], light: ["#d7261b", "#424242"] };       // 亮＝THEMES 的綠／紅，灰＝Claude Code subtle 進畫面後的灰
+const YOU_FADE = 3;                     // 亮邊沿側邊幾行收成灰
+const youRGB = k => {                   // k：1＝全亮、0＝灰
+  const [a, b] = YOU_COLORS[themeName].map(h => parseInt(h.slice(1), 16)), m = sh => Math.round(((a >> sh) & 255) * k + ((b >> sh) & 255) * (1 - k));
+  return m(16) << 16 | m(8) << 8 | m(0);
+};
+function findYou(term, mem) {
+  const b = term._core.buffer, rows = term.rows, cols = term.cols, L = [];
+  for (let y = 0; y < rows; y++) L.push(b.lines.get(b.ydisp + y));
+  const at = (y, x) => L[y] ? L[y]._data[x * 3] & 0x1fffff : 0;
+  const TL = 0x256d, TR = 0x256e, BL = 0x2570, BR = 0x256f, H = 0x2500, V = 0x2502;
+  const horiz = (y, r, right, left) => {  // 從右角往左走到左角；中間一定全是 ─
+    if (at(y, r) !== right) return -1; let x = r - 1; while (x >= 0 && at(y, x) === H) x--; return x >= 0 && x < r - 1 && at(y, x) === left ? x : -1; };
+  const down = (y, l, r) => { while (y < rows && at(y, l) === V && at(y, r) === V) y++; return y; };
+  const out = [], used = new Set();
+  const add = (l, r, top, bottom, y0, y1) => { out.push({ l, r, top, bottom, y0, y1 }); for (let y = y0; y <= y1; y++) used.add(y); };
+  if (mem.cols !== cols) { mem.cols = cols; mem.right = -1; }
+  for (let y = 0; y < rows; y++) {          // 有標籤的框
+    if (!L[y]) continue;
+    let r = cols - 1; while (r >= 0 && at(y, r) !== TR) r--;
+    if (r < 0 || y === 0 && b.ydisp === 0) continue;
+    const label = y > 0 ? L[y - 1] : b.lines.get(b.ydisp - 1);
+    if (!label) continue;
+    const txt = label.translateToString(true, 0, cols);
+    if (!/(^|\s)You {1,2}[●⬤]\s*$/.test(txt) || Math.abs(label.getTrimmedLength() - 1 - r) > 3) continue;
+    const l = horiz(y, r, TR, TL); if (l < 0) continue;
+    const e = down(y + 1, l, r), closed = e < rows && horiz(e, r, BR, BL) === l;
+    mem.right = r; add(l, r, y, closed ? e : null, y, closed ? e : e - 1);
+  }
+  const r = mem.right;
+  if (r < 0 || r >= cols) return out;
+  const min = Math.floor(cols * 0.2);     // You 框最寬 75%、靠右；Claude 的框、表格都從左邊開始
+  const first = out.length ? Math.min(...out.map(f => f.y0)) : rows;
+  for (let y = 0; y < Math.min(4, first); y++) {      // 上緣切掉的框：只可能在最上面（前幾行是釘住的標題列）
+    if (used.has(y)) break;
+    const tl = horiz(y, r, TR, TL);
+    if (tl >= min) {                       // 只剩標籤被切掉：上邊還在（最上面一行，或釘住的標題列正下方）
+      if (y <= 1) { const e = down(y + 1, tl, r), closed = e < rows && horiz(e, r, BR, BL) === tl; add(tl, r, y, closed ? e : null, y, closed ? e : e - 1); }
+      break;
+    }
+    if (at(y, r) === V) {
+      let hit = false;
+      for (let l = min; l < r - 1 && !hit; l++) {
+        if (at(y, l) !== V) continue;
+        const e = down(y, l, r);
+        if (e < rows && horiz(e, r, BR, BL) === l) { add(l, r, null, e, y, e); hit = true; }       // 下邊看得到
+        else if (e - y >= 6 && (e >= rows || at(e, r) !== BR) && first === rows) { add(l, r, null, null, y, e - 1); hit = true; }   // 上下都切掉
+      }
+      break;
+    }
+    if (horiz(y, r, BR, BL) >= min) { add(horiz(y, r, BR, BL), r, null, y, y, y); break; }        // 只剩下邊
+  }
+  return out;
+}
+function attachYou(t) {
+  const term = t.term, mem = { cols: 0, right: -1 };
+  let painted = [], dir = 1;               // dir：+1 向下捲（上邊亮）、-1 向上捲（下邊亮）
+  t.paintYou = () => { try { paint(); } catch {} };
+  function paint() {
+    const b = term._core.buffer, frames = findYou(term, mem), next = [], keep = new Map();
+    let lo = 1e9, hi = -1;
+    const put = (line, x, rgb) => {
+      const d = line._data, i = x * 3 + 1, v = ((d[i] & 0xfc000000) | 0x3000000 | rgb) >>> 0;
+      if (d[i] !== v) { d[i] = v; return true; } return false;
+    };
+    const mark = (y, x, k) => {
+      const line = b.lines.get(b.ydisp + y), rgb = youRGB(k); if (!line) return;
+      let s = keep.get(line); if (!s) keep.set(line, s = new Set()); s.add(x);
+      next.push([line, x, rgb]);
+      if (put(line, x, rgb)) { lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    };
+    for (const f of frames) {
+      const edge = dir > 0 ? f.top : f.bottom;
+      // 邊在畫面外：亮的那段也在畫面外，看得到的部分全灰
+      const k = y => { if (edge === null) return 0; const n = Math.abs(y - edge), H = f.top !== null && f.bottom !== null ? f.bottom - f.top : YOU_FADE + 1;
+        return Math.max(0, 1 - n / Math.min(YOU_FADE + 1, H)); };
+      for (let y = f.y0; y <= f.y1; y++) {
+        if (y === f.top || y === f.bottom) for (let x = f.l; x <= f.r; x++) mark(y, x, k(y));
+        else { mark(y, f.l, k(y)); mark(y, f.r, k(y)); }
+      }
+    }
+    // 上次上過色、這次不是 You 框的格子（程式沒重送，因為它以為還是灰的）⇒ 還原成灰
+    for (const [line, x, rgb] of painted) {
+      if (keep.get(line)?.has(x)) continue;
+      const d = line._data, i = x * 3, c = d[i] & 0x1fffff;
+      if (c >= 0x2500 && c <= 0x257f && (d[i + 1] & 0x3ffffff) === (0x3000000 | rgb)) { put(line, x, youRGB(0)); lo = 0; hi = term.rows - 1; }
+    }
+    painted = next;
+    if (hi >= 0) term.refresh(lo, hi);
+  }
+  const turn = d => { if (d && d !== dir) { dir = d; t.paintYou(); } };
+  // 滾輪、拖拉條、手機觸控最後都是這裡的 wheel 事件（capture：xterm 會擋掉往上傳）；橫向滑動不算
+  t.el.addEventListener("wheel", e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) turn(Math.sign(e.deltaY)); }, { passive: true, capture: true });
+  term.onData(d => { if (d === "\x1b[5~") turn(-1); else if (d === "\x1b[6~") turn(1); });        // PageUp／PageDown
+  const vp = t.el.querySelector(".xterm-viewport");      // 一般模式拖原生捲軸；程式自己輸出捲到底不算人在捲
+  let lastTop = 0, held = false;
+  vp?.addEventListener("pointerdown", () => { held = true; }, { passive: true });
+  addEventListener("pointerup", () => { held = false; }, { passive: true });
+  vp?.addEventListener("scroll", () => { const d = Math.sign(vp.scrollTop - lastTop); lastTop = vp.scrollTop; if (held) turn(d); }, { passive: true });
+  term.onScroll(t.paintYou); term.onResize(t.paintYou); term.buffer.onBufferChange(t.paintYou);
+  vp?.addEventListener("scroll", () => requestAnimationFrame(t.paintYou), { passive: true });
+}
 const carry = new Map();                // 每個終端機：上一塊結尾沒收完的 ESC[…（顏色碼被切成兩塊）
+const sgrState = new Map();             // 每個終端機：現在的字色、提示字的灰是不是這裡加的
+function trackFg(st, ps) {
+  const p = ps.split(";");
+  for (let i = 0; i < p.length; i++) {
+    const k = p[i] === "" ? 0 : +p[i];
+    if (k === 38 || k === 48 || k === 58) {
+      const n = p[i + 1] === "2" ? 5 : p[i + 1] === "5" ? 3 : 1;
+      if (k === 38) { st.fg = p.slice(i, i + n).join(";"); st.hint = false; }
+      i += n - 1;
+    } else if (k === 0 || k === 39) { st.fg = "39"; st.hint = false; }
+    else if ((k >= 30 && k <= 37) || (k >= 90 && k <= 97)) { st.fg = String(k); st.hint = false; }
+  }
+}
 function okColors(id, bytes) {
+  let st = sgrState.get(id); if (!st) sgrState.set(id, st = { fg: "39", hint: false });
   let s = carry.get(id) || "";           // 一個位元組一個字元（UTF-8 原封不動，只動 ASCII 的顏色碼）
   for (let i = 0; i < bytes.length; i += 30000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 30000));
   const tail = s.match(/\x1b(\[[0-9;:]*)?$/); carry.set(id, tail ? tail[0] : "");
@@ -629,14 +750,17 @@ function okColors(id, bytes) {
   s = hideClawd(s);
   s = s.replace(/\x1b\[([0-9;]*)m/g, (m, ps) => {
     // 11-24 深色綠白對調：一般字變綠後，Claude Code 的提示字（單獨 ESC[2m＝預設字色淡化）會變淡綠；Keng「灰字繼續維持」⇒ 固定成灰，ESC[22m 結束時一起還原字色
-    if (themeName === "dark" && ps === "2") return "\x1b[2;38;2;150;150;155m";
-    if (themeName === "dark" && ps === "22") return "\x1b[22;39m";
+    // 11-25 Keng「You 框亮灰不一」：22 也是「粗體結束」。灰色粗體的 You 標籤一結束就被一起清掉字色，後面的框線掉回預設綠，
+    // 直到下一個顏色碼才變回灰（Claude Code 只送有變的地方，所以每次亮的段落不一樣）⇒ 只有這裡自己加過灰的才還原，還原成原本的字色
+    if (themeName === "dark" && ps === "2") { st.hint = true; return "\x1b[2;38;2;150;150;155m"; }
+    if (themeName === "dark" && ps === "22") { const back = st.hint ? ";" + st.fg : ""; st.hint = false; return "\x1b[22" + back + "m"; }
+    trackFg(st, okSGR(ps));
     return themeName !== "dark" || ps.includes("2;") || ps.includes("5;") ? "\x1b[" + okSGR(ps) + "m" : m;
   });
   const out = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out;
 }
-window.orbitData = (id, data) => { const t = terms.get(id) || makeTerm(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); };
-window.orbitReplay = (id, data) => { const t = terms.get(id); if (t && !t.term.buffer.active.length) { carry.delete(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); } };
+window.orbitData = (id, data) => { const t = terms.get(id) || makeTerm(id); t.term.write(okColors(id, b64(data)), () => { t.placeDoll?.(); t.paintYou?.(); }); };
+window.orbitReplay = (id, data) => { const t = terms.get(id); if (t && !t.term.buffer.active.length) { carry.delete(id); sgrState.delete(id); t.term.write(okColors(id, b64(data)), () => { t.placeDoll?.(); t.paintYou?.(); }); } };
 // 11-24 iPhone 淺色終端機：切深淺後清空重來（App 從頭重抓 Mac 的輸出，用新色票重新換顏色；已經畫上去的字不會自己變色）
 // 11-25 答案卡打進終端機：現在的畫面（solid＝拿掉淡色字，輸入框的提示字是淡色）
 window.orbitScreen = id => {
@@ -649,7 +773,7 @@ window.orbitScreen = id => {
   }
   return JSON.stringify({ rows, cursorRow: b.cursorY, cursorCol: b.cursorX, paste: t.term.modes.bracketedPasteMode });
 };
-window.orbitReset = id => { const t = terms.get(id); if (!t) return; carry.delete(id); t.term.reset(); };
+window.orbitReset = id => { const t = terms.get(id); if (!t) return; carry.delete(id); sgrState.delete(id); t.term.reset(); };
 window.orbitExit = (id, code) => { terms.get(id)?.term.write(`\r\n\x1b[90m[已結束 ${code}] 點衛星可以重新開\x1b[0m\r\n`); const t = terms.get(id); if (t) t.started = false; };
 window.orbitOpened = id => openTerm(id);
 

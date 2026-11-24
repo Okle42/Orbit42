@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""You 對話框亮邊的自動檢查（假終端機內容＋無頭 Chrome，不開視窗）。
+  python3 -I Tests/web/you_frame_check.py [--web Web] [--shots 資料夾] [--cpu]
+--web 指到舊版的 Web 資料夾可以看原本的樣子（根因那一項會失敗）。"""
+import argparse, functools, html, http.server, json, os, re, shutil, subprocess, sys, tempfile, threading
+CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+ap = argparse.ArgumentParser(); ap.add_argument("--web"); ap.add_argument("--shots"); ap.add_argument("--cpu", action="store_true")
+a = ap.parse_args()
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+WEB = os.path.abspath(a.web or os.path.join(ROOT, "Web"))
+
+JS = r"""
+const E = "\x1b[", P = new URLSearchParams(location.search), CASE = P.get("case");
+const enc = s => { const b = new TextEncoder().encode(s); let o = ""; for (const c of b) o += String.fromCharCode(c); return btoa(o); };
+const LIGHT = P.get("theme") === "light";
+const GRAY = LIGHT ? "38;2;175;175;175" : "38;2;80;80;80", TXT = LIGHT ? "38;2;0;0;0" : "38;2;255;255;255";
+const go = (y, x) => `${E}${y + 1};${x + 1}H`;
+const W = s => [...s].reduce((n, c) => n + (c.codePointAt(0) > 0x2e7f ? 2 : 1), 0);
+let C, R;
+/* 照 Claude Code 的送法只送「有變的」：You 標籤是灰色粗體，粗體結束只送 22，後面的框線不再重送灰色（假設，見回報） */
+function you(y, lines, opt = {}) {
+  const right = C - 3, w = Math.max(...lines.map(W)) + 4, l = right - w + 1, n = lines.length; let s = E + "0m";
+  const vis = r => r >= (opt.min ?? 0) && r < (opt.max ?? R);
+  if (vis(y)) s += `${go(y, right - 7)}${E}1m${E}${GRAY}mYou  ⬤ ${E}22m`; else s += `${E}${GRAY}m`;
+  if (vis(y + 1)) s += `${go(y + 1, l)}╭${"─".repeat(w - 2)}╮`;
+  lines.forEach((t, i) => { if (vis(y + 2 + i)) s += `${go(y + 2 + i, l)}│ ${E}${TXT}m${t}${" ".repeat(w - 4 - W(t))}${E}${GRAY}m │`; });
+  if (vis(y + 2 + n)) s += `${go(y + 2 + n, l)}╰${"─".repeat(w - 2)}╯`;
+  return { s: s + E + "0m", l, r: right, top: y + 1, bot: y + 2 + n };
+}
+const claudeBox = y => `${go(y, 1)}${E}91m⬤  Claude${E}0m${go(y + 1, 1)}${E}${GRAY}m╭${"─".repeat(C - 5)}╮${go(y + 2, 1)}│${go(y + 2, C - 3)}│${go(y + 3, 1)}╰${"─".repeat(C - 5)}╯${E}0m`;
+const table = y => `${go(y, 2)}${E}${GRAY}m┌────┬────┐${go(y + 1, 2)}│ a  │ b  │${go(y + 2, 2)}└────┴────┘${E}0m`;
+const input = y => `${go(y, 0)}${E}${GRAY}m╭${"─".repeat(C - 2)}╮${go(y + 1, 0)}│ >${go(y + 1, C - 1)}│${go(y + 2, 0)}╰${"─".repeat(C - 2)}╯${E}0m`;
+const wait = ms => new Promise(r => setTimeout(r, ms));
+let term, t, fails = [], n = 0;
+const write = s => new Promise(r => { window.orbitData("x", enc(s)); term.write("", r); });
+const cell = (y, x) => term.buffer.active.getLine(term.buffer.active.viewportY + y).getCell(x);
+const fg = (y, x) => { const c = cell(y, x); return c.isFgRGB() ? "#" + c.getFgColor().toString(16).padStart(6, "0") : c.isFgDefault() ? "default" : "p" + c.getFgColor(); };
+const isLight = () => document.documentElement.dataset.theme === "light";
+const HOT = () => isLight() ? "#d7261b" : "#4fc36a", COLD = () => isLight() ? "#424242" : "#505050";
+const ok = (c, m) => { n++; if (!c) fails.push(m); };
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const dist = h => { const v = rgb(h), u = rgb(HOT()); return v.reduce((s, x, i) => s + Math.abs(x - u[i]), 0); };
+function frame(f, dir, name, o = {}) {
+  const y0 = Math.max(f.top, o.min ?? 0), y1 = Math.min(f.bot, (o.max ?? R) - 1), seen = y => y >= y0 && y <= y1;
+  const edge = dir > 0 ? f.top : f.bot, other = dir > 0 ? f.bot : f.top;
+  for (const [y, want] of [[edge, HOT()], [other, COLD()]]) {
+    if (!seen(y)) continue;
+    let bad = null; for (let x = f.l; x <= f.r && !bad; x++) if (fg(y, x) !== want) bad = `第 ${y} 行第 ${x} 格 ${fg(y, x)}≠${want}`;
+    ok(!bad, `${name}：${bad}`);
+  }
+  let last = -1;
+  for (let y = dir > 0 ? y0 : y1; seen(y); y += dir) {
+    const A = fg(y, f.l), B = fg(y, f.r);
+    ok(A === B && A[0] === "#", `${name}：第 ${y} 行左右 ${A} ${B}`); if (A[0] !== "#") continue;
+    const d = dist(A); ok(d >= last, `${name}：第 ${y} 行沒有漸收`); last = d;
+  }
+  if (!seen(edge)) ok(fg(dir > 0 ? y0 : y1, f.r) === COLD(), `${name}：亮邊在畫面外應該全灰，實際 ${fg(dir > 0 ? y0 : y1, f.r)}`);
+}
+const wheel = (dy, dx = 0) => t.el.querySelector(".xterm-screen").dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: dy, deltaX: dx, deltaMode: 1 }));
+const clear = () => write(`${E}0m${E}2J`);
+function both(f, name, o) { wheel(3); frame(f, 1, name + "・下捲", o); wheel(-3); frame(f, -1, name + "・上捲", o); wheel(3); }
+async function checks() {
+  let f;
+  await write(`${E}?1049h${E}?1003h${E}?1006h`);
+  await clear(); f = you(2, ["2"]); await write(f.s);
+  ok(fg(f.top, f.l) !== "default", "根因：粗體結束後的框線變成預設色"); frame(f, 1, "預設"); both(f, "短文");
+  wheel(-1, 9); frame(f, 1, "橫向滑動不換邊");
+  await clear(); f = you(3, ["第一行中文", "second line", "[Pasted text +12 lines]", "最後"]); await write(f.s); both(f, "多行");
+  await clear(); f = you(1, Array.from({ length: R - 8 }, (_, i) => "長文第 " + i + " 行 " + "字".repeat(12))); await write(f.s); both(f, "長文");
+  await clear(); f = you(2, ["╭──────╮", "│ code │", "╰──────╯"]); await write(f.s); const in0 = fg(f.top + 1, f.l + 2); both(f, "框裡有框");
+  for (let y = f.top + 1; y < f.bot; y++) ok(fg(y, f.l + 2) === in0 && in0 === (LIGHT ? "#1a1a1a" : "#4fc36a"), "框裡的小框被改色 " + fg(y, f.l + 2));
+  await clear(); const fs = [you(0, ["一"]), you(6, ["two two"]), you(12, ["三", "三"])];
+  await write(fs.map(x => x.s).join("") + claudeBox(18) + table(23) + input(27));
+  const others = () => [[19, 1], [19, 9], [20, 1], [20, C - 3], [21, 5], [23, 2], [24, 2], [25, 7], [27, 0], [28, 0], [28, C - 1], [29, 9]].map(([y, x]) => fg(y, x)).join();
+  const o0 = others(); ok(!o0.includes(HOT()), "別的框是亮色 " + o0);
+  for (const d of [3, -3]) { wheel(d); fs.forEach((x, i) => frame(x, Math.sign(d), "多框 " + i)); ok(others() === o0, "別的框被改色"); } wheel(3);
+  for (const [name, y, k, o] of [["標籤切掉", -1, 3, {}], ["上邊切掉", -2, 3, {}], ["只剩下邊", -4, 2, {}], ["標題列下標籤切掉", 0, 3, { min: 1 }], ["標題列下上邊切掉", -1, 3, { min: 1 }]]) {
+    await clear(); f = you(y, ["a", "b", "c"].slice(0, k), o); await write((o.min ? go(0, 0) + "> 標題" : "") + f.s); both(f, name, o);
+  }
+  await clear(); f = you(R - 8, ["a", "b", "c", "d", "e", "f"], { max: R - 4 }); await write(f.s + input(R - 3)); both(f, "下緣切掉", { max: R - 4 });
+  await clear(); f = you(-5, Array.from({ length: R + 10 }, () => "滿版")); await write(f.s); both(f, "上下都切掉");
+  await clear(); f = you(6, ["捲動", "區"]); await write(f.s); await write(`${E}1;${R - 4}r${E}2S${E}r`); f.top -= 2; f.bot -= 2; both(f, "捲動區往上 2 行");
+  await clear(); f = you(4, ["殘留"]); await write(f.s); await write(`${go(4, 0)}${E}2K`); ok(fg(f.top, f.l) === COLD(), "標籤不見了要還原成灰 " + fg(f.top, f.l));
+  const th = document.documentElement.dataset.theme;
+  await clear(); f = you(4, ["切換"]); await write(f.s); window.orbitTheme(th === "dark" ? "light" : "dark"); frame(f, 1, "切深淺即時換"); window.orbitTheme(th); frame(f, 1, "切回來");
+  await clear(); await write(`${go(0, 0)}${E}2mhint${E}22mX${E}${GRAY}m${E}1mB${E}22mY${E}2mh${E}22mZ${E}0m`);      // 單獨的淡化提示字（原本 22 那條規則要保住的）
+  if (th === "dark") { ok(fg(0, 0) === "#96969b", "提示字要灰 " + fg(0, 0)); ok(fg(0, 4) === "default", "提示字結束要還原 " + fg(0, 4)); }
+  ok(fg(0, 6) === COLD(), "粗體結束不可清字色 " + fg(0, 6)); ok(fg(0, 8) === COLD(), "提示字結束要還原成原本的字色 " + fg(0, 8));
+  ok(!cell(0, 6).isBold() && !cell(0, 8).isDim(), "22 要真的結束粗體與淡化");
+  await write(`${E}?1003l${E}?1049l`); await clear(); f = you(3, ["一般模式"]); await write(f.s); both(f, "一般模式");
+}
+async function shot() {
+  await write(`${E}?1049h${E}?1003h`); await clear();
+  let s = "";
+  if (CASE === "short") s = you(1, ["2"]).s + you(7, ["push"]).s;
+  if (CASE === "long") s = you(1, ["第一行：把框線固定成同一個樣子", "second line", "[Pasted text +12 lines]", "第四行", "第五行", "最後一行"]).s;
+  if (CASE === "multi") s = you(0, ["2"]).s + claudeBox(5) + you(10, ["push", "好"]).s + you(16, ["再一個"]).s + table(21);
+  if (CASE === "cut") { await write(you(10, ["2"]).s); s = you(10, ["2"]).s + you(-2, ["上緣切掉", "bbb", "ccc"]).s + you(R - 7, ["下緣切掉", "b", "c", "d"], { max: R - 3 }).s + input(R - 3); }
+  await write(s); wheel(P.get("dir") === "up" ? -3 : 3); await wait(300);
+}
+async function cpu() {
+  const out = window.__cpu = {}, N = 3000; await write(`${E}?1049h${E}?1003h`);
+  for (const mode of ["none", "box"]) {
+    await clear(); if (mode === "box") await write(you(2, ["2"]).s + you(8, ["長", "文"]).s);
+    const c = performance.now(); for (let i = 0; i < N; i++) await write(`${go(20, 2)}${E}38;2;200;200;200m串流輸出 ${i} ${"x".repeat(60)}${E}0m`);
+    out[mode + "_us"] = +((performance.now() - c) / N * 1000).toFixed(1);
+    if (t.paintYou) { const c2 = performance.now(); for (let i = 0; i < 5000; i++) t.paintYou(); out[mode + "_scan_us"] = +((performance.now() - c2) / 5).toFixed(1); }
+  }
+}
+addEventListener("load", async () => {
+  try {
+    await wait(300); window.orbitData("x", ""); t = window.__terms.get("x"); term = t.term; t.el.classList.add("on"); document.getElementById("panel").classList.add("on");
+    await wait(600); term.resize(90, 34); C = term.cols; R = term.rows; await wait(200);
+    if (CASE === "check") await checks(); else if (CASE === "cpu") await cpu(); else await shot();
+  } catch (e) { fails.push("例外 " + e.stack); }
+  const d = document.createElement("pre"); d.id = "RESULT"; d.style.display = "none"; d.textContent = JSON.stringify({ n, fails, cpu: window.__cpu }); document.body.append(d);
+  if (CASE === "cpu") fetch("/result", { method: "POST", body: d.textContent });
+});
+"""
+
+tmp = tempfile.mkdtemp(prefix="youframe-")
+site = os.path.join(tmp, "web"); shutil.copytree(WEB, site)
+s = open(site + "/index.html", encoding="utf-8").read(); k = "\nwindow.orbitTheme(themeName);"
+assert s.count(k) == 1
+open(site + "/index.html", "w", encoding="utf-8").write(s.replace(k, "\nwindow.__terms = terms;" + k) + "<script type=module>" + JS + "</script>")
+
+
+got, done = [], threading.Event()
+
+
+class H(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *x): pass
+
+    def do_POST(self):
+        got.append(self.rfile.read(int(self.headers["Content-Length"])).decode()); done.set(); self.send_response(204); self.end_headers()
+
+
+srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(H, directory=site)); threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+
+def chrome(q, dpr, *extra, budget="--virtual-time-budget=20000"):
+    try:
+        return subprocess.run([CHROME, "--headless=new", "--no-first-run", "--hide-scrollbars", f"--user-data-dir={tmp}/p", "--window-size=1000,760",
+                               f"--force-device-scale-factor={dpr}", budget, *extra, f"http://127.0.0.1:{srv.server_port}/index.html?term&{q}"],
+                              capture_output=True, text=True, timeout=90).stdout
+    except subprocess.TimeoutExpired:
+        return ""
+
+
+def result(q, dpr, **kw):
+    m = re.search(r'<pre id="RESULT"[^>]*>(.*?)</pre>', chrome(q, dpr, "--dump-dom", **kw), re.S)
+    return json.loads(html.unescape(m.group(1))) if m else {"n": 0, "fails": ["沒有結果（頁面沒跑完）"]}
+
+
+bad = 0
+for theme in ("dark", "light"):
+    for dpr in (1, 2):
+        r = result(f"theme={theme}&case=check", dpr); bad += len(r["fails"]) + (r["n"] == 0)
+        print(f"{theme} {dpr}x：{r['n']} 項，失敗 {len(r['fails'])}")
+        for x in r["fails"][:12]: print("   ✗", x)
+if a.cpu:      # 真時間跑（虛擬時間量不到）
+    p = subprocess.Popen([CHROME, "--headless=new", "--no-first-run", "--remote-debugging-port=0", f"--user-data-dir={tmp}/c", "--window-size=1000,760", "--force-device-scale-factor=2",
+                          f"http://127.0.0.1:{srv.server_port}/index.html?term&theme=dark&case=cpu"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    done.wait(80); p.terminate(); p.wait(20)
+    print("CPU（微秒；*_us＝每次寫入到處理完、*_scan_us＝掃一次）", json.loads(got[0])["cpu"] if got else "沒跑完")
+if a.shots:
+    os.makedirs(a.shots, exist_ok=True)
+    for th in ("dark", "light"):
+        for c in ("short", "long", "multi", "cut"):
+            for d in ("down", "up"): chrome(f"theme={th}&case={c}&dir={d}", 2, "--default-background-color=" + ("0d0d0fff" if th == "dark" else "fbfbf9ff"), f"--screenshot={a.shots}/{th}-{c}-{d}.png")
+srv.shutdown(); shutil.rmtree(tmp, ignore_errors=True)
+sys.exit(1 if bad else 0)
