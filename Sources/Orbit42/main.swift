@@ -888,6 +888,12 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 self.showSat(id)
                 let count = { self.satWins.values.filter { !$0.isHidden && $0.wantShown }.count }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { MainActor.assumeIsolated { print("hidesats before=\(count())"); fflush(stdout) } }
+                // ORBIT_TEST_HIDESATS=toggle ⇒ 不靠網頁，直接連點兩下：收（應為 0）→ 叫回（應為 1）
+                if env["ORBIT_TEST_HIDESATS"] == "toggle" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated { self.hideAllSats() } }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 6) { MainActor.assumeIsolated { print("toggle first=\(count())"); fflush(stdout); self.hideAllSats() } }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { MainActor.assumeIsolated { print("toggle second=\(count())"); fflush(stdout) } }
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 16) { MainActor.assumeIsolated {
                     print("hidesats after=\(count())"); fflush(stdout); self.host.shutdown(); NSApp.terminate(nil) } }
             } }
@@ -1159,7 +1165,19 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         guard let w = satWins.removeValue(forKey: id) else { return }
         animate(w, on: false) { [weak self] in w.removeFromSuperview(); self?.autoArrange() }
     }
-    private func hideAllSats() { for w in satWins.values { animate(w, on: false) } }
+    /// 11-24 Keng「點擊全收是第一下，點第二下應該要全部跳回來」：點球體空白處＝切換。
+    /// 有開著的 ⇒ 記住是哪幾顆、全部收下去；都收著而且有記住的 ⇒ 那幾顆全部叫回來。中間自己打開任何一顆，就從「收」重新算
+    private var tucked: [String] = []
+    private func hideAllSats() {
+        let open = satWins.filter { !$0.value.isHidden && $0.value.wantShown }.map(\.key)
+        if open.isEmpty {
+            let back = tucked.filter { satWins[$0] != nil }; tucked = []
+            for id in back { showSat(id) }
+            return
+        }
+        tucked = open
+        for id in open { if let w = satWins[id] { animate(w, on: false) } }
+    }
 
     /// 疊到最上面：zPosition 遞增，再照 zPosition 重排 subview 順序（不把視圖拿下來重放，終端機不會失焦）
     private func raise(_ w: NSView) {
