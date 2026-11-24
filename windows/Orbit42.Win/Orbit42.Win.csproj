@@ -17,8 +17,8 @@
     <ApplicationIcon>Orbit42.ico</ApplicationIcon>
     <!-- ShoWork.Win 引用的 showork.exe（hook CLI）是獨立式；Orbit42 只是把它一起帶著，不呼叫它的程式碼 ⇒ 不檢查（NETSDK1151） -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
-    <!-- ShoWork42 的 Windows 專案（球體、引擎）。預設找旁邊的 ShoWork42 repo；可用 -p:ShoWork42Dir=... 指定 -->
-    <ShoWork42Dir Condition="'$(ShoWork42Dir)' == ''">$(MSBuildThisFileDirectory)..\..\..\ShoWork42</ShoWork42Dir>
+    <!-- 引擎和球體（2026-11-24 起在這個 repo 的 Engine，不再找旁邊的 ShoWork42） -->
+    <ShoWork42Dir Condition="'$(ShoWork42Dir)' == ''">$(MSBuildThisFileDirectory)..\..\Engine</ShoWork42Dir>
   </PropertyGroup>
 
   <ItemGroup>

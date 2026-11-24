@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $proj = Join-Path $here 'Orbit42.Win\Orbit42.Win.csproj'
 $out = Join-Path $here 'out\Orbit42'
-if (-not $ShoWork42Dir) { $ShoWork42Dir = Join-Path $here '..\..\ShoWork42' }
+if (-not $ShoWork42Dir) { $ShoWork42Dir = Join-Path $here '..\Engine' }
 # 跟 ShoWork42 的 windows\pack.ps1 一樣：hook CLI（showork.exe，獨立式）先單獨發佈，再用 PackShowork 內嵌，
 # ShoWork.Win 就不會帶著專案引用（不然 NETSDK1151：非獨立式不能引用獨立式）
 $cli = Join-Path $here 'out\cli'

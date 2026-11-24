@@ -13,7 +13,7 @@ Part of the **42 series** by [Okle42](https://github.com/Okle42). [繁體中文�
 - **Your brain, your account.** Orbit42 doesn't ship its own AI. Each satellite runs the provider's official agent — Claude Code (`claude`), OpenAI Codex CLI (`codex`), Google Antigravity CLI (`agy`) — so sign-in, tools, limits and updates are the provider's own. Orbit42 never sees your password or keys.
 - **Satellites are real terminals.** Each one is a pseudo-terminal rendered with [xterm.js](https://xtermjs.org), so you see exactly what the agent shows in a normal terminal.
 - **Background sessions too.** Claude Code sessions already running in the background can be pulled in as satellites (`claude attach`); closing the view leaves them running.
-- **Shared core.** Session state, usage and audits come from the [ShoWork42](https://github.com/Okle42/ShoWork42) core library.
+- **Engine.** Session state, usage, audits and the sphere live in [`Engine/`](Engine/) (copied from ShoWork42 on 2026-11-24; independent since).
 
 ## Roadmap
 
@@ -42,13 +42,7 @@ Everyday scripts (in `scripts/`):
 | `scripts/restart_app.sh "reason"` | Quit and reopen the installed app (log: `~/Library/Logs/Orbit42/restart.log`) |
 | `scripts/phone_pair.sh` | Show the QR code / URL for pairing the iPhone app (`ios/`, see `ios/README.md`) |
 
-ShoWork42 comes from GitHub (pinned in `Package.resolved`). To change ShoWork42 and Orbit42 together, edit locally for the duration and undo before pushing:
-
-```bash
-swift package edit ShoWork42 --path ../ShoWork42      # temporary: builds use your local ShoWork42
-swift package unedit ShoWork42                        # before pushing: back to the GitHub version
-swift package update ShoWork42                        # after ShoWork42 is pushed: move the pin
-```
+The engine and the sphere are in `Engine/`; no other repo is needed.
 
 ## Credits
 

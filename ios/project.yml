@@ -39,8 +39,8 @@ targets:
           set -e
           OUT="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
           ROOT="$SRCROOT/.."
-          # 衛星終端機＝Orbit42 的 Web；球體＝ShoWork42 的 Board/Web（跟 Mac build_app.sh 同一個來源、同一個順序：暫時 swift package edit 時用 Packages/ShoWork42，平常用 GitHub 抓下來的）
-          SW="$ROOT/Packages/ShoWork42"; [ -d "$SW" ] || SW="$ROOT/.build/checkouts/ShoWork42"
+          # 衛星終端機＝Orbit42 的 Web；球體＝Engine 的 Board/Web（跟 Mac build_app.sh 同一份）
+          SW="$ROOT/Engine"
           mkdir -p "$OUT/OrbitWeb" "$OUT/Web"
           rsync -a --delete --exclude .DS_Store "$ROOT/Web/" "$OUT/OrbitWeb/"
           rsync -a --delete --exclude bench --exclude .DS_Store --exclude '*.md' "${SPHERE_WEB:-$SW/windows/ShoWork.Win/Board/Web}/" "$OUT/Web/"

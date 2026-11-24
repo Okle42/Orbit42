@@ -1,0 +1,278 @@
+import Foundation
+import Testing
+@testable import ShoWorkCore
+
+// 隊長連動（T1024033803）：假名、假指令（10-22 規矩）
+@Suite("CaptainLink", .serialized)
+struct CaptainLinkTests {
+    let t0 = Date(timeIntervalSince1970: 1_792_650_000)
+
+    @Test("① 只有使用者直接下的指令要開工卡")
+    func needsStart() {
+        #expect(CaptainLink.needsStart(prompt: "幫我把專案A的按鈕改成藍色"))
+        #expect(!CaptainLink.needsStart(prompt: "  "))
+        #expect(!CaptainLink.needsStart(prompt: nil))
+        #expect(!CaptainLink.needsStart(prompt: "<cross-session-message from=\"uds:/tmp/x.sock\">【派工回報】</cross-session-message>"))
+        #expect(!CaptainLink.needsStart(prompt: "<task-notification>背景工作完成</task-notification>"))
+        let c = CaptainLink.startContext(showork: "/x/showork")
+        #expect(c.hasPrefix("【開工卡】") && c.contains("\"/x/showork\" card --kind start") && c.contains("--touch") && c.contains("--outward"))
+    }
+
+    @Test("① 開工卡：不寫 --status 當 working；轉隊長前綴【開工】；不受 60 秒節流")
+    func startCard() throws {
+        let s = try SelfReport.parse(args: ["--kind", "start", "--doing", "改按鈕", "--summary", "按鈕改藍", "--how", "改 View.swift",
+                                            "--touch", "專案A/View.swift", "--outward", "無"], now: t0).get()
+        #expect(s.status == .working && s.isStart && s.touch == "專案A/View.swift" && s.outward == "無")
+        if case .success = SelfReport.parse(args: ["--kind", "nope", "--status", "done"]) { Issue.record("--kind 只收 start") }
+        let t = CardRelay.text(name: "小明", project: "專案A", report: s)
+        #expect(t.hasPrefix("【開工】小明（專案A）：改按鈕") && t.contains("會動到：專案A/View.swift") && t.contains("對外動作：無"))
+        var st = CardRelay.State(); st.seeded = true
+        let work = SelfReport(status: .working, summary: "前一張", at: t0)
+        #expect(CardRelay.plan(reports: ["a": work], captain: "c", captainLive: true, state: &st, now: t0, policy: .legacy) { _, r in r.summary ?? "" }.count == 1)
+        var start = s; start.at = t0 + 5
+        let out = CardRelay.plan(reports: ["a": start], captain: "c", captainLive: true, state: &st, now: t0 + 5, policy: .legacy) { _, r in CardRelay.text(name: "小明", project: nil, report: r) }
+        #expect(out.count == 1 && out[0].text.hasPrefix("【開工】"))
+    }
+
+    @Test("① hook 輸出：有名字帶 sessionTitle＋提醒；沒名字只帶提醒")
+    func hookOut() throws {
+        let n = Nickname(name: "小明", doing: nil)
+        let a = Nicknames.hookOutput(n, done: false, event: "UserPromptSubmit", context: "【開工卡】x")
+        let o = try #require(JSONSerialization.jsonObject(with: Data(a.utf8)) as? [String: Any])
+        let h = try #require(o["hookSpecificOutput"] as? [String: Any])
+        #expect(h["sessionTitle"] as? String == "小明" && h["additionalContext"] as? String == "【開工卡】x")
+        let b = Nicknames.hookOutput(nil, done: false, event: "UserPromptSubmit", context: "【開工卡】y")
+        #expect(b.contains("additionalContext") && !b.contains("terminalSequence"))
+        #expect(Nicknames.hookOutput(nil, done: false, event: "PostToolUse") == "")
+    }
+
+    func names(_ c: String) -> [String] { CaptainLink.match(c, rules: CaptainLink.rules(LocalFixture.config)).map { ($0.block ? "擋:" : "告:") + $0.name } }
+
+    @Test("② 兩級規則：擋 rm 非暫存區、firebase、上傳、LINE；告 mv、archive、defaults、~/.claude、winbox")
+    func rules() {
+        #expect(names("rm -rf build/") == ["擋:rm 刪除（暫存區以外）"])
+        #expect(names("rm -f /tmp/x.png").isEmpty)
+        #expect(names("rm -rf /private/tmp/claude-501/s/scratchpad/a").isEmpty)
+        #expect(names("rm /tmp/a.txt src/main.swift") == ["擋:rm 刪除（暫存區以外）"])          // 有一個不在暫存區就擋
+        #expect(names("git rm --cached a.txt").isEmpty)
+        #expect(names("mv a.txt b.txt") == ["告:mv 到非暫存區"])
+        #expect(names("mv a.txt /tmp/trash/").isEmpty)
+        #expect(names("mv \"$TMPDIR/x\" ~/Desktop/x") == ["告:mv 到非暫存區"])
+        #expect(names("git mv old.swift new.swift").isEmpty)
+        #expect(names("git commit -m \"改 rm 規則、mv 也擋\"").isEmpty)                                  // commit 訊息裡的字不算
+        #expect(names("python3 - <<'EOF'\nos.system('rm -rf x')\nEOF").isEmpty)                         // heredoc 內文不算
+        #expect(names("firebase deploy --only hosting") == ["擋:firebase 部署"])
+        #expect(names("xcodebuild -scheme App archive -archivePath /tmp/a") == ["告:App 封裝（xcodebuild archive）"])
+        #expect(names("xcodebuild -scheme App -configuration Release archive -archivePath build/A.xcarchive") == ["告:App 封裝（xcodebuild archive）"])
+        #expect(names("xcrun altool --upload-app -f a.ipa") == ["擋:App 上傳 App Store Connect"])
+        // 10-24 隊長：Sam 的上傳漏擋（BM7NC 之後）
+        for c in ["xcodebuild -exportArchive -archivePath /tmp/A.xcarchive -exportOptionsPlist opts.plist -exportPath /tmp/out",
+                  "cd 專案A && xcodebuild -exportArchive -archivePath build/A.xcarchive -exportOptionsPlist ExportOptions.plist",
+                  "xcrun altool --upload-package a.pkg --apple-id 1",
+                  "xcrun notarytool submit a.zip --wait",
+                  "/Applications/Transporter.app/Contents/itms/bin/iTMSTransporter -m upload -f a.itmsp",
+                  "bundle exec fastlane ios pilot upload", "fastlane deliver"] {
+            #expect(names(c) == ["擋:App 上傳 App Store Connect"], "\(c)")
+        }
+        #expect(names("xcodebuild -scheme 專案A build").isEmpty && names("xcodebuild -showBuildSettings").isEmpty)
+        #expect(names("python3 line_send.py 小明 '晚上見'") == ["擋:LINE 對外傳訊（line_send.py）"])
+        #expect(names("defaults write com.acme.app key -bool true") == ["告:改系統設定（defaults write）"])
+        #expect(names("cp a.py ~/.claude/scripts/a.py") == ["告:寫入 ~/.claude/scripts 或 data"])
+        #expect(names("cat ~/.claude/scripts/a.py").isEmpty)
+        #expect(names("ssh winbox 'Set-ItemProperty HKCU:\\X -Name Y -Value 1'") == ["告:遠端 Windows 寫入（ssh winbox）"])
+        #expect(names("ssh winbox 'Get-ChildItem C:\\'").isEmpty)
+        #expect(names("ls -la && swift build").isEmpty)
+        // 指令層級才算：引號內、python -c、JSON 字串裡的關鍵字不算
+        #expect(names("echo 'rm -rf /' | grep rm").isEmpty)
+        #expect(names("python3 -c \"import os; os.system('defaults write x y')\"").isEmpty)
+        #expect(names("cd 專案A && sudo rm -rf build") == ["擋:rm 刪除（暫存區以外）"])
+        #expect(names("X=1 defaults write ai.acme.demo k -int 1") == ["告:改系統設定（defaults write）"])
+        #expect(names("echo hi > ~/.claude/data/demo.json") == ["告:寫入 ~/.claude/scripts 或 data"])
+        #expect(names("ls $(rm -rf build)") == ["擋:rm 刪除（暫存區以外）"])
+        // 變數設成暫存路徑後的 rm／mv 不擋
+        #expect(names("T=$(mktemp -d); touch $T/a; rm -rf $T").isEmpty)
+        #expect(names("S=/private/tmp/claude-501/x/scratchpad/legs && rm -f $S/*.png").isEmpty)
+        #expect(names("D=\"$TMPDIR/demo\"; mv a.txt \"$D/\"").isEmpty)
+        #expect(names("T=$(mktemp -d); rm -rf $T ~/專案A") == ["擋:rm 刪除（暫存區以外）"])
+        // BJ6M2：引號包住的暫存路徑＋重導向
+        #expect(names("rm -rf \"/tmp/WT\" 2>/dev/null").isEmpty)
+        #expect(names("rm -rf '/private/tmp/WT' >/dev/null 2>&1").isEmpty)
+        #expect(names("mv a.txt \"/tmp/WT/\" 2>/dev/null").isEmpty)
+        #expect(names("rm -rf ~/專案A 2>/dev/null") == ["擋:rm 刪除（暫存區以外）"])
+        #expect(names("mv a.txt ~/專案A/ 2>/dev/null") == ["告:mv 到非暫存區"])
+    }
+
+    @Test("② showork 自己的指令不看；串接時摘要只列命中的那段（BR9R8）")
+    func hitSegment() {
+        #expect(names("\"/Users/demo/Library/Application Support/ShoWork42/bin/showork\" card --kind start --how \"改 line_send.py 的 rm 判斷\"").isEmpty)
+        #expect(names("showork b1 post --text \"mv 前先備份\"").isEmpty)
+        let br9r8 = #""/Users/demo/Library/Application Support/ShoWork42/bin/showork" card --kind start --doing "傳訊" --how "line_send.py 傳給小明" && python3 ~/demo/line_send.py 小明 '晚上見'"#
+        let hs = CaptainLink.hits(br9r8, rules: CaptainLink.defaultRules)
+        #expect(hs.map(\.rule.name) == ["LINE 對外傳訊（line_send.py）"])
+        let sum = CaptainLink.hitSummary(br9r8, hs)
+        #expect(sum.hasPrefix("python3 ~/demo/line_send.py ‹訊息內容略›") && !sum.contains("showork") && !sum.contains("晚上見"))
+    }
+
+    @Test("② 隊長收集的誤擋樣本（10-24）：都不算")
+    func falsePositives() {
+        // 1. 讀收件匣 json 的指令：印出的內容裡有 defaults write／~/.claude/scripts／ssh winbox 字樣
+        let inboxRead = #"D="/Users/demo/Library/Application Support/ShoWork42/board/captain-inbox"; for f in "$D"/*.json; do python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d['id'],d['kind'],d['delivered'],d['text'][:50])" "$f"; done; B="/Users/demo/Library/Application Support/ShoWork42/bin/showork"; SID=demo; for c in "defaults write ai.okle42.demo key -bool true" "cp /tmp/demo.py ~/.claude/scripts/demo.py" "ssh winbox 'Remove-Item C:\demo\x.txt'"; do printf '%s' "{"session_id":"$SID","tool_input":{"command":$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$c")}}" | "$B" guard-push; echo "rc=$?"; done"#
+        #expect(names(inboxRead).isEmpty)
+        // 2. BKZQP：build＋測試指令，測試樣本放在 JSON 字串裡，結尾清 mktemp 的暫存
+        let bkzqp = #"cd ~/github-repos/ShoWork42 && swift build 2>&1 | grep -E "error|Build comp"; T=/private/tmp/claude-501/demo/scratchpad/rel; mkdir -p $T; export SHOWORK_CAPTAIN_INBOX=$T/inbox; B=.build/debug/showork; J="{"session_id":"x","tool_input":{"command":"rm -rf ~/demo-release-test"}}"; echo "$J" | $B guard-push | grep -o '單號 B[A-Z0-9]*' | head -1; rm -rf $T"#
+        #expect(names(bkzqp).isEmpty)
+        // 3. B2AQJ：安裝＋同一條裡又帶測試 JSON 樣本
+        let b2aqj = #"cd ~/github-repos/ShoWork42 && SHOWORK_DEBUG=1 python3 scripts/showork_install.py install 2>&1 | tail -1; head -2 "/Users/demo/Library/Application Support/ShoWork42/board/guard/preview.tsv" | cut -c1-60; T=/private/tmp/claude-501/demo/scratchpad/rel; mkdir -p $T; export SHOWORK_CAPTAIN_INBOX=$T/inbox SHOWORK_RELEASE_LOG=$T/releases.jsonl; B=.build/debug/showork; SID=demo; J="{"session_id":"$SID","cwd":"/tmp","tool_input":{"command":"rm -rf ~/demo-release-test"}}"; echo "1 擋下：$(echo "$J" | $B guard-push | grep -o '單號 B[A-Z0-9]*' | head -1)"; echo "5 紀錄：$(cat $T/releases.jsonl)""#
+        #expect(names(b2aqj).isEmpty)
+    }
+
+    @Test("② 設定檔解析；摘要遮長字串、LINE 不帶內容")
+    func parseAndSummary() {
+        let r = CaptainLink.parseRules("# 註解\n小明規則\t擋\t\\bfoo\\b\n壞行\n預告\t告\tbar\n")
+        #expect(r == [CaptainLink.Rule(name: "小明規則", block: true, pattern: "\\bfoo\\b"), CaptainLink.Rule(name: "預告", block: false, pattern: "bar")])
+        #expect(CaptainLink.summary("curl -H 'X: abcdefghijklmnopqrstuvwxyz0123456789ABCD' x") == "curl -H 'X: ‹長字串›' x")
+        #expect(CaptainLink.summary("python3 ~/s/line_send.py 小明 '這是私人訊息'") == "python3 ~/s/line_send.py ‹訊息內容略›")
+        #expect(CaptainLink.fingerprint("rm a ") == CaptainLink.fingerprint("rm a") && CaptainLink.fingerprint("rm a") != CaptainLink.fingerprint("rm b"))
+    }
+
+    func item(_ id: String, _ kind: CaptainInboxItem.Kind, sid: String, at: Date, fp: String? = nil) -> CaptainInboxItem {
+        CaptainInboxItem(id: id, kind: kind, at: at, sid: sid, name: "小明", project: "專案A", kinds: ["rm 刪除（暫存區以外）"], text: "rm -rf build", fingerprint: fp)
+    }
+
+    @Test("③ 預告合併：同一 session 安靜 5 秒或等滿 30 秒才送；已送、太舊的不送")
+    func merge() {
+        let a1 = item("N1", .notice, sid: "a", at: t0), a2 = item("N2", .notice, sid: "a", at: t0 + 3), b1 = item("N3", .notice, sid: "b", at: t0 + 1)
+        #expect(CaptainLink.dueNotices([a1, a2, b1], now: t0 + 4).isEmpty)
+        let due = CaptainLink.dueNotices([a1, a2, b1], now: t0 + 8.5)
+        #expect(due.map { $0.map(\.id) } == [["N1", "N2"]] || due.map { $0.map(\.id) } == [["N1", "N2"], ["N3"]])
+        let chatty = (0..<16).map { item("C\($0)", .notice, sid: "c", at: t0 + Double($0) * 2) }
+        #expect(CaptainLink.dueNotices(chatty, now: t0 + 31).first?.count == 16)           // 一直有新的：滿 30 秒也送
+        var sent = a1; sent.delivered = true
+        #expect(CaptainLink.dueNotices([sent, item("N9", .notice, sid: "a", at: t0 - 700)], now: t0 + 10).isEmpty)
+        let t = CaptainLink.noticeText([a1, a2])
+        #expect(t.hasPrefix("【動作預告】小明（專案A）：2 個動作") && t.components(separatedBy: "・rm").count == 3)
+    }
+
+    @Test("④ 收件匣：擋下 → 放行（寫稽核紀錄）→ 同一個指令用一次")
+    func inbox() throws {
+        LocalFixture.use()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("capinbox-\(UUID().uuidString)")
+        setenv("SHOWORK_CAPTAIN_INBOX", dir.appendingPathComponent("inbox").path, 1)
+        setenv("SHOWORK_RELEASE_LOG", dir.appendingPathComponent("releases.jsonl").path, 1)
+        defer { unsetenv("SHOWORK_CAPTAIN_INBOX"); unsetenv("SHOWORK_RELEASE_LOG"); try? FileManager.default.removeItem(at: dir) }
+        let fp = CaptainLink.fingerprint("rm -rf build")
+        CaptainInbox.save(item("BAAAA", .block, sid: "a", at: t0, fp: fp))
+        #expect(!CaptainInbox.consume(sid: "a", fingerprint: fp, now: t0 + 10))                     // 還沒放行
+        #expect(CaptainInbox.waiting(sid: "a", fingerprint: fp, now: t0 + 10)?.id == "BAAAA")
+        #expect(CaptainInbox.pending(now: t0 + 10).map(\.id) == ["BAAAA"])
+        #expect(CaptainInbox.release(id: "bzzzz", target: nil, by: "cap", byName: "隊長", source: "release 指令", now: t0 + 20) == nil)
+        #expect(CaptainInbox.release(id: nil, target: "b", by: "b", byName: "使用者", source: "使用者輸入", now: t0 + 20) == nil)   // 別人的單不能放
+        let r = try #require(CaptainInbox.release(id: "baaaa", target: nil, by: "cap", byName: "隊長", source: "release 指令", now: t0 + 20))
+        #expect(r.released == t0 + 20)
+        #expect(!CaptainInbox.consume(sid: "a", fingerprint: CaptainLink.fingerprint("rm -rf src"), now: t0 + 30))   // 換指令不算
+        #expect(CaptainInbox.consume(sid: "a", fingerprint: fp, now: t0 + 30))
+        #expect(!CaptainInbox.consume(sid: "a", fingerprint: fp, now: t0 + 40))                      // 只能用一次
+        let log = CaptainInbox.releases()
+        #expect(log.count == 1 && log[0].id == "BAAAA" && log[0].by == "cap" && log[0].source == "release 指令" && log[0].target == "a")
+        CaptainInbox.save(item("BBBBB", .block, sid: "a", at: t0, fp: fp))
+        _ = CaptainInbox.release(id: nil, target: "a", by: "a", byName: "使用者", source: "使用者輸入", now: t0 + 50)
+        #expect(!CaptainInbox.consume(sid: "a", fingerprint: fp, now: t0 + 50 + 1801))               // 30 分鐘過期
+        CaptainInbox.save(item("BCCCC", .block, sid: "a", at: t0 + 60, fp: "x"))
+        #expect(CaptainInbox.pending(now: t0 + 70).contains { $0.id == "BCCCC" })
+        #expect(CaptainInbox.ack("bcccc", now: t0 + 70) == 1 && !CaptainInbox.pending(now: t0 + 70).contains { $0.id == "BCCCC" })
+        CaptainInbox.save(item("BDDDD", .block, sid: "a", at: t0 + 60, fp: "y"))
+        #expect(CaptainInbox.ack("all", now: t0 + 80) >= 1 && CaptainInbox.pending(now: t0 + 80).isEmpty)
+        #expect(CaptainLink.denyReason(r).contains("隊長轉述小明的決定") && CaptainLink.blockText(r).contains("showork release BAAAA"))
+    }
+
+    @Test("④c 超過一天沒放行的舊單不沿用：重試開新單，打「放行」放得到新單（11-07 Surface 的 BCU9J）")
+    func staleBlock() throws {
+        LocalFixture.use()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("capinbox-\(UUID().uuidString)")
+        setenv("SHOWORK_CAPTAIN_INBOX", dir.appendingPathComponent("inbox").path, 1)
+        setenv("SHOWORK_RELEASE_LOG", dir.appendingPathComponent("releases.jsonl").path, 1)
+        defer { unsetenv("SHOWORK_CAPTAIN_INBOX"); unsetenv("SHOWORK_RELEASE_LOG"); try? FileManager.default.removeItem(at: dir) }
+        let fp = CaptainLink.fingerprint("gh pr create --title test --body test")
+        CaptainInbox.save(item("BOLD1", .block, sid: "a", at: t0, fp: fp))
+        let later = t0 + 6 * 86400
+        #expect(CaptainInbox.waiting(sid: "a", fingerprint: fp, now: t0 + 86399)?.id == "BOLD1")   // 一天內照舊沿用
+        #expect(CaptainInbox.waiting(sid: "a", fingerprint: fp, now: later) == nil)                // 過期不沿用 ⇒ 呼叫端開新單
+        #expect(CaptainInbox.release(id: nil, target: "a", by: "a", byName: "使用者", source: "使用者輸入", now: later) == nil)
+        CaptainInbox.save(item("BNEW1", .block, sid: "a", at: later, fp: fp))
+        #expect(CaptainInbox.waiting(sid: "a", fingerprint: fp, now: later + 5)?.id == "BNEW1")
+        #expect(CaptainInbox.release(id: nil, target: "a", by: "a", byName: "使用者", source: "使用者輸入", now: later + 10)?.id == "BNEW1")
+        #expect(CaptainInbox.consume(sid: "a", fingerprint: fp, now: later + 20))
+        #expect(CaptainLink.releaseMissText(id: nil).contains("沒有放行任何東西"))
+    }
+
+    @Test("④b 戰情中心回答＝事先放行：點名的動作、30 分鐘、每種一次、否定小句不算、rm 不算")
+    func preapproval() throws {
+        LocalFixture.use()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("preapp-\(UUID().uuidString)")
+        setenv("SHOWORK_CAPTAIN_INBOX", dir.appendingPathComponent("inbox").path, 1)
+        setenv("SHOWORK_RELEASE_LOG", dir.appendingPathComponent("releases.jsonl").path, 1)
+        setenv("SHOWORK_PREAPPROVAL_LOG", dir.appendingPathComponent("pre.json").path, 1)
+        defer { unsetenv("SHOWORK_CAPTAIN_INBOX"); unsetenv("SHOWORK_RELEASE_LOG"); unsetenv("SHOWORK_PREAPPROVAL_LOG"); try? FileManager.default.removeItem(at: dir) }
+        let gh = "GitHub 公開發言（gh）", line = "LINE 對外傳訊（line_send.py）", rm = "rm 刪除（暫存區以外）"
+        #expect(CaptainInbox.authorizes("開 PR，用 LINE 通知對方", rule: gh))
+        #expect(CaptainInbox.authorizes("開 PR，用 LINE 通知對方", rule: line))
+        #expect(CaptainInbox.authorizes("先開 PR，不通知", rule: gh))              // 小句各自算
+        #expect(!CaptainInbox.authorizes("先開 PR，不通知", rule: line))
+        #expect(!CaptainInbox.authorizes("先不要開 PR", rule: gh))
+        #expect(!CaptainInbox.authorizes("都先不要", rule: gh))
+        #expect(!CaptainInbox.authorizes("好，現在做", rule: gh))                  // 沒點名
+        #expect(!CaptainInbox.authorizes("刪掉吧", rule: rm))                     // rm 不給事先放行
+        #expect(CaptainInbox.authorizes("好，上傳 TestFlight", rule: "App 上傳 App Store Connect"))
+        // 11-02：要有動作詞＋對象才算；光提到名詞、對 AI 說「通知我」、延後或問句都不算
+        let dep = "firebase 部署"
+        for (a, r) in [("開 PR", gh), ("幫我開個 PR", gh), ("好，發布吧", gh), ("傳 LINE 給同事", line), ("把報價單傳給同事", line),
+                       ("請助理用 LINE 通知同事", line), ("幫我部署", dep), ("好，上線", dep),
+                       ("傳 LINE 給別人", line), ("建立 PR", gh), ("開一個新的 PR", gh), ("PR 開起來", gh), ("回覆那個 issue", gh), ("開 PR！", gh)] {
+            #expect(CaptainInbox.authorizes(a, rule: r), "應放行：\(a)")
+        }
+        for (a, r) in [("做完通知我", line), ("改好發給我看", line), ("做完通知一下", line), ("LINE 那邊我自己處理", line),
+                       ("PR 的事明天再說", gh), ("看完 PR 再決定", gh), ("等 PR 審完再看", gh), ("要開 PR 嗎", gh),
+                       ("上線前先給我看", dep), ("部署的事我還沒想好", dep), ("已經部署了", dep),
+                       // 英文字界：prompt、preview、deadline、pipeline、online 裡的 pr／line 不算
+                       ("幫我開 prompt 檔", gh), ("開 preview 給我", gh), ("deadline 跟客戶確認一下", line), ("pipeline 給它跑", line), ("online 發一下", line),
+                       // 問號留在小句裡：問句不算
+                       ("開 PR？", gh), ("要部署?", dep), ("開完會看 PR", gh),
+                       ("下週再部署", dep), ("下次再上線", dep), ("改天再開 PR", gh), ("晚一點再部署", dep)] {
+            #expect(!CaptainInbox.authorizes(a, rule: r), "不該放行：\(a)")
+        }
+        #expect(CaptainInbox.usePreapproval(sid: "a", rules: [gh], now: t0) == nil)  // 沒回答過
+        CaptainInbox.recordAnswer(sid: "a", answer: "開 PR，用 LINE 通知對方", question: "要開 PR 嗎？", now: t0)
+        #expect(CaptainInbox.usePreapproval(sid: "b", rules: [gh], now: t0 + 10) == nil)       // 別的 session 不算
+        #expect(CaptainInbox.usePreapproval(sid: "a", rules: [gh, rm], now: t0 + 10) == nil)   // 有沒點名的就整條照擋
+        let p = try #require(CaptainInbox.usePreapproval(sid: "a", rules: [gh], now: t0 + 10))
+        #expect(p.answer.hasPrefix("開 PR"))
+        #expect(CaptainInbox.usePreapproval(sid: "a", rules: [gh], now: t0 + 20) == nil)       // 每種一次
+        #expect(CaptainInbox.usePreapproval(sid: "a", rules: [line], now: t0 + 1801) == nil)   // 30 分鐘過期
+        let i = CaptainInbox.releaseByAnswer(item("BPREA", .block, sid: "a", at: t0 + 10, fp: "f"), answer: p, now: t0 + 10)
+        #expect(i.released == t0 + 10 && i.used == t0 + 10 && CaptainInbox.waiting(sid: "a", fingerprint: "f", now: t0 + 10) == nil)
+        #expect(CaptainInbox.releases().last.map { $0.id == "BPREA" && $0.source == "戰情中心回答" } == true)
+    }
+
+    @Test("⑤ 鬧鐘：名冊一行摘要；沒變化同指紋")
+    func alarm() {
+        func e(_ n: String, ctx: Int?, idle: Double, cap: Bool = false) -> RosterEntry {
+            RosterEntry(name: n, sessionId: n, pid: 1, kind: nil, project: "專案A", root: nil, column: .done, reason: "", title: "", summary: nil,
+                        ctx: ctx, lastActivity: t0 - idle, captain: cap, sameProject: [])
+        }
+        let r = Roster(at: t0, captain: "隊長", entries: [e("小明", ctx: 62, idle: 60), e("ACME", ctx: nil, idle: 3600), e("隊長", ctx: 10, idle: 0, cap: true)])
+        let a = CaptainLink.alarm(r, pending: 2, now: t0)
+        #expect(a.text.hasPrefix("【巡檢時間】在線 2 人（不含隊長）；ctx：ACME –、小明 62%；閒置超過 30 分鐘：ACME；收件匣未處理 2 則"))
+        #expect(CaptainLink.alarm(r, pending: 2, now: t0 + 5).sig == a.sig)
+        #expect(CaptainLink.alarm(r, pending: 3, now: t0).sig != a.sig)
+    }
+
+    @Test("② 開工卡轉送：同一個任務 10 分鐘內不重送")
+    func startDedupe() {
+        var st = CardRelay.State(); st.seeded = true
+        func start(_ d: String, _ s: String, _ at: Date) -> SelfReport { SelfReport(status: .working, summary: s, doing: d, kind: "start", at: at) }
+        let txt: (String, SelfReport) -> String = { _, r in r.summary ?? "" }
+        #expect(CardRelay.plan(reports: ["a": start("改按鈕", "1", t0)], captain: "c", captainLive: true, state: &st, now: t0, policy: .legacy, text: txt).count == 1)
+        #expect(CardRelay.plan(reports: ["a": start("改按鈕", "2", t0 + 60)], captain: "c", captainLive: true, state: &st, now: t0 + 60, policy: .legacy, text: txt).isEmpty)
+        #expect(CardRelay.plan(reports: ["a": start("換新任務", "3", t0 + 70)], captain: "c", captainLive: true, state: &st, now: t0 + 70, policy: .legacy, text: txt).count == 1)
+    }
+}

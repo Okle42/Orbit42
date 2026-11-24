@@ -13,7 +13,7 @@
 - **用你自己的大腦、自己的帳號。** Orbit42 不自帶 AI。每顆衛星跑的是各家官方的 AI 工作程式——Claude Code（`claude`）、OpenAI Codex CLI（`codex`）、Google Antigravity CLI（`agy`）——登入、工具、額度、更新都是各家自己的。Orbit42 不經手你的密碼或金鑰。
 - **衛星就是真的終端機。** 每顆衛星是一個虛擬終端機，用 [xterm.js](https://xtermjs.org) 畫出來，看到的跟一般終端機裡一模一樣。
 - **背景 session 也拉得進來。** 已經在背景跑的 Claude Code session 可以拉進來當衛星（`claude attach`）；關掉只關檢視，它照常跑。
-- **共用核心。** session 狀態、額度、自檢來自 [ShoWork42](https://github.com/Okle42/ShoWork42) 的核心函式庫。
+- **共用核心。** session 狀態、額度、自檢的引擎和球體在 [`Engine/`](Engine/)（2026-11-24 從 ShoWork42 搬入，之後各自獨立）。
 
 ## 路線圖
 
@@ -42,13 +42,7 @@ swift build
 | `scripts/restart_app.sh "原因"` | 結束並重新打開已安裝的 App（紀錄：`~/Library/Logs/Orbit42/restart.log`） |
 | `scripts/phone_pair.sh` | 顯示 iPhone App 配對用的 QR code／網址（`ios/`，見 `ios/README.md`） |
 
-ShoWork42 從 GitHub 抓（版本鎖在 `Package.resolved`）。要 ShoWork42 和 Orbit42 一起改時，暫時改用本機那份，推之前收回：
-
-```bash
-swift package edit ShoWork42 --path ../ShoWork42      # 暫時：編譯改用本機的 ShoWork42
-swift package unedit ShoWork42                        # 推之前：改回 GitHub 版本
-swift package update ShoWork42                        # ShoWork42 推上去之後：更新鎖定的版本
-```
+引擎和球體的原始碼都在 `Engine/`，不需要另外的 repo。
 
 ## 致謝
 
