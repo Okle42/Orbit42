@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 import Testing
 @testable import ShoWorkCore
 
@@ -150,6 +151,32 @@ struct CaptainQuietTests {
         let text = CaptainLink.alarmQuietText(reasons: a.reasons, full: "【巡檢時間】在線 5 人")
         #expect(text.hasPrefix("【巡檢時間】要處理：卡住：卡卡"))
         #expect(text.hasSuffix("\n在線 5 人"))
+    }
+
+    @Test("球體口令：隊長、秘書都認；LINE 秘書不當成交辦前綴（直接跑 sphere.html 裡的規則）")
+    func sphereCommand() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let html = try String(contentsOf: root.appendingPathComponent("windows/ShoWork.Win/Board/Web/sphere.html"), encoding: .utf8)
+        func rule(_ before: String, _ after: String) throws -> String {
+            let a = try #require(html.range(of: before)), b = try #require(html.range(of: after, range: a.upperBound..<html.endIndex))
+            return String(html[a.upperBound..<b.lowerBound])
+        }
+        let test = "/^(交給" + (try rule("const local = /^(交給", ".test(text)")), strip = try rule("const order = text.replace(", #", "")"#)
+        #expect(html.contains("announce(`交給秘書：${clip(order, 40)}`)"))      // 播報唸去掉前綴的內容，不會把「交給隊長」唸出來
+        let js = try #require(JSContext())
+        func run(_ t: String) -> (hit: Bool, text: String) {
+            js.setObject(t, forKeyedSubscript: "t" as NSString)
+            return (js.evaluateScript("\(test).test(t)").toBool(), js.evaluateScript("t.replace(\(strip), '') || t").toString())
+        }
+        for who in ["秘書", "隊長"] {
+            let r = run("交給\(who)，修球體")
+            #expect(r.hit && r.text == "修球體")
+            #expect(run("請\(who)說：看額度").text == "看額度")
+        }
+        for t in ["請 LINE 秘書傳訊息", "交給LINE 秘書回覆", "修球體"] {
+            let r = run(t)
+            #expect(!r.hit && r.text == t)
+        }
     }
 
     @Test("換哨提醒：秘書 ctx 過門檻送一次；降下來重新計；組員不算")

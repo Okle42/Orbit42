@@ -248,6 +248,12 @@ public sealed class BoardActionTests : IDisposable
         Assert.Equal("戰情中心", th.Single().Via);
     }
 
+    [Theory] // 改名前後的紀錄都去得掉守則提醒
+    [InlineData("請照秘書守則處理：x")]
+    [InlineData("請照隊長守則處理：x")]
+    public void BoardTextStripsOldAndNewRules(string tail) =>
+        Assert.Equal("修球", CaptainThread.BoardTextOf(CaptainThread.BoardPrefix + "修球\n" + tail));
+
     [Fact]
     public void AskCaptainWithALiveCaptainSendsDirectly()
     {

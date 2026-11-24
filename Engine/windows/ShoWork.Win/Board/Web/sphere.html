@@ -2621,9 +2621,10 @@ function finishListen() {
   if (!text) { announce("沒聽清楚，再按住智能體講一次。"); return; }
   const local = /^(交給|跟|告訴|請)(?:秘書|隊長)/.test(text) ? null : answerLocal(text);
   if (local) { announce(local); return; }
-  post({ action: "captain", text: text.replace(/^(交給|跟|告訴|請)(?:秘書|隊長)(說)?[，,：:\s]*/, "") || text });
+  const order = text.replace(/^(交給|跟|告訴|請)(?:秘書|隊長)(說)?[，,：:\s]*/, "") || text;
+  post({ action: "captain", text: order });
   handoffAt = Date.now();
-  announce(`交給秘書：${clip(text, 40)}`);
+  announce(`交給秘書：${clip(order, 40)}`);
 }
 
 // 11-24 Keng：iPhone 動作按鈕／控制中心說的話（經 /api/say 進來）：跟在 Mac 上按住智能體講完放開一樣處理
