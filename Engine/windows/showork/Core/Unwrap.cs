@@ -88,6 +88,24 @@ static class Unwrap
         return o;
     }
     static bool Deletes(string code) => M(code, @"\bos\.(remove|unlink|rmdir|removedirs)\b|\bshutil\.rmtree\b|\.(unlink|rmdir)\s*\(|\b(rmSync|unlinkSync|rmdirSync)\b|\bfs(\.promises)?\.(rm|unlink|rmdir)\b|\bunlink\s*[\s(]|\brmtree\b|\bFileUtils\.rm|\bFile\.delete\b");
+    public static List<string> InSubstitutions(string s) => Substitutions(s).SelectMany(x => All(x, 1)).ToList();
+    /// 開頭是變數的指令（同 Mac Unwrap.variable）
+    public static string? Variable(string seg, string cmd)
+    {
+        var m = Regex.Match(seg, @"^""?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?([^\s""]*)""?(?=\s|\z)", RegexOptions.CultureInvariant);
+        if (!m.Success) return null;
+        string name = m.Groups[1].Value, tail = m.Groups[2].Value, rest = seg[m.Length..];
+        string? Literal(string v) { var b = Base(v); return v.Contains('/') && !v.EndsWith('/') && !b.Contains('$') && !b.Contains('`') && !b.Contains(')') ? b : null; }
+        if (Literal(tail) is { } t) return t + rest;
+        var a = Regex.Matches(cmd, @"(?:^|[;&|\n(\s])" + name + @"=(""[^""]*""|'[^']*'|(?:\\.|[^\s;&|])*)", RegexOptions.CultureInvariant).LastOrDefault();
+        if (a == null) return Opaque;
+        var v = string.Join(" ", Tokens(a.Groups[1].Value)) + tail;
+        if (!v.StartsWith("$(", StringComparison.Ordinal) && Literal(v) is { } l) return l + rest;
+        if (v.Length == 0 || v.Contains("$(", StringComparison.Ordinal) || v.Contains('`')) return Opaque;
+        return v.StartsWith('$') ? Opaque : v + rest;
+    }
+    public static bool HeredocDeletes(string cmd) =>
+        Regex.Matches(cmd, @"\b(?:python[0-9.]*|node|perl|ruby)\b[^\n|;]*<<-?\s*['""]?(\w+)['""]?[^\n]*\n(.*?)\n\s*\1\b", RegexOptions.Singleline | RegexOptions.CultureInvariant).Any(m => Deletes(m.Groups[2].Value));
     public static string Base(string s) => s.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? s;
 
     static List<string> Substitutions(string c)

@@ -38,17 +38,10 @@ let isReviewer = ProcessInfo.processInfo.environment["SHOWORK_REVIEWER"] != nil
     || ((ProcessInfo.processInfo.environment["CLAUDE_CODE_ENTRYPOINT"] ?? "").hasPrefix("sdk")
         && ProcessInfo.processInfo.environment["SHOWORK_OWNED"] == nil)
 // App 問這支 showork 會什麼（舊版不認得，什麼都不印到 stdout）：會 typed-mark 才准把答案卡打進終端機，不然放行會提早
-// 防冒充方案 A 的開關：只給人在一般終端機用（Claude Code 裡一律拒絕）。只關 A 加的檢查，原本的擋單照舊
+// 防冒充方案 A 的狀態。關閉只能在 Orbit42 選單按（系統驗證），指令列做不到
 if args.first == "guard" {
-    let sub = args.count > 1 ? args[1] : "status"
-    if sub == "on" || sub == "off" {
-        if Caller.insideClaude { FileHandle.standardError.write(Data("showork guard \(sub)：只能由使用者在自己的終端機跑\n".utf8)); exit(1) }
-        if sub == "off" {
-            try? FileManager.default.createDirectory(at: Caller.offFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? Data().write(to: Caller.offFile)
-        } else { try? FileManager.default.removeItem(at: Caller.offFile) }
-    }
-    print("防冒充檢查：" + (FileManager.default.fileExists(atPath: Caller.offFile.path) ? "關" : "開")); exit(0)
+    if args.count > 1, args[1] != "status" { FileHandle.standardError.write(Data("showork guard：只看得到狀態。要關請在 Orbit42 選單按「暫停防冒充檢查⋯」\n".utf8)); exit(1) }
+    print("防冒充檢查：" + (GuardOff.current(now: Date()).map { "暫停到 \($0.until.formatted(date: .omitted, time: .shortened))" } ?? "開")); exit(0)
 }
 if args.first == "caps" { print("typed-mark"); exit(0) }
 if args.first == "brief" {

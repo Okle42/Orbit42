@@ -91,6 +91,29 @@ public enum Unwrap {
     static func deletes(_ code: String) -> Bool {
         code.range(of: #"\bos\.(remove|unlink|rmdir|removedirs)\b|\bshutil\.rmtree\b|\.(unlink|rmdir)\s*\(|\b(rmSync|unlinkSync|rmdirSync)\b|\bfs(\.promises)?\.(rm|unlink|rmdir)\b|\bunlink\s*[\s(]|\brmtree\b|\bFileUtils\.rm|\bFile\.delete\b"#, options: .regularExpression) != nil
     }
+    /// 開頭是變數的指令：用同一條裡最後一次給的字面值代進去；給值裡有替換、或沒給值 ⇒ 看不出來
+    static func variable(_ seg: String, in cmd: String) -> String? {
+        guard let m = seg.range(of: #"^"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?([^\s"]*)"?(?=\s|$)"#, options: .regularExpression) else { return nil }
+        let head = String(seg[m]), name = head.drop { !($0.isLetter || $0 == "_") }.prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+        let tail = head.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: #"^\$\{?[A-Za-z0-9_]+\}?"#, with: "", options: .regularExpression)
+        let rest = String(seg[m.upperBound...])
+        // $變數/固定檔名：跑什麼看檔名就知道
+        func literal(_ v: String) -> String? { let b = base(v); return v.contains("/") && !v.hasSuffix("/") && !b.contains("$") && !b.contains("`") && !b.contains(")") ? b : nil }
+        if let b = literal(tail) { return (b == "showork" ? "showork" : b) + rest }
+        guard let re = try? NSRegularExpression(pattern: #"(?:^|[;&|\n(\s])"# + name + #"=("[^"]*"|'[^']*'|(?:\\.|[^\s;&|])*)"#) else { return opaque }
+        guard let a = re.matches(in: cmd, range: NSRange(cmd.startIndex..., in: cmd)).last, let r = Range(a.range(at: 1), in: cmd) else { return opaque }
+        let v = tokens(String(cmd[r])).joined(separator: " ") + tail
+        if !v.hasPrefix("$("), let b = literal(v) { return b + rest }
+        guard !v.isEmpty, !v.contains("$("), !v.contains("`") else { return opaque }
+        if v.hasSuffix("/showork") || v == "showork" { return "showork" + rest }
+        return v.hasPrefix("$") ? opaque : v + rest
+    }
+    /// 餵給 python／node／perl／ruby 的 heredoc 內文
+    static func heredocCode(_ cmd: String) -> String? {
+        guard let re = try? NSRegularExpression(pattern: #"\b(?:python[0-9.]*|node|perl|ruby)\b[^\n|;]*<<-?\s*['"]?(\w+)['"]?[^\n]*\n(.*?)\n\s*\1\b"#, options: [.dotMatchesLineSeparators]) else { return nil }
+        let xs = re.matches(in: cmd, range: NSRange(cmd.startIndex..., in: cmd)).compactMap { Range($0.range(at: 2), in: cmd).map { String(cmd[$0]) } }
+        return xs.isEmpty ? nil : xs.joined(separator: "\n")
+    }
     static func base(_ s: String) -> String { s.split(separator: "/").last.map(String.init) ?? s }
 
     /// 雙引號裡的 $( … ) 與 ` … `（引號外的原本就會切開）；單引號內不展開

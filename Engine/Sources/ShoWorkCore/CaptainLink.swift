@@ -125,23 +125,32 @@ public enum CaptainLink {
 
     /// (原文, 比對用)：原文給預告摘要（秘書要看到「命中的那一段」，10-24 BR9R8 只看開頭判錯）
     public static func segmentPairs(_ cmd: String) -> [(raw: String, norm: String)] {
+        var heredoc = false
         let (segs, piped) = split(cmd)
+        if guardA, let code = Unwrap.heredocCode(cmd), Unwrap.deletes(code) { heredoc = true }
         var out: [(raw: String, norm: String)] = []
         for (k, s) in segs.enumerated() {
-            if isShowork(s) { if let sub = internalShowork(s) { out.append((s, sub)) }; continue }        // showork 自己的指令（card／b1／release…）整段不看；內部子指令要擋
+            if isShowork(s) { if let sub = internalShowork(s) { out.append((s, sub)) }
+                if guardA { for x in Unwrap.substitutions(s).flatMap({ Unwrap.all($0, depth: 1) }) { out.append((s, internalShowork(x) ?? (isShowork(x) ? "Q" : x))) } }        // 參數裡的 $( … )、` … ` 照看
+                continue }        // showork 自己的指令（card／b1／release…）整段不看；內部子指令要擋
             let norm = s.hasPrefix("ssh ") ? s : blankQuotes(s)        // 引號內容換成 Q（ssh 那段保留：遠端指令在引號裡）
             out.append((s, norm))
+            if guardA, let v = Unwrap.variable(s, in: cmd) {        // 變數當指令名：同一條裡有給值就代進去看，看不出來從嚴
+                if isShowork(v) { if let sub = internalShowork(v) { out.append((s, sub)) } } else { for x in v == Unwrap.opaque ? [v] : [blankQuotes(v)] + Unwrap.inner(v) { out.append((s, x)) } }
+            }
             if guardA { for x in Unwrap.inner(s) where x != norm { out.append((s, internalShowork(x) ?? (isShowork(x) ? "Q" : x))) } }
             if guardA, piped.contains(k), Unwrap.shells.contains(Unwrap.base(Unwrap.tokens(s).first ?? "")), Unwrap.tokens(s).dropFirst().allSatisfy({ $0 == "-" || $0 == "-s" }) { out.append((s, Unwrap.opaque)) }
         }
+        if heredoc { out.append(("程式 heredoc 刪檔", "rm ‹程式刪檔›")) }
         return out
     }
     /// 內建規則（不看 preview.tsv）：解不開的包裝、hook 用的內部子指令
-    static let builtin = [Rule(name: "包裝指令（看不出要跑什麼）", block: true, pattern: "^" + Unwrap.opaque),
+    static let builtin = [Rule(name: opaqueRule, block: true, pattern: "^" + Unwrap.opaque),
                           Rule(name: internalRule, block: true, pattern: "^‹showork 內部指令›")]
+    static let opaqueRule = "包裝指令（看不出要跑什麼）"
     public static let internalRule = "showork 內部指令"
     /// AI 可以用的子指令；其他都是給 hook 或人用的
-    static let aiCommands: Set<String> = ["card", "task", "tasks", "roster", "captain", "asks", "b1", "names", "role", "release", "preview-check", "caps", "web", "guard"]
+    static let aiCommands: Set<String> = ["card", "task", "tasks", "roster", "captain", "asks", "b1", "names", "role", "release", "preview-check", "caps", "web", "guard", "help"]
     static func internalShowork(_ s: String) -> String? {
         guard guardA, isShowork(s) else { return nil }
         let t = Unwrap.tokens(s)
@@ -150,8 +159,8 @@ public enum CaptainLink {
     }
     /// 包裝裡面再切一次用（去前綴、不含 showork 判斷）
     static func rawSegments(_ cmd: String) -> [String] { split(cmd).segs }
-    /// 防冒充方案 A 開著嗎（Keng 在終端機跑 showork guard off 會關）
-    public static var guardA: Bool { !FileManager.default.fileExists(atPath: Caller.offFile.path) }
+    /// 防冒充方案 A 開著嗎（Keng 在 Orbit42 選單關、系統驗證過才關，30 分鐘自動恢復：GuardOff）
+    public static var guardA: Bool { !GuardOff.active(now: Date()) }
 
     static func split(_ cmd: String) -> (segs: [String], piped: Set<Int>) {
         var t = cmd
@@ -285,6 +294,7 @@ public enum CaptainLink {
         let owner = LocalConfig.current.ownerName
         return "⛔️ 這個指令需要放行才能跑（\(item.kinds.joined(separator: "、"))，單號 \(item.id)）。已通知秘書，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
             + "要放行請秘書轉述\(owner)的決定（秘書跑 showork release \(item.id)），或\(owner)在這個 session 打：放行！\(item.id)（要用打的、要有驚嘆號；說「部署」「push」不算，語音聽寫通常沒有驚嘆號）。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
+            + (item.kinds.contains(opaqueRule) ? "這次是看不出要跑什麼：請把變數、包裝換成實際的指令名直接寫出來再跑，就會照內容判斷（這不算繞過）。\n" : "")
             + "等的時候用 showork card --status blocked 回報卡在哪；能改用暫存區（scratchpad、/tmp）的就改用。"
     }
 

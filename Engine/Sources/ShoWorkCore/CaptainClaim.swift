@@ -24,6 +24,8 @@ public enum CaptainClaim {
             xs.append(q); AskQueue.save(sid, xs)
         }
     }
+    /// 換秘書的題只能在 Mac 介面按同意：手機按了不送、題目留著
+    public static func needsMac(_ q: PendingAsk, option: String?, fromMac: Bool) -> Bool { q.action == "captain" && option == yes && !fromMac }
     /// 這個答案可以換秘書嗎：看板發的題、Mac 介面按的、按的是同意那個選項、沒有另外打字
     public static func approves(_ q: PendingAsk, option: String?, free: String?, fromMac: Bool) -> Bool {
         q.action == "captain" && fromMac && option == yes && (free ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

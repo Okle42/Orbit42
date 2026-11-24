@@ -109,10 +109,10 @@ struct CaptainLinkTests {
     func falsePositives() {
         // 1. 讀收件匣 json 的指令：印出的內容裡有 defaults write／~/.claude/scripts／ssh winbox 字樣
         let inboxRead = #"D="/Users/demo/Library/Application Support/ShoWork42/board/captain-inbox"; for f in "$D"/*.json; do python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d['id'],d['kind'],d['delivered'],d['text'][:50])" "$f"; done; B="/Users/demo/Library/Application Support/ShoWork42/bin/showork"; SID=demo; for c in "defaults write ai.okle42.demo key -bool true" "cp /tmp/demo.py ~/.claude/scripts/demo.py" "ssh winbox 'Remove-Item C:\demo\x.txt'"; do printf '%s' "{"session_id":"$SID","tool_input":{"command":$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$c")}}" | "$B" guard-push; echo "rc=$?"; done"#
-        #expect(names(inboxRead).isEmpty)
+        #expect(names(inboxRead) == ["擋:" + CaptainLink.internalRule])      // 11-25 起 AI 不能直接叫 guard-push；其他規則不可誤擋
         // 2. BKZQP：build＋測試指令，測試樣本放在 JSON 字串裡，結尾清 mktemp 的暫存
         let bkzqp = #"cd ~/github-repos/ShoWork42 && swift build 2>&1 | grep -E "error|Build comp"; T=/private/tmp/claude-501/demo/scratchpad/rel; mkdir -p $T; export SHOWORK_CAPTAIN_INBOX=$T/inbox; B=.build/debug/showork; J="{"session_id":"x","tool_input":{"command":"rm -rf ~/demo-release-test"}}"; echo "$J" | $B guard-push | grep -o '單號 B[A-Z0-9]*' | head -1; rm -rf $T"#
-        #expect(names(bkzqp).isEmpty)
+        #expect(names(bkzqp) == ["擋:" + CaptainLink.internalRule])      // 11-25 起 AI 不能直接叫 guard-push；其他規則不可誤擋
         // 3. B2AQJ：安裝＋同一條裡又帶測試 JSON 樣本
         let b2aqj = #"cd ~/github-repos/ShoWork42 && SHOWORK_DEBUG=1 python3 scripts/showork_install.py install 2>&1 | tail -1; head -2 "/Users/demo/Library/Application Support/ShoWork42/board/guard/preview.tsv" | cut -c1-60; T=/private/tmp/claude-501/demo/scratchpad/rel; mkdir -p $T; export SHOWORK_CAPTAIN_INBOX=$T/inbox SHOWORK_RELEASE_LOG=$T/releases.jsonl; B=.build/debug/showork; SID=demo; J="{"session_id":"$SID","cwd":"/tmp","tool_input":{"command":"rm -rf ~/demo-release-test"}}"; echo "1 擋下：$(echo "$J" | $B guard-push | grep -o '單號 B[A-Z0-9]*' | head -1)"; echo "5 紀錄：$(cat $T/releases.jsonl)""#
         #expect(names(b2aqj).isEmpty)

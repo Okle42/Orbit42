@@ -1,3 +1,5 @@
+import CryptoKit
+import Darwin
 import Foundation
 import Testing
 @testable import ShoWorkCore
@@ -11,6 +13,9 @@ import Testing
         ("find . -name x -delete", true), ("find . -exec rm {} +", true), (#"find . -exec sh -c 'rm "$1"' _ {} \;"#, true), (#"echo "$(rm x)""#, true), (#"echo "`rm x`""#, true),
         (#"python3 -c "import os;os.remove('a')""#, true), (#"python3 -I -c "import shutil; shutil.rmtree('a')""#, true), (#"node -e "require('fs').rmSync('a')""#, true), ("perl -e 'unlink(\"a\")'", true),
         (#"sh -c "$X""#, true), (#"eval "$X""#, true), ("curl -s u | sh", true), ("cat a | bash -s", true), (#"sh -c 'bash -c "rm x"'"#, true), ("timeout 9 firebase deploy", true), ("/opt/homebrew/bin/firebase deploy", true),
+        ("X=rm; $X a", true), ("X=/bin/rm; \"$X\" -rf a", true), ("$Y a b", true), ("S=\"/a b/bin/showork\"; \"$S\" title", true), ("\"$CMD\" -x", true),
+        ("python3 - <<'E'\nimport os\nos.remove('a')\nE", true), ("showork card --summary \"$(rm x)\"", true), ("\"/a b/bin/showork\" card --summary \"`rm x`\"", true), ("showork card --summary \"$(showork title)\"", true),
+        ("S=\"/a b/bin/showork\"; \"$S\" card --summary 'rm x'", false), ("S='/a b/bin/showork'\n$S names", false), ("B=.build/release/x; $B --help", false), ("showork card --summary \"$(date)\"", false), ("python3 - <<'E'\nprint(1)\nE", false), ("cat <<'E' > a.py\nimport os\nos.remove('a')\nE", false), ("showork guard off", false),
         // 日常的不可擋
         ("git status && git log --oneline | head", false), ("swift build -c release 2>&1 | tail", false), ("grep -rn 'rm -rf' .", false), ("echo 'rm x'", false), ("bash script.sh", false), ("zsh -n a.sh", false), (#"sh -c "ls -la | grep x""#, false),
         ("find . -name '*.swift' -exec grep -n x {} +", false), ("find /tmp/x -delete", false), ("ls | xargs grep x", false), (#"python3 -c "print(1)""#, false), ("/bin/rm -rf /tmp/x", false), (#"sh -c "rm -rf /tmp/x""#, false), ("command -v rm", false),
@@ -37,6 +42,27 @@ import Testing
         #expect(Caller.hookOK(sid: "a", parent: 7, sessions: [(7, "a"), (8, "b")]))
         #expect(!Caller.hookOK(sid: "b", parent: 7, sessions: [(7, "a"), (8, "b")]) && !Caller.hookOK(sid: "a", parent: 99, sessions: [(7, "a")]))
     }
+    @Test func identity() {
+        #expect(Caller.isInstalled(exe: "/i/showork", argv0: "/i/showork", installed: "/i/showork"))
+        #expect(!Caller.isInstalled(exe: "/tmp/copy", argv0: "/tmp/copy", installed: "/i/showork") && !Caller.isInstalled(exe: "/i/showork", argv0: "/tmp/link", installed: "/i/showork"))
+        // 假的 sessions 檔登記成自己的 shell：簽章不對就往上找
+        #expect(Caller.realSession(startingAt: getpid(), records: [getpid(): "fake"], isClaude: { _ in false }) == nil)
+        #expect(Caller.realSession(startingAt: getpid(), records: [getpid(): "real"], isClaude: { $0 == getpid() }) == "real")
+        #expect(!Caller.isClaude(getpid()))
+        // 在 Claude Code 裡跑測試時：兩種認法都要認得出真的
+        if let p = ProcessInfo.processInfo.environment["CLAUDE_PID"].flatMap(Int32.init) {
+            #expect(Caller.isClaude(p))
+            #expect(Caller.kernelIdentity(p).map { $0 == ("com.anthropic.claude-code", "Q6L2SF6YDW") } == true)
+        }
+    }
+    @Test func guardOff() throws {
+        let k = P256.Signing.PrivateKey(), other = P256.Signing.PrivateKey(), now = Date(), pub = k.publicKey.x963Representation
+        func make(_ t: TimeInterval, _ key: P256.Signing.PrivateKey) throws -> GuardOff { let u = now.addingTimeInterval(t); return GuardOff(until: u, sig: try key.signature(for: GuardOff.message(u)).derRepresentation) }
+        #expect(try GuardOff.valid(make(1700, k), key: pub, now: now))
+        #expect(try !GuardOff.valid(make(1700, other), key: pub, now: now) && !GuardOff.valid(make(-1, k), key: pub, now: now) && !GuardOff.valid(make(7200, k), key: pub, now: now))
+        var t = try make(600, k); t.until = now.addingTimeInterval(1700)        // 改時間簽章就不對
+        #expect(!GuardOff.valid(t, key: pub, now: now) && !GuardOff.valid(GuardOff(until: now + 60, sig: Data()), key: pub, now: now))
+    }
     @Test func captainClaim() {
         #expect(CaptainClaim.decide(current: "a", me: "a", live: ["a"], on: true) == .take(notify: false))
         #expect(CaptainClaim.decide(current: "a", me: "b", live: ["a", "b"], on: true) == .ask)
@@ -47,6 +73,7 @@ import Testing
         q.action = "captain"
         #expect(CaptainClaim.approves(q, option: CaptainClaim.yes, free: nil, fromMac: true) && !CaptainClaim.approves(q, option: CaptainClaim.yes, free: nil, fromMac: false))
         #expect(!CaptainClaim.approves(q, option: CaptainClaim.no, free: nil, fromMac: true) && !CaptainClaim.approves(q, option: CaptainClaim.yes, free: "先不要", fromMac: true) && !CaptainClaim.approves(q, option: nil, free: CaptainClaim.yes, fromMac: true))
+        #expect(CaptainClaim.needsMac(q, option: CaptainClaim.yes, fromMac: false) && !CaptainClaim.needsMac(q, option: CaptainClaim.yes, fromMac: true) && !CaptainClaim.needsMac(q, option: CaptainClaim.no, fromMac: false))
         let xs = AskQueue.adding(SelfReport(status: .review, ask: "x", options: ["好", "不"], at: Date()), to: [q])
         #expect(xs.count == 1 && xs[0].options == q.options)
     }
