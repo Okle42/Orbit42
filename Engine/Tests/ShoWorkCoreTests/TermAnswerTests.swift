@@ -37,6 +37,11 @@ struct TermAnswerTests {
     @Test("畫面：空輸入框才打；草稿、選單、別的對話、游標不在開頭、沒開貼上都不打")
     func gate() {
         #expect(TermAnswer.blocked(screen(), name: "Hana5") == nil)
+        // 11-25 畫面改顯示職責：框線上印的還是 session 名（收件地址），拿顯示名來比一定不打
+        for shown in ["修改 · Orbit42", "修改 · Orbit42｜答案卡補修", "秘書 · 未歸專案"] {
+            #expect(TermAnswer.blocked(screen(), name: shown) != nil)
+            #expect(Nicknames.hookOutput(Nickname(name: "Hana5"), done: false, event: "UserPromptSubmit", label: shown).contains(#""sessionTitle":"Hana5""#))
+        }
         #expect(TermAnswer.blocked(screen("❯ ", dim: "Try \"x\""), name: "Hana5") == nil)          // 淡色提示字不算草稿
         #expect(TermAnswer.blocked(screen("❯ 打到一半"), name: "Hana5") != nil)
         #expect(TermAnswer.blocked(screen(label: "Hana"), name: "Hana5") != nil)
