@@ -11,3 +11,4 @@ windows/**/bin/
 windows/**/obj/
 windows/out/
 .claude/
+__pycache__/
