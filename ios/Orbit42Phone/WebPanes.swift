@@ -39,6 +39,7 @@ func makeWeb(handler: any WKScriptMessageHandler, name: String) -> WKWebView {
     w.scrollView.backgroundColor = .black
     w.scrollView.contentInsetAdjustmentBehavior = .never
     w.scrollView.bounces = false
+    w.scrollView.pinchGestureRecognizer?.isEnabled = false      // 11-24 整頁不縮放（球體捏合由網頁自己處理）
     #if DEBUG
     w.isInspectable = true
     #endif
