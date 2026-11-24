@@ -1126,8 +1126,10 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             }
         }
         if test {
-            window.alphaValue = 0; window.ignoresMouseEvents = true; window.isExcludedFromWindowsMenu = true; window.collectionBehavior = [.transient, .ignoresCycle]
-            window.setFrameOrigin(NSPoint(x: -30000, y: -30000)); window.orderBack(nil)
+            window.ignoresMouseEvents = true; window.isExcludedFromWindowsMenu = true; window.collectionBehavior = [.transient, .ignoresCycle]
+            if let s = HiddenTestWindow.freeScreen() { window.setFrameOrigin(NSPoint(x: s.visibleFrame.minX, y: s.visibleFrame.minY)) }
+            else { window.alphaValue = 0; window.setFrameOrigin(NSPoint(x: -30000, y: -30000)) }
+            window.orderBack(nil)
         } else {
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
             // 11-23 Keng：Orbit42 像系統一樣佔滿整個畫面（全螢幕桌面模式，預設開；切掉會記住）
@@ -1577,8 +1579,19 @@ enum AgentSwap {
     static func start() { if FileManager.default.fileExists(atPath: plist) { launchctl(["bootstrap", "gui/\(getuid())", plist]) } }
 }
 
-/// 測試視窗（11-24 Keng「不要跟我搶螢幕」）：有標題列的視窗排上來時，系統會把它拉回最近的螢幕（第二螢幕在左邊就拉到那裡）⇒ 不准拉、全透明、點不到、不當主視窗
+/// 測試視窗（11-24 Keng「不要跟我搶螢幕」）：有標題列的視窗排上來時，系統會把它拉回最近的螢幕（第二螢幕在左邊就拉到那裡）⇒ 不准拉、點不到、不當主視窗。
+/// 開在「正式 Orbit42 沒在用」的那個螢幕、排最後面；只有一個螢幕就透明放到螢幕外
 final class HiddenTestWindow: NSWindow {
+    static func freeScreen() -> NSScreen? {
+        let top = NSScreen.screens.first?.frame.maxY ?? 0, me = ProcessInfo.processInfo.processIdentifier
+        let busy = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { w -> CGRect? in
+            guard w[kCGWindowOwnerName as String] as? String == "Orbit42", w[kCGWindowOwnerPID as String] as? Int32 != me, w[kCGWindowLayer as String] as? Int == 0,
+                  let b = w[kCGWindowBounds as String] as? NSDictionary, let r = CGRect(dictionaryRepresentation: b) else { return nil }
+            return CGRect(x: r.minX, y: top - r.maxY, width: r.width, height: r.height)
+        }
+        guard NSScreen.screens.count > 1, !busy.isEmpty else { return nil }
+        return NSScreen.screens.first { s in !busy.contains { let i = $0.intersection(s.frame); return i.width > 1 && i.height > 1 } }
+    }
     override func constrainFrameRect(_ r: NSRect, to s: NSScreen?) -> NSRect { r }
     override func toggleFullScreen(_ sender: Any?) {}
     override func makeKeyAndOrderFront(_ sender: Any?) { orderBack(sender) }
