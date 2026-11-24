@@ -819,8 +819,8 @@ private struct HoverCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Circle().fill(Color(nsColor: KuboArt.tint(m))).frame(width: 8, height: 8)
-                Text(card.title).font(.headline).lineLimit(1)
-                Text(card.project).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(card.head).font(.headline).lineLimit(1)
+                Text(card.workTitle).font(.caption).foregroundStyle(card.work?.state == .done ? .tertiary : .secondary).lineLimit(1)
             }
             Gauges(card: card)
             if let a = card.activity.label { Text(a).font(.callout.weight(.medium)) }
@@ -868,8 +868,8 @@ struct AnswerCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Circle().fill(Color(nsColor: KuboArt.tint(.waiting))).frame(width: 8, height: 8)
-                Text(card.title).font(.headline).lineLimit(1)
-                Text(card.project).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(card.head).font(.headline).lineLimit(1)
+                Text(card.workTitle).font(.caption).foregroundStyle(card.work?.state == .done ? .tertiary : .secondary).lineLimit(1)
                 Spacer(minLength: 8)
                 Button { onClose() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
                     .buttonStyle(.plain).help("關閉").keyboardShortcut(.cancelAction)

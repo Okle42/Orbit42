@@ -156,7 +156,8 @@ struct MainView: View {
                                 Circle().fill(s.state == "busy" ? Color.okAccent : s.state == "exited" ? .gray : Color.okGreen).frame(width: 8, height: 8)
                                 VStack(alignment: .leading) {
                                     if s.captain { Text("秘書").font(.headline).foregroundStyle(secretaryInk).padding(.horizontal, 8).background(Capsule().fill(secretaryColor)) }
-                                    else { Text(s.name).font(.headline) }
+                                    else { Text(s.head ?? s.name).font(.headline) }
+                                    if let w = s.work { Text(w).font(.subheadline).foregroundStyle(w.hasPrefix("完成：") ? .secondary : .primary).lineLimit(1) }
                                     Text("\(s.brainLabel) · \(stateText(s.state))" + (s.moons.isEmpty ? "" : " · " + s.moons.map { $0 == "web" ? "網頁" : "3D" }.joined(separator: "、"))).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
@@ -253,7 +254,7 @@ struct TermScreen: View {
         .overlay { if model.sat.captain {       // 跟 Mac 同款：秘書的衛星外框＋光暈
             RoundedRectangle(cornerRadius: 12).strokeBorder(secretaryColor, lineWidth: 3).shadow(color: secretaryColor.opacity(0.75), radius: 8).allowsHitTesting(false)
         } }
-        .navigationTitle(model.sat.captain ? "秘書" : model.sat.name).navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(model.sat.captain ? "秘書" : model.sat.head ?? model.sat.name).navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
             if tab == "term" { Button { composing.toggle() } label: { Image(systemName: composing ? "keyboard.chevron.compact.down" : "keyboard") }
                 .accessibilityLabel(composing ? "收起鍵盤" : "打字") }

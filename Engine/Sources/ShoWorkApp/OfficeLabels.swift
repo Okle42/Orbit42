@@ -425,7 +425,7 @@ final class OfficeLabels: NSObject, SCNSceneRendererDelegate, @unchecked Sendabl
     // MARK: 文字（主執行緒組 LabelSpec 時用）
 
     static func shortName(_ c: BoardCard) -> String {
-        let n = c.title.split(separator: "-", maxSplits: 1).first.map(String.init) ?? c.title
+        let n = c.head
         return n.count > 14 ? String(n.prefix(13)) + "…" : n
     }
 

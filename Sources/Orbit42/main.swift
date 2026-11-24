@@ -269,6 +269,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     if let j = s.attachedJob, let r = recs.first(where: { $0.jobId == j }) { o["sessionId"] = r.sessionId }        // 背景 session：用 job id 對
                     else if let p = s.pty, let r = recs.first(where: { $0.pid == p.pid || Host.parent(of: $0.pid) == p.pid }) { o["sessionId"] = r.sessionId }
                     if let c = cap, o["sessionId"] as? String == c { o["captain"] = true }
+                    if let l = SphereEmbed.label(o["sessionId"] as? String) { o["head"] = l.head; o["work"] = l.work }
                     return o
                 }
             }
@@ -1440,8 +1441,11 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         let cap = CaptainStore.captain()?.sessionId, test = ProcessInfo.processInfo.environment["ORBIT_TEST_SECRETARY"] != nil
         for (id, w) in satWins where !id.hasPrefix("3d-") {
             let sid = host.sessionId(id), on = test || (cap != nil && sid == cap)
-            if on { w.titleLabel.stringValue = sid.flatMap { NicknameStore.get($0)?.doing } ?? "待命中" }
-            else if w.secretary { w.titleLabel.stringValue = host.title(id) }
+            // 11-25：標題列固定「職責 · 主專案｜工作標題」；不是 Claude session（Codex、還沒開）照舊。小標已經寫「秘書」，不重複
+            if w.pane == nil || on || SphereEmbed.label(sid) != nil {
+                let l = SphereEmbed.label(sid), t = l.map { on ? $0.line.replacingOccurrences(of: "秘書 · ", with: "") : $0.line } ?? (on ? "待命" : host.title(id))
+                if w.titleLabel.stringValue != t { w.titleLabel.stringValue = t }
+            }
             if w.secretary != on { w.secretary = on; swapped = true }
         }
     }

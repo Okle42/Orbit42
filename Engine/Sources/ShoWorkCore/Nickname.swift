@@ -159,6 +159,7 @@ public enum NicknameStore {
            let host = recs.first(where: { $0.parkedJobId == job && $0.sessionId != sid }), let hn = all[host.sessionId] {
             var n = Nickname(name: hn.name, doing: hn.doing, at: Date()); n.role = hn.role
             save(sid, n)
+            JobStore.carry(from: host.sessionId, to: sid)
             return n
         }
         // 10-22 Bella→Kyle：同一個程序換了 sessionId（transcript 換一個檔，開頭抄著舊的 custom-title「Bella」）⇒ 沿用那個名字，
@@ -212,8 +213,9 @@ public enum NicknameStore {
 extension Nicknames {
     /// 終端機視窗標題（10-19 Kang：Ghostty 標題也要跟著變）。由 hook 回傳 `terminalSequence`（OSC 0），Claude Code 代為寫出。
     /// 開頭沿用 Claude 的狀態符號（◐ 工作中、✳ 這輪做完），TitleWatcher 的備援判斷照樣認得。
-    public static func terminalTitle(_ n: Nickname, done: Bool) -> String {
-        let text = (n.doing.map { "\(n.name)-\($0)" } ?? n.name).unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }
+    /// label＝固定兩行合成的一行（11-25：畫面不放英文名）；算不出來才退回舊的
+    public static func terminalTitle(_ n: Nickname, done: Bool, label: String? = nil) -> String {
+        let text = (label ?? n.doing.map { "\(n.name)-\($0)" } ?? n.name).unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }
         return (done ? "✳ " : "◐ ") + String(String.UnicodeScalarView(text))
     }
 
@@ -221,9 +223,9 @@ extension Nicknames {
     /// 讓 Claude Code 自己維持的標題至少是英文名——工作中它每轉一格 spinner 都會重寫標題，光靠 terminalSequence 會被蓋掉。
     /// 10-22 起 sessionTitle 只放英文名（它也是 SendMessage 的地址，不能跟著 doing 變）；任務照樣靠 terminalSequence 與做完時補寫的 OSC 0
     /// n＝nil（還沒取名）時只輸出 context；context＝UserPromptSubmit 要注入給 AI 的提醒（開工卡，CaptainLink）
-    public static func hookOutput(_ n: Nickname?, done: Bool, event: String? = nil, context: String? = nil) -> String {
+    public static func hookOutput(_ n: Nickname?, done: Bool, event: String? = nil, context: String? = nil, label: String? = nil) -> String {
         var o: [String: Any] = [:]
-        if let n { o["terminalSequence"] = "\u{1B}]0;" + terminalTitle(n, done: done) + "\u{07}" }
+        if let n { o["terminalSequence"] = "\u{1B}]0;" + terminalTitle(n, done: done, label: label) + "\u{07}" }
         if event == "UserPromptSubmit" {
             // session 名＝收訊地址，只放英文名（10-22 T1022020414：帶 doing 的話每次自報地址就變，秘書插話一直被退回）
             var h: [String: Any] = ["hookEventName": "UserPromptSubmit"]

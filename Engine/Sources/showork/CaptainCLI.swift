@@ -86,7 +86,7 @@ enum CaptainCLI {
         let rel = RelativeDateTimeFormatter(); rel.locale = Locale(identifier: "zh_TW"); rel.unitsStyle = .short
         let open = CaptainStore.tasks().filter { $0.state.open }
         for e in r.entries.sorted(by: { ($0.captain ? 0 : 1, $0.project) < ($1.captain ? 0 : 1, $1.project) }) {
-            var head = "■ \(e.captain ? Nicknames.captainTitle : e.name)｜\(e.project)｜\(e.column.title)：\(e.reason)"
+            var head = "■ \(e.captain ? Nicknames.captainTitle : e.name)｜\(e.label ?? e.project)｜\(e.column.title)：\(e.reason)"
             if let t = e.ctxTokens { head += "｜ctx \(t / 1000)k" } else if let c = e.ctx { head += "｜ctx \(c)%" }
             if e.kind == "bg" { head += "｜背景" }
             if let t = e.lastActivity { head += "｜\(rel.localizedString(for: t, relativeTo: Date()))" }
@@ -114,7 +114,7 @@ enum CaptainCLI {
     }
 
     static func add(_ args: [String], showork: String) -> Int32 {
-        var a = args[...], to: String?, text: String?, thenTo: String?, thenText: String?
+        var a = args[...], to: String?, text: String?, thenTo: String?, thenText: String?, role: String?, title: String?, thenRole: String?, thenTitle: String?
         while let k = a.popFirst() {
             guard let v = a.popFirst() else { err("\(k) 後面少了值"); return 1 }
             switch k {
@@ -122,11 +122,16 @@ enum CaptainCLI {
             case "--text": text = v
             case "--then-to": thenTo = v
             case "--then": thenText = v
+            case "--role", "--then-role":
+                guard let r = WorkRole.valid(v) else { err("\(k) 只能是 \(WorkRole.all.joined(separator: "／"))"); return 1 }
+                if k == "--role" { role = r } else { thenRole = r }
+            case "--title": title = WorkTitle.clean(v)
+            case "--then-title": thenTitle = WorkTitle.clean(v)
             default: err("不認得的參數 \(k)"); return 1
             }
         }
         guard let to, let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            err("用法：showork task add --to <英文名，例如 Chris> --text \"…\" [--then-to <下一棒> --then \"…\"]"); return 1
+            err("用法：showork task add --to <英文名，例如 Chris> [--role <\(WorkRole.all.joined(separator: "|"))>] [--title \"14 字內\"] --text \"…\" [--then-to <下一棒> --then \"…\"]"); return 1
         }
         if (thenTo == nil) != (thenText == nil) { err("--then-to 和 --then 要一起給"); return 1 }
         guard let from = mySession else { err("要在秘書的 Claude Code session 裡跑"); return 1 }
@@ -150,8 +155,10 @@ enum CaptainCLI {
             CaptainStore.setCaptain(CaptainRecord(sessionId: from, name: sessionName(from), proc: ProcStamp.of(Handover.claudePID())))
         }
         let id = Captain.newId(now: Date(), existing: Set(CaptainStore.tasks().map(\.id)))
-        let t = CaptainTask(id: id, from: from, to: target?.name ?? to, toSession: target?.sessionId, project: target?.project, text: text,
+        var t = CaptainTask(id: id, from: from, to: target?.name ?? to, toSession: target?.sessionId, project: target?.project, text: text,
                             thenTo: thenTo.map { n in entry(n).map { nick[$0.sessionId] ?? $0.name } ?? n }, thenText: thenText)
+        t.role = role ?? WorkRole.guess(text); t.title = title ?? WorkTitle.guess(text); t.thenRole = thenRole; t.thenTitle = thenTitle
+        t.mainProject = MainProject.live(mentioned: text) ?? MainProject.live(path: target?.root)
         if let w = target, !w.sameProject.isEmpty { err("⚠ \(w.project) 還有別的 session：\(w.sameProject.joined(separator: "、"))") }
         if let t = target?.ctxTokens, t >= ContextGuard.tokenLimit { err("⚠ \(to) 的 context 已用 \(t / 1000)k（門檻 \(ContextGuard.tokenLimit / 1000)k），可能做不完") }
         let (saved, r) = Captain.dispatch(t, showork: showork, fromName: Nicknames.captainTitle)

@@ -299,8 +299,11 @@ public struct BoardCard: Codable, Sendable, Equatable, Identifiable {
     public var name: String? = nil         // session 名（SendMessage 的地址，例如 you-9e）；11-22 起畫面不顯示，只當地址
     public var label: String? = nil        // 11-22 顯示名：職稱，沒有就專案（家目錄＝nil，畫面改顯示任務）
     public var jobId: String? = nil        // 11-23：背景 session 的 job id（點衛星時 `claude attach <jobId>` 開視窗看它）
-    /// 畫面上叫它的名字：職稱／專案；家目錄的沒有專案 ⇒ 用正在做的任務（11-22 Keng：英文人名不再顯示）
-    public var display: String { label ?? report?.doing ?? title }
+    public var work: WorkLabel? = nil      // 11-25 固定兩行（職責 · 主專案／工作標題，WorkLabel.swift）
+    /// 第一行／第二行／合成一行（提示、通知、語音用）
+    public var head: String { work?.head ?? label ?? project }
+    public var workTitle: String { work?.work ?? title }
+    public var display: String { work?.line ?? label ?? report?.doing ?? title }
     public var captain = false             // 是不是秘書
     public var sameProject: [String] = []  // 同專案的其他 session（重工警告）
     public var tasks: [CaptainTask] = []   // 秘書：派出去的單；其他人：交給它、還沒結束的單
@@ -337,6 +340,7 @@ extension BoardCard {
         review = try c.decodeIfPresent(Review.self, forKey: .review)
         ctx = try c.decodeIfPresent(ContextUse.self, forKey: .ctx)
         label = try c.decodeIfPresent(String.self, forKey: .label)
+        work = try c.decodeIfPresent(WorkLabel.self, forKey: .work)
         jobId = try c.decodeIfPresent(String.self, forKey: .jobId)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         captain = try c.decodeIfPresent(Bool.self, forKey: .captain) ?? false

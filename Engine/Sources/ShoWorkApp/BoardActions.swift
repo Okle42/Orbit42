@@ -341,7 +341,7 @@ enum BoardActions {
         guard testHook == nil, let cap = CaptainStore.captain()?.sessionId, cap != c.sessionId else { return }
         Answered.clearCaptainCard(sid: cap, question: q)
         AskQueue.resolve(sid: cap, question: q)
-        let name = NicknameStore.get(c.sessionId)?.name ?? c.title
+        let name = NicknameStore.get(c.sessionId)?.name ?? c.title      // 給 AI 看的：英文名（收件地址）
         let text = Answered.relay(name: name, question: q, answer: answer)
         DispatchQueue.global().async {
             guard let to = Peer.find(cap) else { return }
@@ -573,8 +573,9 @@ extension BoardActions {
     /// 看板上直接派工給某個 session（你按的）；有秘書就由秘書收回報，沒有就發系統通知給你
     nonisolated static func dispatch(to c: BoardCard, text: String, thenTo: String?, thenText: String?, captain: String?) -> Result<String, CardError> {
         let id = Captain.newId(now: Date(), existing: Set(CaptainStore.tasks().map(\.id)))
-        let t = CaptainTask(id: id, from: captain ?? "board", to: c.name ?? c.sessionId, toSession: c.sessionId, project: c.project, text: text,
+        var t = CaptainTask(id: id, from: captain ?? "board", to: c.name ?? c.sessionId, toSession: c.sessionId, project: c.project, text: text,
                             thenTo: thenTo, thenText: thenTo == nil ? nil : thenText)
+        t.role = WorkRole.guess(text); t.title = WorkTitle.guess(text); t.mainProject = MainProject.live(mentioned: text) ?? MainProject.live(path: c.cwd)
         let (_, r) = Captain.dispatch(t, showork: TaskRouter.showork, fromName: "AI工作戰情中心（你從看板派的）")
         return r.map { _ in id }
     }

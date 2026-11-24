@@ -439,8 +439,8 @@ struct DispatchSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("派工給 \(card.display)").font(.headline)
-            Text("\(card.project)・\(card.title)").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            Text("派工給 \(card.head)").font(.headline)
+            Text(card.workTitle).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             if !card.sameProject.isEmpty {
                 Label("同專案還有 \(card.sameProject.joined(separator: "、"))", systemImage: "exclamationmark.2").font(.callout).foregroundStyle(.orange)
             }

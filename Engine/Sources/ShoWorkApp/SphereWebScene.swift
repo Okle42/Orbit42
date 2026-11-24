@@ -195,9 +195,9 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     func bounce() { web.evaluateJavaScript("window.karaBounce && window.karaBounce()") }
 
     static func info(_ c: BoardCard, now: Date = Date()) -> [String: Any] {
-        var o: [String: Any] = ["sessionId": c.sessionId, "name": c.display, "address": c.name ?? "", "project": c.project,
+        var o: [String: Any] = ["sessionId": c.sessionId, "name": c.head, "address": c.name ?? "", "project": c.work?.project ?? c.project,
                                 "status": needsYou(c) ? "需要你" : c.column.title, "reason": c.reason]
-        if let d = c.report?.doing, c.label != nil { o["doing"] = d }      // 沒職稱／專案時名字就是任務，不重複
+        o["doing"] = c.workTitle
         if let s = c.report?.summary { o["summary"] = String(s.prefix(240)) }
         if let p = c.report?.progress { o["progress"] = p }
         if let x = c.ctx { o["ctx"] = x.percent.rounded() }
@@ -404,15 +404,12 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         o["ctx"] = recent?.ctx.map { $0.percent.rounded() } ?? NSNull()
         // 今天做完（待審＋完成、最後動靜在今天）的件數：收工總結用
         o["doneToday"] = people.filter { ($0.column == .review || $0.column == .done) && $0.lastActivity.map { Calendar.current.isDate($0, inSameDayAs: now) } == true }.count
-        // 需要你的排最前，再來進行中
-        func rank(_ c: BoardCard) -> Int { needsYou(c) ? 0 : c.column == .active ? 1 : 2 }
-        o["team"] = people.sorted { rank($0) < rank($1) }.map { c -> [String: Any] in
-            // 11-23 Keng：剛開、還沒下過指令的 session 標題是「還沒交代工作」，看不出是哪一個 ⇒ 用英文名（AI 用英文名稱呼）＋「待命」
-            let idle = c.display == "還沒交代工作"
-            var t: [String: Any] = ["name": idle ? (c.name ?? "新的 session") : c.display, "status": needsYou(c) ? "需要你" : c.column.title, "sessionId": c.sessionId]
-            if idle { t["doing"] = "待命" }
+        // 11-25 Keng：秘書最前、再依主專案、接單先後，位置固定（狀態變不重排；需要你的由網頁保證看得到）
+        o["team"] = people.sorted { WorkLabels.before(($0.sessionId, $0.work), ($1.sessionId, $1.work)) }.map { c -> [String: Any] in
+            var t: [String: Any] = ["name": c.head, "status": needsYou(c) ? "需要你" : c.column.title, "sessionId": c.sessionId]
+            t["doing"] = c.workTitle                                         // 固定兩行：name＝職責 · 主專案、doing＝工作標題
+            if c.work?.state == .done { t["faded"] = true }
             if let p = c.report?.progress { t["progress"] = p }
-            if let d = c.report?.doing, c.label != nil { t["doing"] = d }   // 沒職稱／專案時名字就是任務，不重複
             if let a = c.name { t["address"] = a }                            // 英文名：只給語音「Hana 在幹嘛」這種問法對得上
             if let s = c.report?.summary { t["summary"] = s }
             // 11-23 Keng「語音播報內容要正確」：卡住要講真正的原因（看板判斷的一行白話），開工卡的 summary 是「打算做什麼」不是結果

@@ -92,7 +92,7 @@ private struct InboxRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Circle().fill(Color(nsColor: KuboArt.tint(done ? .idle : .waiting))).frame(width: 8, height: 8)
-                Button(action: onFocus) { Text(item.card.title).font(.subheadline.weight(.semibold)).lineLimit(1) }
+                Button(action: onFocus) { Text(item.card.head).font(.subheadline.weight(.semibold)).lineLimit(1) }
                     .buttonStyle(.plain).help("在大樓裡找到它")
                 Spacer(minLength: 4)
                 if let t = item.since {
@@ -102,9 +102,9 @@ private struct InboxRow: View {
                     }
                 }
             }
-            Text(item.card.project).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(item.card.workTitle).font(.caption).foregroundStyle(item.card.work?.state == .done ? .tertiary : .secondary).lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .modifier(RunBar(card: item.card, name: item.card.title.split(separator: "-").first.map(String.init) ?? item.card.title, runs: runs, thickness: 2))
+                .modifier(RunBar(card: item.card, name: item.card.name ?? "", runs: runs, thickness: 2))
             Text(item.question).font(.callout).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true).lineLimit(6)
             if item.more > 0 {
@@ -416,7 +416,8 @@ private struct CaptainPanel: View {
     @State private var pending: (text: String, at: Date)?
     @State private var showReports = true
 
-    private var name: String { captain.map { $0.title.split(separator: "-").first.map(String.init) ?? "秘書" } ?? "秘書" }
+    private var name: String { captain?.head ?? "秘書" }
+    private var address: String { captain?.name ?? "" }        // 背景進度條用英文名對
     private var thinking: Bool { captain?.column == .active }
     /// 隱藏鈕（person 模式）：只看你和它講的話，工具摘要和回報收起來
     private var shown: [CaptainLine] { showReports ? thread : thread.filter { $0.role != .report && $0.role != .tool } }
@@ -454,14 +455,14 @@ private struct CaptainPanel: View {
             }
             if person, let c = captain {
                 HStack(spacing: 6) {
-                    Text("\(c.project)・\(c.reason)").lineLimit(1)
+                    Text("\(c.workTitle)・\(c.reason)").lineLimit(1)
                     Spacer(minLength: 4)
-                    if let r = RunProgress.pick(runs, for: name) {
-                        Text(r.caption(for: name)).monospacedDigit().lineLimit(1).layoutPriority(1)
+                    if let r = RunProgress.pick(runs, for: address) {
+                        Text(r.caption(for: address)).monospacedDigit().lineLimit(1).layoutPriority(1)
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)
-                .modifier(RunBar(card: c, name: name, runs: runs))
+                .modifier(RunBar(card: c, name: address, runs: runs))
             } else if let c = captain {
                 Color.clear.frame(height: 0).modifier(RunBar(card: c, name: name, runs: runs))
             }
