@@ -202,7 +202,7 @@ function flush(u) {
   const c = live.get(u.key), late = Date.now() - u.at > UNDO + LATE;             // 頁面凍結、睡眠、背景太久才醒：他早就不記得了，不送
   if (late || !c || sigOf(c) !== u.sig) { dropUndo(u, late ? "剛才停住太久，沒有送出，請再看一次" : c ? "那題的內容變了，沒有送出，請再看一次" : "那題已經在別處答掉或收回，沒有送出"); if (late) { note.set(u.key, "剛才停住太久，沒有送出，請再看一次"); lock(); disarm(); } return render(); }
   const mark = { posted: now() }; undos.delete(u.key); sent.set(u.key, mark); note.delete(u.key); post(u.msg);
-  setTimeout(() => { if (sent.get(u.key) === mark && live.has(u.key)) {      // 只認自己這一次：同一題又答了一次，舊的計時器不可把它放回來 sent.delete(u.key); note.set(u.key, true); render(); } }, RETRY);
+  setTimeout(() => { if (sent.get(u.key) === mark && live.has(u.key)) { /* 只認自己這一次：同一題又答了一次，舊的計時器不可把它放回來 */ sent.delete(u.key); note.set(u.key, true); render(); } }, RETRY);
   render();
 }
 function sendLater(c, msg, label, byMouse) {
