@@ -232,11 +232,50 @@ static partial class CaptainStore
     /// 秘書的 sessionId（沒有＝null）
     public static string? Captain() => HookJson.ReadObject(CaptainFile).Str("sessionId");
 
-    public static bool SetCaptain(string sid, string? name, DateTime now)
+    /// 程序身分（Mac 的 ProcStamp）：pid＋啟動時間；測試可換
+    public static Func<int?, (int Pid, long Start)?> ProcOf = pid =>
+    {
+        if (pid is not > 0) return null;
+        try { using var p = System.Diagnostics.Process.GetProcessById(pid.Value); return (pid.Value, p.StartTime.ToUniversalTime().Ticks); }
+        catch { return null; }
+    };
+    static (int Pid, long Start)? Proc()
+    {
+        var o = HookJson.ReadObject(CaptainFile)?["proc"];
+        return o.Int("pid") is { } p && long.TryParse(o.Str("start"), out var s) ? (p, s) : null;
+    }
+
+    /// /clear 後換了 sessionId，是不是同一個秘書（Mac 的 CaptainStore.afterClear）：來源 clear、同一個程序、新舊 id 都沒有別的程序在用
+    public static bool IsAfterClear(string? oldSid, (int, long)? oldProc, string newSid, string? source, (int, long)? proc, ISet<string> others) =>
+        source == "clear" && oldSid != null && newSid.Length > 0 && newSid != oldSid && oldProc != null && oldProc == proc
+        && !others.Contains(oldSid) && !others.Contains(newSid);
+
+    /// SessionStart：同一個秘書 /clear ⇒ 登記、名字、派出去的單換到新 id
+    public static bool Follow(string newSid, string? source, int? pid, DateTime now)
+    {
+        var old = Captain();
+        var others = PeerSession.Live().Where(r => r.Pid != pid).Select(r => r.SessionId).ToHashSet();
+        if (!IsAfterClear(old, Proc(), newSid, source, ProcOf(pid), others)) return false;
+        if (!SetCaptain(newSid, HookJson.ReadObject(CaptainFile).Str("name"), now, pid)) return false;
+        if (NicknameStore.Get(newSid) == null && NicknameStore.Get(old!) is { } n) NicknameStore.Save(newSid, n);
+        foreach (var t in Tasks().Where(t => t.From == old)) { t.From = newSid; Save(t); }
+        return true;
+    }
+
+    /// 秘書自己的 hook：把它現在的程序補進登記；那個程序的紀錄要真的是這個 sessionId
+    public static void Stamp(string sid, int? pid, DateTime now)
+    {
+        if (Captain() != sid || ProcOf(pid) is not { } p || Proc() == p) return;
+        if (!PeerSession.Live().Any(r => r.Pid == p.Pid && r.SessionId == sid)) return;
+        SetCaptain(sid, HookJson.ReadObject(CaptainFile).Str("name"), now, pid);
+    }
+
+    public static bool SetCaptain(string sid, string? name, DateTime now, int? pid = null)
     {
         var o = new JsonObject { ["sessionId"] = sid };
         o.Put("name", name);
         o["at"] = HookJson.Iso(now);
+        if (ProcOf(pid) is { } p) o["proc"] = new JsonObject { ["pid"] = p.Pid, ["start"] = p.Start.ToString() };
         return HookJson.WriteAtomic(CaptainFile, HookJson.Text(o));
     }
 

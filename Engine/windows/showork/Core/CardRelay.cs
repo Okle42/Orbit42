@@ -44,7 +44,7 @@ static class CardRelay
         public void Mark(string sid, CardReport r)
         {
             var k = Key(r);
-            if (AskKey(r) is { } a) SentAsk[sid] = a; else if (SentKey.GetValueOrDefault(sid) != k) SentAsk.Remove(sid);
+            if (AskKey(r) is { } a) SentAsk[sid] = a; else SentAsk.Remove(sid);            // 問題拿掉也要記：之後同一題再問＝新的，要推
             SentKey[sid] = k;
         }
         /// 送過了：內容一樣，而且沒有新的問題（問題從無到有、文字或選項改了＝要再送）
@@ -76,7 +76,7 @@ static class CardRelay
         foreach (var sid in reports.Keys.OrderBy(k => k, StringComparer.Ordinal))
         {
             var r = reports[sid];
-            if (state.Seen(sid, r)) continue;
+            if (state.Seen(sid, r)) { state.Mark(sid, r); continue; }
             // 派工單的做完／要你決定／卡住已經有【派工回報】（TaskRouter），不重複送
             bool routed = r.Task != null && r.Status != "working";
             if (captain == null || !captainLive || sid == captain || routed || now - r.At >= MaxAge || !NeedsCaptain(r))

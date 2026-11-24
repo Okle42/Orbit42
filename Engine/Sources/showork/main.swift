@@ -47,6 +47,12 @@ if args.first == "brief" {
             source = o["source"] as? String
             cwdPath = o["cwd"] as? String
         }
+        if let sid {
+            let pid = Handover.claudePID()
+            if CaptainStore.follow(newSid: sid, source: source, pid: pid) {
+                print("【秘書】/clear 後已自動接上秘書登記。先跑 \"\(URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path)\" captain 看守則與收件匣。")
+            } else { CaptainStore.stamp(sid: sid, pid: pid) }
+        }
         if let sid, let ctx = Handover.claim(sid: sid, pid: Handover.claudePID(), cwd: cwdPath, source: source) {
             print(ctx)
         }
@@ -107,6 +113,7 @@ if args.first == "title" {
     if isatty(0) == 0, let o = try? JSONSerialization.jsonObject(with: FileHandle.standardInput.readData(ofLength: 1 << 20)) as? [String: Any] {
         sid = sid ?? o["session_id"] as? String
         event = o["hook_event_name"] as? String
+        if event == "UserPromptSubmit", let s = o["session_id"] as? String, CaptainStore.captain()?.sessionId == s { CaptainStore.stamp(sid: s, pid: Handover.claudePID()) }
         prompt = o["prompt"] as? String
         cwdPath = o["cwd"] as? String
     }

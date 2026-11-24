@@ -136,8 +136,14 @@ static class HookCli
     {
         var o = HookInput(stdin);
         var sid = o.Str("session_id") is { Length: > 0 } s ? s : envSid;
+        var captain = "";
+        if (sid != null)
+        {
+            if (CaptainStore.Follow(sid, o.Str("source"), ClaudePid(), now ?? DateTime.UtcNow)) captain = $"【秘書】/clear 後已自動接上秘書登記。先跑 \"{showork}\" captain 看守則與收件匣。\n";
+            else CaptainStore.Stamp(sid, ClaudePid(), now ?? DateTime.UtcNow);
+        }
         var claim = sid == null ? null : Handover.Claim(sid, ClaudePid(), o.Str("cwd"), o.Str("source"), now ?? DateTime.UtcNow);
-        return (claim != null ? claim + "\n" : "") + Hooks.Brief.Text(showork, sid == null ? null : NicknameStore.Ensure(sid).Name) + "\n";
+        return captain + (claim != null ? claim + "\n" : "") + Hooks.Brief.Text(showork, sid == null ? null : NicknameStore.Ensure(sid).Name) + "\n";
     }
 
     // MARK: card
@@ -179,6 +185,7 @@ static class HookCli
         var sid = envSid ?? (o.Str("session_id") is { Length: > 0 } s ? s : null);
         var ev = o.Str("hook_event_name"); var prompt = o.Str("prompt"); var cwd = o.Str("cwd");
         string? nag = null, typed = null, handoverNote = null;
+        if (ev == "UserPromptSubmit" && o.Str("session_id") is { Length: > 0 } js && CaptainStore.Captain() == js) CaptainStore.Stamp(js, ClaudePid(), now);
         // 11-01 使用者：「我叫你傳 LINE 還要再打放行」⇒ 使用者在 session 直接打的指令也算事先放行（同戰情中心回答：點名的動作、30 分鐘、每種一次、否定句不算）。
         //   已經擋著的單，這則指令點名了就直接放行。其他 session／系統訊息（NeedsStart 擋掉的 <…> 標籤）不算。（Mac 2ce3a8a）
         if (ev == "UserPromptSubmit" && sid != null && CaptainLink.NeedsStart(prompt) && !prompt!.Trim().StartsWith("放行", StringComparison.Ordinal))
@@ -365,7 +372,7 @@ static class HookCli
             var n = a.Skip(1).Sum(id => CaptainInbox.Ack(id, now));
             return (0, n == 0 ? "沒有符合的未處理單\n" : $"已標 {n} 筆為已處理\n", "");
         }
-        CaptainStore.SetCaptain(sid, CaptainStore.SessionName(sid), now);
+        CaptainStore.SetCaptain(sid, CaptainStore.SessionName(sid), now, ClaudePid());
         var sb = new StringBuilder(CaptainStore.Manual(showork)).Append('\n');
         // 收件匣裡還沒送到秘書的、還在等放行的：先印，印完標成已送
         var pend = CaptainInbox.Pending(now);
@@ -514,7 +521,7 @@ static class HookCli
         if (roster != null && target == null) return (1, "", $"名冊裡沒有「{to}」；先跑 showork roster 看名字\n");
         if (thenTo != null && roster != null && Entry(thenTo) == null) return (1, "", $"名冊裡沒有下一棒「{thenTo}」\n");
         if (target?.SessionId == from) return (1, "", "不能派給自己\n");
-        if (CaptainStore.Captain() != from) CaptainStore.SetCaptain(from, CaptainStore.SessionName(from), now);
+        if (CaptainStore.Captain() != from) CaptainStore.SetCaptain(from, CaptainStore.SessionName(from), now, ClaudePid());
         var id = Dispatch.NewId(now, CaptainStore.Tasks().Select(t => t.Id).ToHashSet());
         var task = new CaptainTask
         {

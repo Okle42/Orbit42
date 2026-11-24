@@ -59,7 +59,9 @@ struct CaptainQuietTests {
         #expect(push(nil))
         #expect(!push(nil) && !push(nil, how: "換了方法"))
         #expect(push("要 push 嗎"))
-        #expect(!push("要 push 嗎") && !push(nil) && !push("要 push 嗎"))
+        #expect(!push("要 push 嗎") && !push(nil))
+        #expect(push("要 push 嗎"))                    // 有→無→同題再問：第三張要推
+        #expect(!push("要 push 嗎") && !push("要 push 嗎"))       // 完全重複仍只推一次
         #expect(push("要部署嗎"))
         #expect(push("要部署嗎", ["好", "不要"]))
         #expect(!push(nil))
@@ -177,6 +179,29 @@ struct CaptainQuietTests {
             let r = run(t)
             #expect(!r.hit && r.text == t)
         }
+    }
+
+    @Test("秘書 /clear：同一程序才接上；別的 session、/resume、pid 重用、舊登記都不接")
+    func followClear() throws {
+        let me = ProcStamp(pid: 100, start: 5), c = CaptainRecord(sessionId: "old", name: "秘書", proc: me)
+        func go(_ c: CaptainRecord, _ sid: String = "new", _ source: String? = "clear", _ p: ProcStamp?, _ others: Set<String> = []) -> CaptainRecord? {
+            CaptainStore.afterClear(c, newSid: sid, source: source, proc: p, others: others)
+        }
+        let n = try #require(go(c, "new", "clear", me, ["別人"]))
+        #expect(n.sessionId == "new" && n.name == "秘書" && n.proc == me)
+        #expect(go(n, "new2", "clear", me)?.sessionId == "new2")                      // 再 /clear 一次也接得上
+        #expect(go(c, "new", "clear", ProcStamp(pid: 101, start: 5)) == nil)          // 別的 session 的 /clear
+        #expect(go(c, "new", "clear", ProcStamp(pid: 100, start: 9)) == nil)          // pid 被重用
+        #expect(go(c, "new", "clear", nil) == nil)
+        for s in ["startup", "resume", "compact", nil] as [String?] { #expect(go(c, "new", s, me) == nil) }
+        #expect(go(c, "new", "clear", me, ["old"]) == nil)                            // 舊對話在別的程序開著：認不準，不接
+        #expect(go(c, "new", "clear", me, ["new"]) == nil)                            // 新 id 是別人的
+        #expect(go(CaptainRecord(sessionId: "old", name: nil), "new", "clear", me) == nil)   // 沒記程序的舊登記
+        let old = try BoardJSON.decoder.decode(CaptainRecord.self, from: Data(#"{"sessionId":"a","name":"Ethan","at":"2026-11-24T11:06:56.386Z"}"#.utf8))
+        #expect(old.proc == nil)
+        let now = try #require(ProcStamp.of(getpid()))
+        #expect(ProcStamp.of(getpid()) == now && ProcStamp.of(getppid()) != now && ProcStamp.of(nil) == nil)
+        #expect(try BoardJSON.decoder.decode(CaptainRecord.self, from: BoardJSON.encoder.encode(CaptainRecord(sessionId: "a", name: nil, proc: now))).proc == now)
     }
 
     @Test("換哨提醒：秘書 ctx 過門檻送一次；降下來重新計；組員不算")

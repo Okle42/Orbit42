@@ -1327,11 +1327,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 for o in self.satWins.values where o !== w && !o.isHidden { o.matchSize(size) }
             }
             w.acceptFileDrops()
-            w.addTools([("3D", "在這顆衛星裡打開 3D 檔或圖片"), ("網頁", "在這顆衛星裡打開網頁")]) { [weak self] i in
-                guard let self else { return }
-                let kind = ["3d", "web"][i]
-                if self.moons[id]?[kind] != nil { self.tapMoon(id, kind) } else if i == 0 { self.pickModel(sat: id) } else { self.openWeb(nil, sat: id) }
-            }
             root.addSubview(w)
             satWins[id] = w
         }

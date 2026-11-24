@@ -99,7 +99,20 @@ public struct CaptainRecord: Codable, Sendable, Equatable {
     public var sessionId: String
     public var name: String?
     public var at: Date
-    public init(sessionId: String, name: String?, at: Date = Date()) { self.sessionId = sessionId; self.name = name; self.at = at }
+    public var proc: ProcStamp? = nil        // 秘書的 claude 程序（/clear 後換 sessionId，靠它認出是同一個；舊登記沒有）
+    public init(sessionId: String, name: String?, at: Date = Date(), proc: ProcStamp? = nil) { self.sessionId = sessionId; self.name = name; self.at = at; self.proc = proc }
+}
+
+/// 程序身分：pid＋核心記的啟動時間（pid 會被重用，兩個一起才算同一個）
+public struct ProcStamp: Codable, Sendable, Equatable {
+    public var pid: Int32
+    public var start: Double
+    public init(pid: Int32, start: Double) { self.pid = pid; self.start = start }
+    public static func of(_ pid: Int32?) -> ProcStamp? {
+        guard let pid, pid > 1, let k = TTYFinder.kinfo(pid) else { return nil }
+        let t = k.kp_proc.p_un.__p_starttime
+        return ProcStamp(pid: pid, start: Double(t.tv_sec) + Double(t.tv_usec) / 1_000_000)
+    }
 }
 
 public enum Captain {
@@ -290,6 +303,32 @@ public enum CaptainStore {
         try? FileManager.default.createDirectory(at: Captain.dir, withIntermediateDirectories: true)
         guard let d = try? BoardJSON.encoder.encode(r) else { return false }
         return (try? d.write(to: Captain.captainFile, options: .atomic)) != nil
+    }
+
+    /// /clear 後換了 sessionId，新的還是不是同一個秘書（11-25：登記停在舊 id，擋單推不到、放行被拒）。
+    /// 全部成立才算：來源是 clear、跟登記的是同一個程序、舊 id 沒有別的程序在用、新 id 也不是別的程序的。
+    /// 沒記程序的舊登記、/resume 換對話、別的 session 都不接（要自己跑 showork captain）
+    public static func afterClear(_ c: CaptainRecord, newSid: String, source: String?, proc: ProcStamp?, others: Set<String>) -> CaptainRecord? {
+        guard source == "clear", !newSid.isEmpty, newSid != c.sessionId, let p = c.proc, p == proc,
+              !others.contains(c.sessionId), !others.contains(newSid) else { return nil }
+        return CaptainRecord(sessionId: newSid, name: c.name, proc: p)
+    }
+
+    /// SessionStart：同一個秘書 /clear ⇒ 登記、名字、派出去的單（回報要送回來）都換到新 id。回傳有沒有接上
+    public static func follow(newSid: String, source: String?, pid: Int32?) -> Bool {
+        let recs = NicknameStore.liveSessions()
+        guard let c = captain(), let n = afterClear(c, newSid: newSid, source: source, proc: ProcStamp.of(pid),
+                                                    others: Set(recs.filter { $0.pid != pid }.map(\.sessionId))), setCaptain(n) else { return false }
+        if NicknameStore.get(newSid) == nil, let old = NicknameStore.get(c.sessionId) { NicknameStore.save(newSid, old) }
+        for var t in tasks() where t.from == c.sessionId { t.from = newSid; save(t) }
+        return true
+    }
+
+    /// 秘書自己的 hook：把它現在的程序補進登記（程序重開、舊登記沒記都靠這裡）；那個程序的紀錄要真的是這個 sessionId
+    public static func stamp(sid: String, pid: Int32?) {
+        guard var c = captain(), c.sessionId == sid, let p = ProcStamp.of(pid), c.proc != p,
+              NicknameStore.liveSessions().contains(where: { $0.pid == p.pid && $0.sessionId == sid }) else { return }
+        c.proc = p; setCaptain(c)
     }
 
     public static func roster() -> Roster? {

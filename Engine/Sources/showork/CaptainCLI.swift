@@ -28,7 +28,7 @@ enum CaptainCLI {
                 let n = a.dropFirst().reduce(0) { $0 + CaptainInbox.ack($1, now: Date()) }
                 out(n == 0 ? "沒有符合的未處理單" : "已標 \(n) 筆為已處理"); return 0
             }
-            CaptainStore.setCaptain(CaptainRecord(sessionId: sid, name: sessionName(sid)))
+            CaptainStore.setCaptain(CaptainRecord(sessionId: sid, name: sessionName(sid), proc: ProcStamp.of(Handover.claudePID())))
             out(Captain.manual(showork: showork))
             // 收件匣裡還沒送到秘書的、還在等放行的（T1024033803 ④）：先印，印完標成已送
             let pend = CaptainInbox.pending(now: Date())
@@ -147,7 +147,7 @@ enum CaptainCLI {
         if let n = thenTo, roster != nil && entry(n) == nil { err("名冊裡沒有下一棒「\(n)」"); return 1 }
         if target?.sessionId == from { err("不能派給自己"); return 1 }
         if CaptainStore.captain()?.sessionId != from {
-            CaptainStore.setCaptain(CaptainRecord(sessionId: from, name: sessionName(from)))
+            CaptainStore.setCaptain(CaptainRecord(sessionId: from, name: sessionName(from), proc: ProcStamp.of(Handover.claudePID())))
         }
         let id = Captain.newId(now: Date(), existing: Set(CaptainStore.tasks().map(\.id)))
         let t = CaptainTask(id: id, from: from, to: target?.name ?? to, toSession: target?.sessionId, project: target?.project, text: text,

@@ -424,13 +424,14 @@ public sealed class HookPortTests : IDisposable
         reports["A"] = new() { Status = "blocked", Summary = "三", At = T0 };
         Assert.Empty(Plan(270));                                        // 拿掉問題：不推
         reports["A"] = new() { Status = "blocked", Summary = "三", Ask = "要 push 嗎", At = T0 };
-        Assert.Empty(Plan(340));                                        // 同一題重發：不推
+        Assert.Single(Plan(340));                                       // 有→無→同題再問：推
+        Assert.Empty(Plan(405));                                        // 完全重複：不推
         reports["A"] = new() { Status = "blocked", Summary = "三", Ask = "要 push 嗎", Options = new() { "好" }, At = T0 };
-        Assert.Single(Plan(410));                                       // 選項改了：推
+        Assert.Single(Plan(470));                                       // 選項改了：推
         reports["CAP"] = new() { Status = "review", Summary = "秘書的", At = T0 };
         reports["B"] = new() { Status = "working", Kind = "start", Doing = "修 bug", At = T0.AddSeconds(400) };
         reports["C"] = new() { Status = "done", Summary = "做完", At = T0.AddSeconds(400) };
-        Assert.Empty(Plan(480));                                        // 秘書自己的、開工卡、做完的都不推
+        Assert.Empty(Plan(540));                                        // 秘書自己的、開工卡、做完的都不推
         var back = CardRelay.State.From(JsonNode.Parse(HookJson.Text(st.ToJson())));     // 狀態存檔讀回
         Assert.True(back.Seeded); Assert.Equal(st.SentKey, back.SentKey); Assert.Equal(st.SentAsk, back.SentAsk);
     }
@@ -458,6 +459,37 @@ public sealed class HookPortTests : IDisposable
         var a = CaptainLink.Alarm(r, 2, T0);
         Assert.StartsWith("【巡檢時間】在線 1 人（不含秘書）", a.Text);
         Assert.Contains("收件匣未處理 2 則", a.Text);
+    }
+
+    [Fact] // 走真的 brief／release：同一程序 /clear 接上、放得了行；別的 session 的 /clear 不會，也放不了行
+    public void SecretaryFollowsClear()
+    {
+        var saved = CaptainStore.ProcOf;
+        try
+        {
+            CaptainStore.ProcOf = pid => pid is { } p ? (p, 5L) : null;
+            string Start(string sid, string source) => $"{{\"session_id\":\"{sid}\",\"source\":\"{source}\",\"cwd\":\"/x\"}}";
+            HookCli.ClaudePid = () => 100;
+            HookCli.Captain(new(), "old", T0, "/sw");
+            CaptainStore.Save(new CaptainTask { Id = "T1", From = "old", To = "A", State = "sent", CreatedAt = T0, UpdatedAt = T0 });
+            CaptainInbox.Save(new InboxItem { Id = "BZZZZ", Kind = "block", At = T0, Sid = "w", Name = "w", Kinds = new() { "rm" }, Text = "rm", Fingerprint = "f" });
+            HookCli.ClaudePid = () => 101;                                   // 別的 session
+            Assert.DoesNotContain("自動接上", HookCli.Brief(Start("thief", "clear"), null, "/sw", T0));
+            Assert.Equal("old", CaptainStore.Captain());
+            Assert.Equal(1, HookCli.Release(new() { "BZZZZ" }, "thief", T0).Code);
+            HookCli.ClaudePid = () => 100;
+            HookCli.Brief(Start("other", "resume"), null, "/sw", T0);        // 同程序換對話不算
+            Assert.Equal("old", CaptainStore.Captain());
+            Assert.Contains("自動接上", HookCli.Brief(Start("new", "clear"), null, "/sw", T0));
+            Assert.Equal("new", CaptainStore.Captain());
+            Assert.Equal("new", CaptainStore.Task("T1")!.From);
+            Assert.Equal(1, HookCli.Release(new() { "BZZZZ" }, "old", T0).Code);
+            Assert.Equal(0, HookCli.Release(new() { "BZZZZ" }, "new", T0).Code);
+            Assert.False(CaptainStore.IsAfterClear("old", (100, 5), "new", "clear", (100, 9), new HashSet<string>()));   // pid 重用
+            Assert.False(CaptainStore.IsAfterClear("old", null, "new", "clear", (100, 5), new HashSet<string>()));       // 舊登記
+            Assert.False(CaptainStore.IsAfterClear("old", (100, 5), "new", "clear", (100, 5), new HashSet<string> { "old" }));
+        }
+        finally { CaptainStore.ProcOf = saved; HookCli.ClaudePid = () => null; }
     }
 
     [Fact]
