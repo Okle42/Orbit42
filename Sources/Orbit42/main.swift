@@ -681,6 +681,26 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             }
         }
         watchAskCard(); watchSphereFile()
+        startModels(test: test)
+        // 測試：ORBIT_TEST_3D="<檔案>@<png>" ⇒ 3 秒後開 3D 小視窗，載完截圖（模型用 SCNView.snapshot 疊上去）、印資訊後結束
+        if let spec = env["ORBIT_TEST_3D"], let at = spec.lastIndex(of: "@") {
+            let path = String(spec[..<at]), out = String(spec[spec.index(after: at)...])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated {
+                guard let self, let (w, v) = self.openModel(URL(fileURLWithPath: path)) else { print("3d: no window"); exit(1) }
+                v.onLoaded = { ok in DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated {
+                    let img = NSImage(size: w.bounds.size)
+                    if let rep = w.bitmapImageRepForCachingDisplay(in: w.bounds) { w.cacheDisplay(in: w.bounds, to: rep); img.addRepresentation(rep) }
+                    let shot = v.scn.snapshot(), final = NSImage(size: w.bounds.size)
+                    final.lockFocus(); NSColor(white: 0.12, alpha: 1).setFill(); NSRect(origin: .zero, size: w.bounds.size).fill()
+                    img.draw(in: w.bounds)
+                    if ok { shot.draw(in: w.convert(v.scn.bounds, from: v.scn)) }
+                    final.unlockFocus()
+                    if let t = final.tiffRepresentation, let r = NSBitmapImageRep(data: t) { try? r.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out)) }
+                    print("3d ok=\(ok) \(v.summaryText) \(v.messageText)")
+                    self.closeModel(w); print("3d windows left: \(self.modelCount)"); fflush(stdout); exit(ok ? 0 : 2)
+                } } }
+            } }
+        }
         // ⌃⌘F：全螢幕桌面模式切換（macOS 標準快捷鍵）
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             if e.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.control, .command], e.charactersIgnoringModifiers?.lowercased() == "f" {
@@ -976,6 +996,39 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         w.flash()
         return true
     }
+
+    // MARK: 3D 檔案小視窗（11-24 Keng：像終端機視窗，看各種 3D 檔）。跟衛星放同一本冊子：疊放、自動排版、點空白全收都一起
+    private var modelSeq = 0
+    var modelCount: Int { satWins.keys.filter { $0.hasPrefix("3d-") }.count }
+    @discardableResult
+    func openModel(_ url: URL) -> (TermWindowView, ModelView)? {
+        guard let root = window.contentView else { return nil }
+        if let (id, w) = satWins.first(where: { ($0.value.content as? ModelView)?.url?.standardizedFileURL == url.standardizedFileURL }), let v = w.content as? ModelView {
+            showSat(id); v.open(url); return (w, v)               // 同一個檔：叫回來、重讀（檔案可能改過）
+        }
+        modelSeq += 1; let id = "3d-\(modelSeq)"
+        let v = ModelView(frame: .zero), w = TermWindowView(content: v)
+        w.appearance = NSAppearance(named: themeNow == "light" ? .aqua : .darkAqua)
+        let n = CGFloat(satWins.values.filter { !$0.isHidden }.count)
+        w.frame = TermWindowView.fit(w.restoredFrame(in: root.bounds).offsetBy(dx: n * 28, dy: -n * 28), in: root.bounds)
+        w.isHidden = true
+        v.onTitle = { [weak w] t in w?.titleLabel.stringValue = t + " · 3D" }
+        v.onOpenPanel = { [weak self, weak v] in self?.pickModel(into: v) }
+        w.onClose = { [weak self, weak w] in if let w { self?.closeModel(w) } }
+        w.onMinimize = { [weak self, weak w] in if let self, let w { self.animate(w, on: false) { [weak self] in self?.autoArrange() } } }
+        w.onResized = { [weak self, weak w] size in
+            guard let self else { return }
+            for o in self.satWins.values where o !== w && !o.isHidden { o.matchSize(size) }
+        }
+        root.addSubview(w); satWins[id] = w
+        showSat(id); v.open(url)
+        return (w, v)
+    }
+    func closeModel(_ w: TermWindowView) {
+        guard let id = satWins.first(where: { $0.value === w })?.key else { return }
+        (w.content as? ModelView)?.cancel(); closeSat(id)
+    }
+    func recallModels() { for (id, w) in satWins where id.hasPrefix("3d-") && (w.isHidden || !w.wantShown) { showSat(id) } }
 
     func applyTheme(_ name: String) {
         themeNow = name == "light" ? "light" : "dark"
