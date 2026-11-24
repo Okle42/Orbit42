@@ -41,6 +41,9 @@ public enum SphereEmbed {
     /// 11-24 iPhone 衛星終端機可操作：把手機送來的位元組（鍵盤、滑鼠跳脫序列）寫進那顆衛星的終端機；找不到衛星回 false。Orbit42 設定
     public static var remoteInput: ((String, Data) -> Bool)?
 
+    /// 11-25 答案卡打進衛星終端機（TermAnswer）：回 false＝沒有開著這個 session 的衛星（什麼都沒做）。Orbit42 設定
+    public static var typeAnswer: ((_ sid: String, _ text: String, _ done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool)?
+
     private static var hosts: [SphereWebHost] = []
 
     /// 11-24 iPhone 語音：手機說完的話交給 Orbit42 的智能體（sphere.html window.karaRemoteSay，跟按住講話放開同一條路）。沒有球體回 false

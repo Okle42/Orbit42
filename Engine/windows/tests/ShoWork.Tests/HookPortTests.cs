@@ -492,6 +492,16 @@ public sealed class HookPortTests : IDisposable
         finally { CaptainStore.ProcOf = saved; HookCli.ClaudePid = () => null; }
     }
 
+    [Fact] // 選項不剪字；太長、太多報錯退回
+    public void OptionsAreNotCut()
+    {
+        var longOne = new string('字', 200);
+        (CardReport? Ok, string? Error) P(string o) => CardReport.Parse(new[] { "--status", "review", "--ask", "x", "--options", o }, T0);
+        Assert.Equal(new[] { longOne, "b" }, P(longOne + "|b").Ok!.Options);
+        Assert.StartsWith("--options", P(longOne + "字|b").Error);
+        Assert.StartsWith("--options", P("a|b|c|d|e").Error);
+    }
+
     [Fact]
     public void SecretaryAddress()
     {

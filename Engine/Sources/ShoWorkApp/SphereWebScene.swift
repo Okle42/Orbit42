@@ -107,7 +107,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             let text = (str("text") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
             if blocked { return say("測試：不送出「\(text)」。") }
-            say(BoardActions.answer(c, text: text) + "。")
+            say(BoardActions.answer(c, text: text, source: .user) { [weak self] in self?.say($0 + "。") } + "。")
         case "permit":
             guard let c = card(str("sessionId")) else { return say("這個 session 已經不在了。") }
             let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") ?? .deny

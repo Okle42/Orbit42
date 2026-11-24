@@ -14,11 +14,18 @@ struct InboxTests {
 
     @Test("--options：| 分隔、去空白去重、最多 4 個；沒有 --ask 就不收")
     func parseOptions() throws {
-        let r = try SelfReport.parse(args: ["--status", "review", "--ask", "要 push 嗎", "--options", " 好，push | 先不要|好，push||a|b|c"]).get()
+        let r = try SelfReport.parse(args: ["--status", "review", "--ask", "要 push 嗎", "--options", " 好，push | 先不要|好，push||a|b"]).get()
         #expect(r.options == ["好，push", "先不要", "a", "b"])
         let n = try SelfReport.parse(args: ["--status", "done", "--options", "a|b"]).get()
         #expect(n.options == nil)
         #expect(SelfReport.cleanOptions([" ", ""]) == nil)
+        // 11-25 不剪字：全文留著；太長、太多就報錯退回；舊卡照讀
+        let long = String(repeating: "字", count: 200)
+        #expect(try SelfReport.parse(args: ["--status", "review", "--ask", "x", "--options", long + "|b"]).get().options == [long, "b"])
+        for bad in [long + "字|b", "a|b|c|d|e"] {
+            guard case .failure(let e) = SelfReport.parse(args: ["--status", "review", "--ask", "x", "--options", bad]) else { Issue.record("要報錯"); continue }
+            #expect(e.message.hasPrefix("--options"))
+        }
         // 舊檔沒有 options 也讀得回來
         let old = #"{"status":"review","ask":"x","at":"2026-10-21T00:00:00.000Z"}"#
         #expect(try BoardJSON.decoder.decode(SelfReport.self, from: Data(old.utf8)).options == nil)

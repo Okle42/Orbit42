@@ -638,6 +638,17 @@ function okColors(id, bytes) {
 window.orbitData = (id, data) => { const t = terms.get(id) || makeTerm(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); };
 window.orbitReplay = (id, data) => { const t = terms.get(id); if (t && !t.term.buffer.active.length) { carry.delete(id); t.term.write(okColors(id, b64(data)), () => t.placeDoll?.()); } };
 // 11-24 iPhone 淺色終端機：切深淺後清空重來（App 從頭重抓 Mac 的輸出，用新色票重新換顏色；已經畫上去的字不會自己變色）
+// 11-25 答案卡打進終端機：現在的畫面（solid＝拿掉淡色字，輸入框的提示字是淡色）
+window.orbitScreen = id => {
+  const t = terms.get(id); if (!t) return null;
+  const b = t.term.buffer.active, rows = [];
+  for (let y = 0; y < t.term.rows; y++) {
+    const l = b.getLine(b.baseY + y); let solid = "";
+    if (l) for (let x = 0; x < l.length; x++) { const c = l.getCell(x); if (c && c.getWidth()) solid += c.isDim() ? " " : (c.getChars() || " "); }
+    rows.push({ text: l ? l.translateToString(true) : "", solid: solid.trimEnd() });
+  }
+  return JSON.stringify({ rows, cursorRow: b.cursorY, cursorCol: b.cursorX, paste: t.term.modes.bracketedPasteMode });
+};
 window.orbitReset = id => { const t = terms.get(id); if (!t) return; carry.delete(id); t.term.reset(); };
 window.orbitExit = (id, code) => { terms.get(id)?.term.write(`\r\n\x1b[90m[已結束 ${code}] 點衛星可以重新開\x1b[0m\r\n`); const t = terms.get(id); if (t) t.started = false; };
 window.orbitOpened = id => openTerm(id);

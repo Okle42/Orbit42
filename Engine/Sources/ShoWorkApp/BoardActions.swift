@@ -220,6 +220,46 @@ enum BoardActions {
     /// 兩條都不通才退回拷貝。不先動剪貼簿（10-18：蓋掉他的剪貼簿）
     /// - Parameter resolvesAsk: 這是在回答排隊中最早那題 --ask（收件匣、回答卡）⇒ 送到了就從佇列拿掉；
     ///   一般傳話（網頁「傳話」、右側對話窗格）不算回答，題目照樣留著（Asks.swift；11-11）
+    /// 誰觸發的：user＝Keng 在介面上按／打的（球體、Mac 卡片、已配對手機）；其他一律 other（指令列、別的 session⋯），不能冒充使用者輸入
+    enum AnswerSource { case user, other }
+    private static var typingInto = Set<String>()
+
+    /// 答案能不能走「打進終端機」（純判斷）。放行、排了好幾題、開著權限框的不走：
+    ///   放行有自己的單號規則；打字進去會讓 UserPromptSubmit 把排著的題全部當成答了；註明題目的字也會被當成使用者說的
+    static func typable(_ c: BoardCard, text: String, source: AnswerSource, resolvesAsk: Bool) -> String? {
+        guard source == .user, resolvesAsk, c.permit == nil, c.asks.count <= 1, c.kind != "board", !c.id.contains("#"),
+              let t = TermAnswer.clean(text), !t.hasPrefix("放行") else { return nil }
+        return t
+    }
+
+    /// 按答案卡：有開著的衛星終端機就打進去（跟自己打字一樣），看不準才走原本的訊息。done＝之後的結果（打進去、改走訊息、沒確認到）
+    static func answer(_ c: BoardCard, text: String, source: AnswerSource, done: @escaping @MainActor (String) -> Void) -> String {
+        if typingInto.contains(c.sessionId) { return "「\(c.title)」上一個答案還在送" }
+        guard let t = typable(c, text: text, source: source, resolvesAsk: true), SessionHost.shared.handle(for: c.sessionId) == nil,
+              let type = SphereEmbed.typeAnswer else { return answer(c, text: text) }
+        let ask = c.asks.first, question = ask?.ask ?? c.report?.ask
+        typingInto.insert(c.sessionId)
+        let started = type(c.sessionId, t) { r in
+            typingInto.remove(c.sessionId)
+            switch r {
+            case .sent:         // 放行紀錄（recordAnswer）由 UserPromptSubmit 的 hook 記，這裡不再記一次
+                if let a = ask { AskQueue.resolve(sid: c.sessionId, id: a.id) }
+                BoardModel.shared.append(["ev": "answer", "id": c.sessionId, "project": c.project, "text": t, "via": "term"])
+                tellCaptain(c, answer: t, question: question)
+                done("已打進「\(c.title)」的終端機")
+            case .notStarted(let why):
+                // 等的時候他自己在終端機答掉了 ⇒ 不要再送一次
+                if let a = ask, !AskQueue.load(c.sessionId).contains(where: { $0.id == a.id }) { done("「\(c.title)」這題已經答過了"); return }
+                done(answer(c, text: text) + "（\(why)，改用訊息送達）")
+            case .unsure(let why):      // 寫過字了：絕不再走訊息，題目留著
+                BoardModel.shared.append(["ev": "answer-unsure", "id": c.sessionId, "project": c.project, "text": t, "why": why])
+                done("「\(c.title)」\(why)，請到它的終端機看一下；這題先留著")
+            }
+        }
+        if !started { typingInto.remove(c.sessionId); return answer(c, text: text) }
+        return "正在打進「\(c.title)」的終端機"
+    }
+
     static func answer(_ c: BoardCard, text: String, resolvesAsk: Bool = true) -> String {
         var line = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
         let ask = resolvesAsk ? c.asks.first : nil

@@ -31,13 +31,22 @@ sealed class CardReport
 
     public static int Clamp(int v) => Math.Clamp(v, 0, 100);
 
-    /// 選項：去空白、去重複、最多 4 個、每個最多 40 字；全空就 null
+    /// 選項：去空白、去重複、最多 4 個；全空就 null。不剪字，太長或太多在 Parse 就退回（同 Mac）
     public static List<string>? CleanOptions(IEnumerable<string> xs)
     {
         var out_ = new List<string>();
         foreach (var x in xs.Select(x => x.Trim()))
-            if (x.Length > 0 && !out_.Contains(x) && out_.Count < 4) out_.Add(SwiftText.Prefix(x, 40));
+            if (x.Length > 0 && !out_.Contains(x) && out_.Count < 4) out_.Add(x);
         return out_.Count == 0 ? null : out_;
+    }
+
+    public const int OptionLimit = 200;
+    static string? OptionProblem(IEnumerable<string> xs)
+    {
+        var ys = xs.Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+        if (ys.FirstOrDefault(x => SwiftText.Count(x) > OptionLimit) is { } x) return $"--options 每個選項最多 {OptionLimit} 字，這個有 {SwiftText.Count(x)} 字，請改短：{SwiftText.Prefix(x, 30)}⋯";
+        var n = ys.Distinct().Count();
+        return n > 4 ? $"--options 最多 4 個，現在有 {n} 個" : null;
     }
 
     static bool Num(string v, out int n) =>
@@ -71,7 +80,7 @@ sealed class CardReport
                 case "--report": r.Report = v.Length == 0 ? null : v; break;
                 case "--task": r.Task = v.Length == 0 ? null : v; break;
                 case "--doing": r.Doing = Nicknames.CleanDoing(v); break;
-                case "--options": opts = v.Split('|', StringSplitOptions.RemoveEmptyEntries).ToList(); break;
+                case "--options": opts = v.Split('|', StringSplitOptions.RemoveEmptyEntries).ToList(); if (OptionProblem(opts) is { } op) return (null, op); break;
                 case "--how": r.How = Text(v); break;
                 case "--kind":
                     if (v is not ("start" or "wrapup")) return (null, "--kind 只有 start（開工卡）／wrapup（收尾完）");

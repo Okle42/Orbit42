@@ -203,7 +203,7 @@ final class OfficeWebHost: NSObject, WKScriptMessageHandler, WKNavigationDelegat
             guard let c = card(m) else { return toast("這張卡已經不在了") }
             let text = str("text") ?? ""
             if blocked { return toast("測試：不送出「\(text)」") }
-            toast(BoardActions.answer(c, text: text))
+            toast(BoardActions.answer(c, text: text, source: .user) { [weak self] in self?.toast($0) })
         case "permit":
             guard let c = card(m) else { return toast("這張卡已經不在了") }
             let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") ?? .deny

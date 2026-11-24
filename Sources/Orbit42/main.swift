@@ -32,7 +32,65 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// 拖檔案進來：路徑打進那顆衛星（跟手打一樣）
     func type(_ id: String, _ text: String) {
         guard let d = text.data(using: .utf8) else { return }
-        sats[id]?.pty?.write(d)
+        input(id, d)
+    }
+    /// 使用者（或拖檔、手機）送進這顆衛星的位元組；答案卡正在打字的那一下先扣住，打完再補，不會混在一起
+    private var held: [String: Data] = [:], lastKey: [String: Date] = [:]
+    @discardableResult
+    private func input(_ id: String, _ d: Data) -> Bool {
+        guard let p = sats[id]?.pty else { return false }
+        // 滑鼠移動、焦點、終端機自動回覆不算按鍵
+        let s = String(decoding: d.prefix(4), as: UTF8.self)
+        if !["\u{1B}[<", "\u{1B}[I", "\u{1B}[O", "\u{1B}[?", "\u{1B}[>", "\u{1B}]", "\u{1B}P"].contains(where: { s.hasPrefix($0) }) { lastKey[id] = Date() }
+        if held[id] != nil { held[id]!.append(d) } else { p.write(d) }
+        return true
+    }
+    /// 答案卡打進終端機（TermAnswer）。剛好一顆衛星現在就是這個 session 才做
+    func typeAnswer(_ sid: String, _ text: String, done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool {
+        let hits = sats.values.filter { $0.exited == nil && $0.pty != nil && $0.brain == .claude && views[$0.id] != nil && sessionRecord($0)?.sessionId == sid }
+        guard hits.count == 1, let s = hits.first, let pty = s.pty, let v = views[s.id], held[s.id] == nil else { return false }
+        let id = s.id, start = Self.transcripts(sid)
+        held[id] = Data()
+        let io = TermAnswer.IO(
+            target: { [weak self] in
+                guard let self, let r = self.sessionRecord(s), s.pty === pty else { return nil }
+                let n = NicknameStore.liveSessions().filter { $0.name == r.name }.count
+                return TermAnswer.Target(sid: r.sessionId, name: r.name ?? "", idle: r.status == "idle", unique: n == 1 && r.name?.isEmpty == false)
+            },
+            screen: {
+                guard let j = try? await v.evaluateJavaScript("window.orbitScreen ? window.orbitScreen(\"\(id)\") : null") as? String else { return nil }
+                return try? JSONDecoder().decode(TermAnswer.Screen.self, from: Data(j.utf8))
+            },
+            write: { pty.write($0) },
+            typing: { [weak self] in self?.lastKey[id].map { Date().timeIntervalSince($0) < 5 } ?? false },
+            added: {
+                guard !start.isEmpty else { return nil }
+                var out = Data()
+                for (f, n) in Self.transcripts(sid) where n > (start[f] ?? 0) {
+                    guard let h = FileHandle(forReadingAtPath: f) else { continue }
+                    try? h.seek(toOffset: start[f] ?? 0); out.append(h.readDataToEndOfFile()); out.append(0x0A); try? h.close()
+                }
+                return out
+            },
+            wait: { try? await Task.sleep(for: .seconds($0)) })
+        Task { @MainActor in
+            let r = await TermAnswer.send(text, to: sid, io: io)
+            let rest = self.held.removeValue(forKey: id) ?? Data()
+            if !rest.isEmpty { pty.write(rest) }
+            print("answer \(id) → \(r)"); fflush(stdout)
+            done(r)
+        }
+        return true
+    }
+    /// 這個 session 的對話紀錄檔 → 現在多大
+    private static func transcripts(_ sid: String) -> [String: UInt64] {
+        let fm = FileManager.default, root = NSHomeDirectory() + "/.claude/projects"
+        var out: [String: UInt64] = [:]
+        for d in (try? fm.contentsOfDirectory(atPath: root)) ?? [] {
+            let f = "\(root)/\(d)/\(sid).jsonl"
+            if let n = (try? fm.attributesOfItem(atPath: f)[.size]) as? NSNumber { out[f] = n.uint64Value }
+        }
+        return out
     }
     /// 11-23 Keng「叉叉關閉連背景 session 都要能被我關掉」⇒ 拉進來看的背景 session 也用官方 `claude stop <job>` 停掉（對話保留，之後可以 claude attach 接回來）
     func end(_ id: String) {
@@ -220,8 +278,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // 11-24 Keng：iPhone 衛星終端機可以點、捲、打字 ⇒ 手機送來的位元組直接寫進那顆衛星的 pty（跟本機網頁的 "input" 同一條）
         SphereEmbed.remoteInput = { [weak self] id, data in
             MainActor.assumeIsolated {
-                guard let p = self?.sats[id]?.pty else { return false }
-                p.write(data); return true
+                self?.input(id, data) ?? false
             }
         }
     }
@@ -291,7 +348,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if s.pty == nil || s.exited != nil { start(s, cols: cols, rows: rows) }
             else { if let v = views[id] { Self.call(v, "window.orbitReplay", [id, s.snapshot().base64EncodedString()]) }; s.localResize(cols: cols, rows: rows) }
         case "input":
-            if let d = (m["data"] as? String)?.data(using: .utf8) { sats[id]?.pty?.write(d) }
+            if let d = (m["data"] as? String)?.data(using: .utf8) { input(id, d) }
         case "resize": sats[id]?.localResize(cols: cols, rows: rows); if ProcessInfo.processInfo.environment["ORBIT_TEST_DRAG"] != nil { print("resize \(id) \(cols)x\(rows) pty=\(sats[id]?.pty != nil)"); fflush(stdout) }
         case "remove":
             // Satellites Orbit42 started: hang up (like closing a terminal window).
@@ -682,6 +739,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.markSecretary() } }
         host.onBusy = { [weak self] id, busy in guard let w = self?.satWins[id], !w.isHidden else { return }; w.setBreathing(busy) }
         host.startTimers()
+        SphereEmbed.typeAnswer = { [weak self] sid, text, done in self?.host.typeAnswer(sid, text, done: done) ?? false }
         host.registerRemote()                 // 11-23 iPhone App：衛星清單與畫面（ShoWork 網頁伺服器唯讀端點）
         if ProcessInfo.processInfo.environment["ORBIT_TEST_RESTORE"] == "load" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated { self?.host.restore() } }

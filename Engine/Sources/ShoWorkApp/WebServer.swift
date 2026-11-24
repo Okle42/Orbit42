@@ -162,7 +162,7 @@ final class WebServer {
             // 跟原生收件匣按選項同一條：BoardActions.answer（tmux 打字 → Peer 直送 → 拷貝；轉秘書【使用者已答】；「放行」直接放行）
             return WebSnapshot.validate(answer: text, for: id, cards: cards).map { c in
                 answered[c.sessionId] = Date()
-                return BoardActions.answer(c, text: Inbox.message(text))
+                return BoardActions.answer(c, text: Inbox.message(text), source: .user) { NSLog("ShoWork web: answer \($0)") }      // 自己連自己的、沒 token 的在前面就擋掉了
             }
         case .send(let id, let text):
             // 跟 3D 辦公室「跟他說」同一條（OfficeView onPersonSend → BoardActions.answer），前面加網頁前綴

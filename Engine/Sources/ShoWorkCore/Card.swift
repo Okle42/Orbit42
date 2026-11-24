@@ -36,13 +36,22 @@ public struct SelfReport: Codable, Sendable, Equatable {
     }
     static func clamp(_ v: Int) -> Int { min(100, max(0, v)) }
 
-    /// 選項：去空白、去重複、最多 4 個、每個最多 40 字（按鈕放得下）；全空就 nil
+    /// 選項：去空白、去重複、最多 4 個；全空就 nil。不剪字（11-25：看到、送出的都是全文），太長或太多在 parse 就退回
     public static func cleanOptions(_ xs: [String]) -> [String]? {
         var out: [String] = []
         for x in xs.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !x.isEmpty && !out.contains(x) && out.count < 4 {
-            out.append(String(x.prefix(40)))
+            out.append(x)
         }
         return out.isEmpty ? nil : out
+    }
+
+    public static let optionLimit = 200
+    /// 選項太長、太多就讓 AI 自己改短，不默默剪掉
+    static func optionProblem(_ xs: [String]) -> String? {
+        let ys = xs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if let x = ys.first(where: { $0.count > optionLimit }) { return "--options 每個選項最多 \(optionLimit) 字，這個有 \(x.count) 字，請改短：\(x.prefix(30))⋯" }
+        let n = Set(ys).count
+        return n > 4 ? "--options 最多 4 個，現在有 \(n) 個" : nil
     }
 
     /// `showork card` 的參數 → 回報；格式錯回傳錯誤訊息（給 AI 看得懂的中文）
@@ -61,7 +70,10 @@ public struct SelfReport: Codable, Sendable, Equatable {
             case "--report": r = v.isEmpty ? nil : v
             case "--task": task = v.isEmpty ? nil : v
             case "--doing": doing = Nicknames.cleanDoing(v)
-            case "--options": opts = v.split(separator: "|").map(String.init)
+            case "--options":
+                let xs = v.split(separator: "|").map(String.init)
+                if let p = optionProblem(xs) { return .failure(.init(p)) }
+                opts = xs
             case "--how": how = v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : v.trimmingCharacters(in: .whitespacesAndNewlines)
             case "--kind": guard v == "start" || v == "wrapup" else { return .failure(.init("--kind 只有 start（開工卡）／wrapup（收尾完）")) }; kind = v
             case "--handoff": handoff = text(v)
