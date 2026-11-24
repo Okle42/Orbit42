@@ -50,6 +50,8 @@ public struct SelfReport: Codable, Sendable, Equatable {
     static func optionProblem(_ xs: [String]) -> String? {
         let ys = xs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         if let x = ys.first(where: { $0.count > optionLimit }) { return "--options 每個選項最多 \(optionLimit) 字，這個有 \(x.count) 字，請改短：\(x.prefix(30))⋯" }
+        // 一個「字」可以疊很多組合符 ⇒ 也算 scalars 與位元組
+        if ys.contains(where: { $0.unicodeScalars.count > optionLimit * 2 || $0.utf8.count > optionLimit * 8 }) { return "--options 有選項藏了太多看不見或疊加的字元，請改掉" }
         let n = Set(ys).count
         return n > 4 ? "--options 最多 4 個，現在有 \(n) 個" : nil
     }

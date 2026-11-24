@@ -197,6 +197,14 @@ struct CaptainQuietTests {
         #expect(go(c, "new", "clear", me, ["old"]) == nil)                            // 舊對話在別的程序開著：認不準，不接
         #expect(go(c, "new", "clear", me, ["new"]) == nil)                            // 新 id 是別人的
         #expect(go(CaptainRecord(sessionId: "old", name: nil), "new", "clear", me) == nil)   // 沒記程序的舊登記
+        // Gavin5：登記 A4 → 同程序 /resume 到 OTHER ⇒ 清掉程序 ⇒ OTHER 打 /clear 接不上；回到 A4 補回後接得上
+        #expect(CaptainStore.leaves(c, sid: "OTHER", source: "resume", proc: me) && CaptainStore.leaves(c, sid: "OTHER", source: nil, proc: me))
+        #expect(!CaptainStore.leaves(c, sid: "old", source: "resume", proc: me) && !CaptainStore.leaves(c, sid: "new", source: "clear", proc: me))
+        #expect(!CaptainStore.leaves(c, sid: "x", source: "startup", proc: ProcStamp(pid: 101, start: 5)))       // 別的 session 開起來不影響
+        var left = c; left.proc = nil
+        #expect(go(left, "new", "clear", me) == nil)
+        left.proc = me
+        #expect(go(left, "new", "clear", me)?.sessionId == "new")
         let old = try BoardJSON.decoder.decode(CaptainRecord.self, from: Data(#"{"sessionId":"a","name":"Ethan","at":"2026-11-24T11:06:56.386Z"}"#.utf8))
         #expect(old.proc == nil)
         let now = try #require(ProcStamp.of(getpid()))

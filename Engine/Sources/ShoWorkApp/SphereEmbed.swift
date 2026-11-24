@@ -42,7 +42,7 @@ public enum SphereEmbed {
     public static var remoteInput: ((String, Data) -> Bool)?
 
     /// 11-25 答案卡打進衛星終端機（TermAnswer）：回 false＝沒有開著這個 session 的衛星（什麼都沒做）。Orbit42 設定
-    public static var typeAnswer: ((_ sid: String, _ text: String, _ done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool)?
+    public static var typeAnswer: ((_ sid: String, _ text: String, _ still: @escaping @MainActor () -> Bool, _ done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool)?
 
     private static var hosts: [SphereWebHost] = []
 

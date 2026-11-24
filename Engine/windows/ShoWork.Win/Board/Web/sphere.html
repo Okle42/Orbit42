@@ -2427,7 +2427,7 @@ $("askCard").addEventListener("click", e => {
   if (a.focus) return post({ action: "focus", sessionId: c.sessionId });
   if (a.permit) return sendLater(c, { action: "permit", sessionId: c.sessionId, permitId: c.permit?.id, decision: a.permit, answers: a.answers }, b.dataset.label || b.textContent.trim());
   const extra = (drafts.get(c.sessionId) || "").trim();          // 選項＋補充：補充框有字就一起送
-  sendLater(c, { action: "answer", sessionId: c.sessionId, text: extra ? a.text + "\n補充：" + extra : a.text }, a.text + (extra ? "（＋補充）" : ""));
+  sendLater(c, { action: "answer", sessionId: c.sessionId, text: extra ? a.text + "\n補充：" + extra : a.text, askId: c.askId, option: a.text, free: extra }, a.text + (extra ? "（＋補充）" : ""));
 });
 $("askCard").addEventListener("input", e => { if (e.target.matches(".free textarea") && askSid) drafts.set(askSid, e.target.value); });
 $("askCard").addEventListener("keydown", e => {      // 補充框：⌘Enter 送出（Enter 留給中文選字和換行）
@@ -2437,7 +2437,7 @@ $("askCard").addEventListener("submit", e => {
   e.preventDefault();
   const v = e.target.querySelector("textarea, input").value.trim(); if (!v) return;
   const c = (data.team || []).find(x => x.sessionId === askSid); if (!c) return;
-  sendLater(c, { action: "answer", sessionId: c.sessionId, text: v }, v);
+  sendLater(c, { action: "answer", sessionId: c.sessionId, text: v, askId: c.askId, free: v }, v);
 });
 // 送出先等 3 秒，期間可按「復原」收回（按錯不用跳去終端機補救）；卡片先收起，下一件馬上接上
 let undoQ = null;

@@ -46,11 +46,13 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return true
     }
     /// 答案卡打進終端機（TermAnswer）。剛好一顆衛星現在就是這個 session 才做
-    func typeAnswer(_ sid: String, _ text: String, done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool {
+    func typeAnswer(_ sid: String, _ text: String, still: @escaping @MainActor () -> Bool, done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool {
         let hits = sats.values.filter { $0.exited == nil && $0.pty != nil && $0.brain == .claude && views[$0.id] != nil && sessionRecord($0)?.sessionId == sid }
         guard hits.count == 1, let s = hits.first, let pty = s.pty, let v = views[s.id], held[s.id] == nil else { return false }
         let id = s.id, start = Self.transcripts(sid)
         held[id] = Data()
+        var wrote = false
+        let name = sessionRecord(s)?.name ?? ""
         let io = TermAnswer.IO(
             target: { [weak self] in
                 guard let self, let r = self.sessionRecord(s), s.pty === pty else { return nil }
@@ -61,8 +63,8 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 guard let j = try? await v.evaluateJavaScript("window.orbitScreen ? window.orbitScreen(\"\(id)\") : null") as? String else { return nil }
                 return try? JSONDecoder().decode(TermAnswer.Screen.self, from: Data(j.utf8))
             },
-            mark: { TypedMark.put(sid: sid, text: text) },
-            write: { pty.write($0) },
+            mark: { still() && TypedMark.put(sid: sid, text: text) },
+            write: { wrote = true; pty.write($0) },
             typing: { [weak self] in self?.lastKey[id].map { Date().timeIntervalSince($0) < 5 } ?? false },
             added: {
                 guard !start.isEmpty else { return nil }
@@ -75,8 +77,11 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             },
             wait: { try? await Task.sleep(for: .seconds($0)) })
         Task { @MainActor in
-            let r = await TermAnswer.send(text, to: sid, io: io)
-            let rest = self.held.removeValue(forKey: id) ?? Data()
+            let out = await TermAnswer.send(text, to: sid, io: io)
+            var safe = !wrote           // 一個字都沒寫＝跟平常一樣，原樣補回
+            if wrote, let now = await io.screen() { safe = TermAnswer.plain(now, name: name) }
+            let (r, rest) = TermAnswer.settle(out, held: self.held[id] ?? Data(), safe: safe)
+            self.held[id] = nil
             if !rest.isEmpty { pty.write(rest) }
             print("answer \(id) → \(r)"); fflush(stdout)
             done(r)
@@ -740,7 +745,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.markSecretary() } }
         host.onBusy = { [weak self] id, busy in guard let w = self?.satWins[id], !w.isHidden else { return }; w.setBreathing(busy) }
         host.startTimers()
-        SphereEmbed.typeAnswer = { [weak self] sid, text, done in self?.host.typeAnswer(sid, text, done: done) ?? false }
+        SphereEmbed.typeAnswer = { [weak self] sid, text, still, done in self?.host.typeAnswer(sid, text, still: still, done: done) ?? false }
         host.registerRemote()                 // 11-23 iPhone App：衛星清單與畫面（ShoWork 網頁伺服器唯讀端點）
         if ProcessInfo.processInfo.environment["ORBIT_TEST_RESTORE"] == "load" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated { self?.host.restore() } }

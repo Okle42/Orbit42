@@ -262,6 +262,13 @@ static partial class CaptainStore
         return true;
     }
 
+    /// SessionStart：秘書的程序換到別的對話（不是 /clear）⇒ 清掉登記的程序，不能再拿來認 /clear；回到原對話由 Stamp 補回
+    public static void NoteLeft(string sid, string? source, int? pid, DateTime now)
+    {
+        if (source == "clear" || Captain() is not { } c || c == sid || Proc() is not { } p || ProcOf(pid) != p) return;
+        SetCaptain(c, HookJson.ReadObject(CaptainFile).Str("name"), now);
+    }
+
     /// 秘書自己的 hook：把它現在的程序補進登記；那個程序的紀錄要真的是這個 sessionId
     public static void Stamp(string sid, int? pid, DateTime now)
     {

@@ -153,3 +153,28 @@ public enum AskQueue {
         return xs
     }
 }
+
+/// 介面上對某一題的回答：哪一題、按了哪個選項、補充框打了什麼
+public struct AnswerPick: Sendable, Equatable {
+    public var askId: String, option: String?, free: String?
+    public init(askId: String, option: String?, free: String? = nil) { self.askId = askId; self.option = option; self.free = free }
+    /// 一個字串：跟某個選項全文一樣就當按選項，不然是補充框打的
+    public init?(askId: String?, text: String, options: [String]) {
+        guard let askId else { return nil }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        self = options.contains(t) ? .init(askId: askId, option: t) : .init(askId: askId, option: nil, free: t)
+    }
+    static func bare(_ s: String) -> String {
+        s.replacingOccurrences(of: #"\s*[（(](建議|Recommended)[）)]\s*$"#, with: "", options: [.regularExpression, .caseInsensitive]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    /// 要送出去的字；題目不在（答過、過期、別的 session 的、排了好幾題）或選項對不上就 nil。字由這裡組，不用介面給的整句
+    public func text(asks: [PendingAsk], now: Date) -> String? {
+        let live = AskQueue.live(asks, now: now)
+        guard live.count == 1, let q = live.first, q.id == askId else { return nil }
+        let f = free?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let option else { return f.isEmpty ? nil : f }
+        let given = (q.options ?? []).isEmpty ? Inbox.genericOptions : q.options!
+        guard given.contains(where: { $0 == option || AnswerPick.bare($0) == option }) else { return nil }
+        return AnswerPick.bare(option) + (f.isEmpty ? "" : "\n補充：" + f)
+    }
+}

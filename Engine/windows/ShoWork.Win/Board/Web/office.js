@@ -396,7 +396,7 @@ function inbox(close) {
       if (demoMode || !host) { toast(`測試：不送出「${text}」`); return; }
       S.answered[it.card.sessionId] = nowSec();
       if (S.answeringId === it.id) S.answeringId = null;
-      send("answer", { id: it.card.id, sessionId: it.card.sessionId, text });
+      send("answer", { id: it.card.id, sessionId: it.card.sessionId, text, askId: it.card.asks?.[0]?.id });
       render();
     },
     onPermit: (it, a) => {
@@ -445,7 +445,7 @@ function renderOverlay() {
       onSend: text => {
         // 示範資料的卡片借用真 session 的 pid：絕不能真的打字進去（10-20 審查）
         if (demoMode || !host) { toast(`示範資料：不送出（${[...text].length} 字）`); S.answeringId = null; render(); return; }
-        send("answer", { id: answering.id, sessionId: answering.sessionId, text });
+        send("answer", { id: answering.id, sessionId: answering.sessionId, text, askId: answering.asks?.[0]?.id });
         S.answerText[answering.id] = ""; S.answeringId = null; render();
       } });
   } else if (S.cityOpen && city) card = CityCard({ id: S.cityOpen, city, onClose: () => { S.cityOpen = null; render(); updateScene(); } });

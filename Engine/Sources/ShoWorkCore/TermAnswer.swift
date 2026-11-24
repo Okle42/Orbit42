@@ -8,6 +8,7 @@ import Foundation
 public enum TermAnswer {
     public enum Outcome: Sendable, Equatable {
         case sent                       // 對話紀錄裡看到這句了
+        case sentDropped(String)        // 送到了，但你那段時間按的鍵沒補（畫面已變成選單／權限框）
         case notStarted(String)         // 一個字都沒寫；原因
         case unsure(String)             // 寫了但沒確認到；原因
     }
@@ -24,21 +25,37 @@ public enum TermAnswer {
         public init(rows: [Row], cursorRow: Int, cursorCol: Int, paste: Bool) { self.rows = rows; self.cursorRow = cursorRow; self.cursorCol = cursorCol; self.paste = paste }
     }
 
-    /// 要打進去的字：換行變空白、控制字元與雙向控制拿掉；會被當指令的開頭加「回答：」；不能安全打的回 nil
+    /// 判斷用：NFKC（全形、相容字變成一般字）
+    public static func norm(_ s: String) -> String { s.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespaces) }
+
+    /// 要打進去的字：換行變空白、控制字元拿掉。看不見或會疊在別的字上的（零寬、變體選擇符、組合字、雙向控制）、四位元組的表情符號 ⇒ 不打（nil）：
+    /// 畫面上對不起來，也能拿來躲開頭的判斷。開頭只准字母、數字、中日韓文字（先正規化再看），其他一律加「回答：」
     public static func clean(_ s: String) -> String? {
-        var t = String(String.UnicodeScalarView(s.unicodeScalars.compactMap { u -> Unicode.Scalar? in
+        var out = String.UnicodeScalarView()
+        for u in s.unicodeScalars {
             switch u.value {
-            case 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029: return " "
-            case 0..<0x20, 0x7F..<0xA0, 0x200B, 0x200E, 0x200F, 0x202A...0x202E, 0x2060...0x206F, 0xFEFF: return nil
-            default: return u
+            case 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029: out.append(" "); continue
+            case 0..<0x20, 0x7F..<0xA0: continue
+            default: break
             }
-        })).trimmingCharacters(in: .whitespaces)
-        guard !t.isEmpty else { return nil }
+            switch u.properties.generalCategory {
+            case .format, .nonspacingMark, .enclosingMark, .spacingMark, .privateUse, .surrogate, .unassigned, .control: return nil
+            default: break
+            }
+            if u.properties.isVariationSelector || u.properties.isDefaultIgnorableCodePoint { return nil }
+            if u.value > 0xFFFF, !(0x20000...0x3FFFF).contains(u.value) { return nil }
+            out.append(u)
+        }
+        var t = String(out).trimmingCharacters(in: .whitespaces)
+        let n = norm(t)
+        guard let first = n.unicodeScalars.first else { return nil }
+        // 正規化之後才冒出來的組合字也不打
+        if n.unicodeScalars.contains(where: { [.nonspacingMark, .enclosingMark, .spacingMark].contains($0.properties.generalCategory) }) { return nil }
         // @ 會跳檔案選單、Enter 會選到檔案 ⇒ 不打
-        if t.range(of: #"(^|\s)@"#, options: .regularExpression) != nil { return nil }
+        if n.range(of: #"(^|\s)@"#, options: .regularExpression) != nil { return nil }
         let words = ["exit", "quit", ":q", ":q!", ":wq", ":wq!"]
-        if let c = t.first, "/!#&?<".contains(c) || words.contains(t.lowercased()) { t = "回答：" + t }
-        if t.hasSuffix("\\") { t += "。" }          // 行尾反斜線＋Enter 會變換行
+        if !CharacterSet.alphanumerics.contains(first) || words.contains(n.lowercased()) { t = "回答：" + t }
+        if n.hasSuffix("\\") { t += "。" }          // 行尾反斜線＋Enter 會變換行
         return t
     }
 
@@ -55,6 +72,9 @@ public enum TermAnswer {
         if let r = lines[0].range(of: "❯") { lines[0] = String(lines[0][r.upperBound...]) }
         return (a, lines)
     }
+
+    /// 畫面還是這個對話的一般輸入框（不是選單、權限框）
+    public static func plain(_ s: Screen, name: String) -> Bool { box(s, name: name) != nil }
 
     static func squash(_ s: String) -> String { String(String.UnicodeScalarView(s.unicodeScalars.filter { !CharacterSet.whitespaces.contains($0) })) }
 
@@ -83,6 +103,23 @@ public enum TermAnswer {
             if squash(t) == squash(text) { return true }
         }
         return false
+    }
+
+    /// 打字那段時間扣住的按鍵怎麼辦：打成功或沒打、而且畫面還是一般輸入框（safe）⇒ 原樣補回；沒確認到 ⇒ 一個都不補（Enter 會把卡片的字一起送出），但要講丟了什麼
+    public static func settle(_ r: Outcome, held: Data, safe: Bool) -> (Outcome, replay: Data) {
+        if case .unsure = r {} else if safe { return (r, held) }
+        let s = String(decoding: held, as: UTF8.self)
+        // 滑鼠、焦點、終端機自動回覆不是你打的
+        let keys = s.replacingOccurrences(of: #"\x1B\[(<[0-9;]*[Mm]|[IO](?![A-Za-z])|[?>][0-9;]*[a-zA-Z]|[0-9;]*R)|\x1B[\]P][^\x07\x1B]*(\x07|\x1B\\)"#, with: "", options: .regularExpression)
+        guard !keys.isEmpty else { return (r, Data()) }
+        let text = keys.replacingOccurrences(of: #"\x1B(\[200~|\[201~|\[[0-9;]*[A-Za-z~]|O[A-Z])"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\r", with: "⏎").filter { $0.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value != 0x7F } }
+        let what = text.isEmpty ? "你這段時間按的鍵沒有送進去" : "你這段時間打的「\(text.prefix(200))\(text.count > 200 ? "⋯" : "")」沒有送進去，請重打"
+        switch r {
+        case .unsure(let why): return (.unsure(why + "；" + what), Data())
+        case .notStarted(let why): return (.notStarted(why + "；" + what), Data())
+        case .sent, .sentDropped: return (.sentDropped(what), Data())
+        }
     }
 
     /// 對象現在的樣子（每次都重讀，不用快取）
@@ -124,14 +161,24 @@ public enum TermAnswer {
         }
         if let w = wrong(name) { return .notStarted(w) }
         if io.typing() { return .notStarted("你正在打字") }
-        guard io.mark() else { return .notStarted("寫不了記號") }
+        guard io.mark() else { return .notStarted("題目已經不在了，或寫不了記號") }
         io.write(Data("\u{1B}[200~\(text)\u{1B}[201~".utf8))
         var ok = false
         for _ in 0..<15 {
             await io.wait(0.1)
             if let s = await io.screen(), holds(s, name: name, text: text) { ok = true; break }
         }
-        guard ok, wrong(name) == nil else { return .unsure("字可能留在輸入框，沒有按 Enter") }
+        if !ok || wrong(name) != nil {
+            // 不按 Enter，也不留字：貼之前框是空的、你的按鍵扣著 ⇒ 框裡只有剛貼的；清掉而且看到真的空了，才算沒打過
+            if let s = await io.screen(), box(s, name: name) != nil {
+                io.write(Data([0x15]))          // Ctrl+U
+                for _ in 0..<10 {
+                    await io.wait(0.1)
+                    if let s = await io.screen(), blocked(s, name: name) == nil { return .notStarted("貼上的字對不起來，已經清掉") }
+                }
+            }
+            return .unsure("字可能留在輸入框，沒有按 Enter")
+        }
         io.write(Data("\r".utf8))
         for _ in 0..<50 {
             await io.wait(0.2)

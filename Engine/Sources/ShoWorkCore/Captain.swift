@@ -324,6 +324,16 @@ public enum CaptainStore {
         return true
     }
 
+    /// 秘書的程序換到別的對話了（/resume…）：登記的程序就不能再拿來認 /clear
+    public static func leaves(_ c: CaptainRecord, sid: String, source: String?, proc: ProcStamp?) -> Bool {
+        source != "clear" && sid != c.sessionId && c.proc != nil && c.proc == proc
+    }
+    /// SessionStart：離開秘書那段對話 ⇒ 清掉登記的程序；回到原對話由 stamp 補回
+    public static func noteLeft(sid: String, source: String?, pid: Int32?) {
+        guard var c = captain(), leaves(c, sid: sid, source: source, proc: ProcStamp.of(pid)) else { return }
+        c.proc = nil; setCaptain(c)
+    }
+
     /// 秘書自己的 hook：把它現在的程序補進登記（程序重開、舊登記沒記都靠這裡）；那個程序的紀錄要真的是這個 sessionId
     public static func stamp(sid: String, pid: Int32?) {
         guard var c = captain(), c.sessionId == sid, let p = ProcStamp.of(pid), c.proc != p,

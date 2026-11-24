@@ -45,6 +45,7 @@ sealed class CardReport
     {
         var ys = xs.Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
         if (ys.FirstOrDefault(x => SwiftText.Count(x) > OptionLimit) is { } x) return $"--options 每個選項最多 {OptionLimit} 字，這個有 {SwiftText.Count(x)} 字，請改短：{SwiftText.Prefix(x, 30)}⋯";
+        if (ys.Any(x => x.EnumerateRunes().Count() > OptionLimit * 2 || System.Text.Encoding.UTF8.GetByteCount(x) > OptionLimit * 8)) return "--options 有選項藏了太多看不見或疊加的字元，請改掉";
         var n = ys.Distinct().Count();
         return n > 4 ? $"--options 最多 4 個，現在有 {n} 個" : null;
     }

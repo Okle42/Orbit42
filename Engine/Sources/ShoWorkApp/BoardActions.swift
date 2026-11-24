@@ -226,9 +226,9 @@ enum BoardActions {
 
     /// 答案能不能走「打進終端機」（純判斷）。放行、排了好幾題、開著權限框的不走：
     ///   放行有自己的單號規則；打字進去會讓 UserPromptSubmit 把排著的題全部當成答了；註明題目的字也會被當成使用者說的
-    static func typable(_ c: BoardCard, text: String, source: AnswerSource, resolvesAsk: Bool) -> String? {
-        guard source == .user, resolvesAsk, c.permit == nil, c.asks.count <= 1, c.kind != "board", !c.id.contains("#"),
-              let t = TermAnswer.clean(text), !t.hasPrefix("放行") else { return nil }
+    static func typable(_ c: BoardCard, pick: AnswerPick?, source: AnswerSource, asks: [PendingAsk], now: Date = Date()) -> String? {
+        guard source == .user, c.permit == nil, c.asks.count <= 1, c.kind != "board", !c.id.contains("#"),
+              let raw = pick?.text(asks: asks, now: now), let t = TermAnswer.clean(raw), !TermAnswer.norm(t).hasPrefix("放行") else { return nil }
         return t
     }
 
@@ -238,20 +238,21 @@ enum BoardActions {
     }
 
     /// 按答案卡：有開著的衛星終端機就打進去（跟自己打字一樣），看不準才走原本的訊息。done＝之後的結果（打進去、改走訊息、沒確認到）
-    static func answer(_ c: BoardCard, text: String, source: AnswerSource, done: @escaping @MainActor (String) -> Void) -> String {
+    static func answer(_ c: BoardCard, text: String, pick: AnswerPick?, source: AnswerSource, done: @escaping @MainActor (String) -> Void) -> String {
         if typingInto.contains(c.sessionId) { return "「\(c.title)」上一個答案還在送" }
-        guard let t = typable(c, text: text, source: source, resolvesAsk: true), SessionHost.shared.handle(for: c.sessionId) == nil,
+        guard let t = typable(c, pick: pick, source: source, asks: AskQueue.load(c.sessionId)), SessionHost.shared.handle(for: c.sessionId) == nil,
               let type = SphereEmbed.typeAnswer, hookKnowsMark() else { return answer(c, text: text) }
-        let ask = c.asks.first, question = ask?.ask ?? c.report?.ask
+        let ask = AskQueue.load(c.sessionId).first { $0.id == pick?.askId }, question = ask?.ask
         typingInto.insert(c.sessionId)
-        let started = type(c.sessionId, t) { r in
+        // 貼字前一刻再讀一次：那題還在、還是這個 session 唯一的一題、送的字還對得上
+        let started = type(c.sessionId, t, { typable(c, pick: pick, source: source, asks: AskQueue.load(c.sessionId)) == t }) { r in
             typingInto.remove(c.sessionId)
             switch r {
-            case .sent:         // 放行紀錄（recordAnswer）由 UserPromptSubmit 的 hook 記，這裡不再記一次
+            case .sent, .sentDropped:         // 放行紀錄（recordAnswer）由 UserPromptSubmit 的 hook 記，這裡不再記一次
                 if let a = ask { AskQueue.resolve(sid: c.sessionId, id: a.id) }
                 BoardModel.shared.append(["ev": "answer", "id": c.sessionId, "project": c.project, "text": t, "via": "term"])
                 tellCaptain(c, answer: t, question: question)
-                done("已打進「\(c.title)」的終端機")
+                if case .sentDropped(let what) = r { done("已打進「\(c.title)」的終端機；\(what)") } else { done("已打進「\(c.title)」的終端機") }
             case .notStarted(let why):
                 // 等的時候他自己在終端機答掉了 ⇒ 不要再送一次
                 if let a = ask, !AskQueue.load(c.sessionId).contains(where: { $0.id == a.id }) { done("「\(c.title)」這題已經答過了"); return }

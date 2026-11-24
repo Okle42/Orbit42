@@ -23,7 +23,12 @@ while True:
     data += d
     while b"\\x1b[200~" in data and b"\\x1b[201~" in data:
         a, rest = data.split(b"\\x1b[200~", 1); t, data = rest.split(b"\\x1b[201~", 1)
-        if mode != "deaf": buf += t.decode()
+        if mode == "half" or mode == "sticky": buf += t.decode()[:3]
+        elif mode != "deaf": buf += t.decode()
+        draw()
+    if b"\\x15" in data:
+        data = b""
+        if mode != "sticky": buf = ""
         draw()
     if data.endswith(b"\\r"):
         data = b""
@@ -32,7 +37,7 @@ while True:
 """#.replacingOccurrences(of: "\\\\", with: "\\")
 
     func run(_ mode: String, text: String = "好，推上去（完整一句，超過四十個字也不能被剪掉，一路到句尾都要在，最後一個字是完）", sid: String = "s1",
-             live: String = "s1", idle: Bool = true, unique: Bool = true, typing: Bool = false, markOK: Bool = true) async throws -> (TermAnswer.Outcome, log: String, raw: Data) {
+             live: String = "s1", idle: Bool = true, unique: Bool = true, typing: Bool = false, markOK: Bool = true, busyAfterPaste: Bool = false, held: String = "") async throws -> (TermAnswer.Outcome, log: String, raw: Data) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ta-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -50,9 +55,11 @@ while True:
         }
         for _ in 0..<100 where screen() == nil { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertNotNil(screen())
-        let io = TermAnswer.IO(target: { .init(sid: live, name: "Fake1", idle: idle, unique: unique) }, screen: { screen() }, mark: { markOK }, write: { pty.write($0) },
+        var wrote = false
+        let io = TermAnswer.IO(target: { .init(sid: live, name: "Fake1", idle: idle && !(busyAfterPaste && wrote), unique: unique) }, screen: { screen() }, mark: { markOK }, write: { wrote = true; pty.write($0) },
                                typing: { typing }, added: { try? Data(contentsOf: log) }, wait: { try? await Task.sleep(for: .seconds($0 / 4)) })
-        let r = await TermAnswer.send(text, to: sid, io: io)
+        let (r, replay) = TermAnswer.settle(await TermAnswer.send(text, to: sid, io: io), held: Data(held.utf8), safe: screen().map { TermAnswer.plain($0, name: "Fake1") } ?? false)
+        if !replay.isEmpty { pty.write(replay) }
         try await Task.sleep(for: .milliseconds(200))
         let l = try String(contentsOf: log, encoding: .utf8), raw = (try? Data(contentsOf: URL(fileURLWithPath: log.path + ".raw"))) ?? Data()
         pty.hangup()
@@ -83,9 +90,29 @@ while True:
     }
     /// 貼了卻沒出現在框裡：不按 Enter、不回 notStarted（不然會再走訊息送第二次）
     func testNoEnterIfPasteNotSeen() async throws {
-        let (r, log, raw) = try await run("deaf")
-        guard case .unsure = r else { return XCTFail("\(r)") }
-        XCTAssertTrue(log.isEmpty && !raw.contains(0x0D))
+        // 沒出現、只出現一半：清得掉（畫面真的空了）才算沒打過；清不掉＝沒確認到。都不按 Enter
+        for m in ["deaf", "half", "sticky"] {
+            let (r, log, raw) = try await run(m)
+            switch r {
+            case .notStarted where m != "sticky": break
+            case .unsure where m == "sticky": break
+            default: XCTFail("\(m) \(r)")
+            }
+            XCTAssertTrue(log.isEmpty && !raw.contains(0x0D), m)
+        }
+    }
+    /// Gavin5 ③ a、b：貼上沒出現／已在框裡但 Enter 前變忙，扣住的 abc⏎ 不能把卡片的字送出去
+    func testHeldEnterNeverSubmitsCard() async throws {
+        for (m, busy) in [("deaf", false), ("sticky", false), ("ok", true)] {
+            let (r, log, raw) = try await run(m, busyAfterPaste: busy, held: "abc\r")
+            XCTAssertFalse(TermAnswer.confirmed(Data(log.utf8), text: "好，推上去（完整一句，超過四十個字也不能被剪掉，一路到句尾都要在，最後一個字是完）"), m)
+            if case .unsure(let why) = r {
+                XCTAssertTrue(why.contains("「abc⏎」沒有送進去"), why); XCTAssertTrue(!raw.contains(0x0D) && log.isEmpty, m)
+            } else {                                // 卡片的字已確定清乾淨：只剩 Keng 自己打的
+                guard case .notStarted = r else { return XCTFail("\(m) \(r)") }
+                XCTAssertFalse(log.contains("\u{597D}"), m)
+            }
+        }
     }
     func testUnsureIfNotInConversation() async throws {
         let (r, _, raw) = try await run("lost")

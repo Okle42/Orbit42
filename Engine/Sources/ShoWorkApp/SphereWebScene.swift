@@ -107,7 +107,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             let text = (str("text") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
             if blocked { return say("測試：不送出「\(text)」。") }
-            say(BoardActions.answer(c, text: text, source: .user) { [weak self] in self?.say($0 + "。") } + "。")
+            say(BoardActions.answer(c, text: text, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { [weak self] in self?.say($0 + "。") } + "。")
         case "permit":
             guard let c = card(str("sessionId")) else { return say("這個 session 已經不在了。") }
             let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") ?? .deny
@@ -409,7 +409,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             if let x = c.ctx { t["ctx"] = x.percent.rounded() }          // v5：戰情卡每列的記憶量
             if let t0 = c.lastActivity { t["ago"] = max(0, Int(now.timeIntervalSince(t0) / 60)) }
             if let a = c.asks.first {
-                t["ask"] = a.shown
+                t["ask"] = a.shown; t["askId"] = a.id
                 if let opts = a.options, !opts.isEmpty { t["options"] = opts }
             } else if let p = c.permit {
                 t["ask"] = p.isAsk ? (p.questions?.first?.question ?? "有選擇題要你回答")

@@ -140,7 +140,7 @@ static class HookCli
         if (sid != null)
         {
             if (CaptainStore.Follow(sid, o.Str("source"), ClaudePid(), now ?? DateTime.UtcNow)) captain = $"【秘書】/clear 後已自動接上秘書登記。先跑 \"{showork}\" captain 看守則與收件匣。\n";
-            else CaptainStore.Stamp(sid, ClaudePid(), now ?? DateTime.UtcNow);
+            else { CaptainStore.NoteLeft(sid, o.Str("source"), ClaudePid(), now ?? DateTime.UtcNow); CaptainStore.Stamp(sid, ClaudePid(), now ?? DateTime.UtcNow); }
         }
         var claim = sid == null ? null : Handover.Claim(sid, ClaudePid(), o.Str("cwd"), o.Str("source"), now ?? DateTime.UtcNow);
         return captain + (claim != null ? claim + "\n" : "") + Hooks.Brief.Text(showork, sid == null ? null : NicknameStore.Ensure(sid).Name) + "\n";

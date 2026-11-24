@@ -53,7 +53,7 @@ if args.first == "brief" {
             let pid = Handover.claudePID()
             if CaptainStore.follow(newSid: sid, source: source, pid: pid) {
                 print("【秘書】/clear 後已自動接上秘書登記。先跑 \"\(URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path)\" captain 看守則與收件匣。")
-            } else { CaptainStore.stamp(sid: sid, pid: pid) }
+            } else { CaptainStore.noteLeft(sid: sid, source: source, pid: pid); CaptainStore.stamp(sid: sid, pid: pid) }
         }
         if let sid, let ctx = Handover.claim(sid: sid, pid: Handover.claudePID(), cwd: cwdPath, source: source) {
             print(ctx)

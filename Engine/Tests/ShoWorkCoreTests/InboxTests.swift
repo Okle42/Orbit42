@@ -22,7 +22,7 @@ struct InboxTests {
         // 11-25 不剪字：全文留著；太長、太多就報錯退回；舊卡照讀
         let long = String(repeating: "字", count: 200)
         #expect(try SelfReport.parse(args: ["--status", "review", "--ask", "x", "--options", long + "|b"]).get().options == [long, "b"])
-        for bad in [long + "字|b", "a|b|c|d|e"] {
+        for bad in [long + "字|b", "a|b|c|d|e", "a" + String(repeating: "\u{301}", count: 100_000)] {
             guard case .failure(let e) = SelfReport.parse(args: ["--status", "review", "--ask", "x", "--options", bad]) else { Issue.record("要報錯"); continue }
             #expect(e.message.hasPrefix("--options"))
         }

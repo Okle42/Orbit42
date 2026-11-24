@@ -11,13 +11,16 @@ final class AnswerSourceTests: XCTestCase {
         return c
     }
     func testOnlyUser() {
-        XCTAssertEqual(BoardActions.typable(card(), text: "好", source: .user, resolvesAsk: true), "好")
-        XCTAssertNil(BoardActions.typable(card(), text: "好", source: .other, resolvesAsk: true))
-        XCTAssertNil(BoardActions.typable(card(), text: "好", source: .user, resolvesAsk: false))
-        XCTAssertNil(BoardActions.typable(card(2), text: "好", source: .user, resolvesAsk: true))
-        XCTAssertNil(BoardActions.typable(card(), text: " 放行 BABCD", source: .user, resolvesAsk: true))
-        var board = card(); board.kind = "board"
-        XCTAssertNil(BoardActions.typable(board, text: "好", source: .user, resolvesAsk: true))
+        let c = card(), p = AnswerPick(askId: "Q0", option: nil, free: "好")
+        XCTAssertEqual(BoardActions.typable(c, pick: p, source: .user, asks: c.asks), "好")
+        XCTAssertNil(BoardActions.typable(c, pick: p, source: .other, asks: c.asks))
+        XCTAssertNil(BoardActions.typable(c, pick: nil, source: .user, asks: c.asks))
+        XCTAssertNil(BoardActions.typable(c, pick: p, source: .user, asks: []))                 // 卡片上還有、其實已經答掉了
+        XCTAssertNil(BoardActions.typable(c, pick: .init(askId: "Q9", option: nil, free: "好"), source: .user, asks: c.asks))
+        XCTAssertNil(BoardActions.typable(card(2), pick: p, source: .user, asks: card(2).asks))
+        for f in [" 放行 BABCD", "放\u{200B}行"] { XCTAssertNil(BoardActions.typable(c, pick: .init(askId: "Q0", option: nil, free: f), source: .user, asks: c.asks)) }
+        var board = c; board.kind = "board"
+        XCTAssertNil(BoardActions.typable(board, pick: p, source: .user, asks: c.asks))
     }
     /// 舊的 showork（不認得 caps）、不存在的：不打字
     func testOldHookMeansNoTyping() throws {
@@ -41,6 +44,6 @@ final class AnswerSourceTests: XCTestCase {
             let n = try String(contentsOf: u, encoding: .utf8).components(separatedBy: "source: .user").count - 1
             if n > 0 { hits.append("\(u.lastPathComponent) \(n)") }
         }
-        XCTAssertEqual(hits.sorted(), ["OfficeView.swift 2", "OfficeWebHost.swift 1", "SphereWebScene.swift 1", "WebServer.swift 1"])
+        XCTAssertEqual(hits.sorted(), ["OfficeView.swift 2", "OfficeWebHost.swift 1", "SphereWebScene.swift 1"])
     }
 }

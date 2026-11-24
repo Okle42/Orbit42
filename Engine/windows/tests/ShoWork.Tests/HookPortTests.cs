@@ -478,8 +478,18 @@ public sealed class HookPortTests : IDisposable
             Assert.Equal("old", CaptainStore.Captain());
             Assert.Equal(1, HookCli.Release(new() { "BZZZZ" }, "thief", T0).Code);
             HookCli.ClaudePid = () => 100;
-            HookCli.Brief(Start("other", "resume"), null, "/sw", T0);        // 同程序換對話不算
+            // Gavin5：同程序 /resume 到 other，在 other 打 /clear ⇒ 不能接成秘書、放不了行、照擋
+            HookCli.Brief(Start("other", "resume"), null, "/sw", T0);
+            Assert.DoesNotContain("自動接上", HookCli.Brief(Start("other2", "clear"), null, "/sw", T0));
             Assert.Equal("old", CaptainStore.Captain());
+            Assert.Equal(1, HookCli.Release(new() { "BZZZZ" }, "other2", T0).Code);
+            Assert.Contains("deny", HookCli.GuardPush("{\"session_id\":\"other2\",\"tool_input\":{\"command\":\"rm -rf /Users/x/y\"},\"cwd\":\"/x\"}", T0, (_, _) => (1, ""), _ => null) ?? "");
+            // 回到原對話（那個程序的紀錄真的是 old）⇒ 補回，再 /clear 接得上
+            Directory.CreateDirectory(PeerSession.Dir);
+            var me = Environment.ProcessId;
+            File.WriteAllText(Path.Combine(PeerSession.Dir, $"{me}.json"), $"{{\"pid\":{me},\"sessionId\":\"old\",\"cwd\":\"/x\"}}");
+            HookCli.ClaudePid = () => me;
+            HookCli.Brief(Start("old", "resume"), null, "/sw", T0);
             Assert.Contains("自動接上", HookCli.Brief(Start("new", "clear"), null, "/sw", T0));
             Assert.Equal("new", CaptainStore.Captain());
             Assert.Equal("new", CaptainStore.Task("T1")!.From);
@@ -500,6 +510,7 @@ public sealed class HookPortTests : IDisposable
         Assert.Equal(new[] { longOne, "b" }, P(longOne + "|b").Ok!.Options);
         Assert.StartsWith("--options", P(longOne + "字|b").Error);
         Assert.StartsWith("--options", P("a|b|c|d|e").Error);
+        Assert.StartsWith("--options", P("a" + new string('\u0301', 100000)).Error);
     }
 
     [Fact]
