@@ -113,6 +113,9 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
                 do { toast(try await OrbitAPI(link: link).answer(session: sid, text: text)) }
                 catch { toast("沒送出：\(error.localizedDescription)") }
             }
+        case "theme":          // 11-24 球體換配色 ⇒ 終端機和整個 App 跟著換
+            guard let n = o["name"] as? String else { return }
+            Look.shared.fromSphere(mode: o["mode"] as? String ?? "auto", name: n)
         case "focus":
             if let sid = o["sessionId"] as? String { onFocus(sid) }
         case "permit", "captain", "ask", "listen", "speak", "newSatellite", "orbit", "audit", "timeline", "openBoard":
@@ -141,21 +144,21 @@ final class TermModel: NSObject, ObservableObject, WKScriptMessageHandler {
         paint(w)
         return w
     }()
-    /// 11-24 淺色終端機：右上角太陽／月亮切換，記住選擇；第一次照 iPhone 系統外觀（App 其他畫面維持深色）
-    @Published private(set) var light: Bool = UserDefaults.standard.object(forKey: "orbit.term.light") as? Bool
-        ?? (UIScreen.main.traitCollection.userInterfaceStyle == .light)
+    /// 11-24 深淺跟著智能體（Look）；終端機自己沒有切換鈕
+    @Published private(set) var light: Bool = Look.shared.light
     static let lightBG = UIColor(red: 0xfb / 255, green: 0xfb / 255, blue: 0xf9 / 255, alpha: 1)
     private func paint(_ w: WKWebView) {
         let c = light ? Self.lightBG : .black
         w.backgroundColor = c; w.scrollView.backgroundColor = c
     }
-    func toggleTheme() {
-        light.toggle(); UserDefaults.standard.set(light, forKey: "orbit.term.light")
+    func setLight(_ l: Bool) {
+        guard l != light else { return }
+        light = l
         paint(web)
         js(web, "window.orbitTheme", [light ? "light" : "dark"])
         // 已經畫上去的字是照舊色票換過的顏色 ⇒ 清空、從頭重抓一次 Mac 的輸出（gen 讓正在路上的那一份作廢）
         js(web, "window.orbitReset", [sat.id]); gen += 1; offset = 0; kick = true
-        if link.isDemo { start() }          // 示範模式：重新印示範字
+        if link.isDemo, ready { start() }          // 示範模式：重新印示範字
     }
     @Published var error: String?
     private var poll: Task<Void, Never>?

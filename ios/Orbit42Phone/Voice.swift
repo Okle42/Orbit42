@@ -103,18 +103,18 @@ struct VoiceOverlay: View {
         VStack(alignment: .trailing, spacing: 10) {
             if voice.listening || voice.status != nil {
                 Text(voice.listening ? (voice.text.isEmpty ? "我在聽⋯" : voice.text) : (voice.status ?? ""))
-                    .font(.callout).foregroundStyle(voice.listening ? Color.white : Color.okGreen)
+                    .font(.callout).foregroundStyle(voice.listening ? Color.okAccent : Color.okInk)
                     .padding(12).frame(maxWidth: 300, alignment: .leading)
-                    .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.okGreen.opacity(0.5)))
+                    .background(Color.okPaper.opacity(0.92), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.okInk.opacity(0.5)))
                     .transition(.opacity)
             }
             Button { voice.toggle() } label: {
                 Image(systemName: voice.listening ? "waveform" : "mic.fill")
-                    .font(.system(size: 22, weight: .semibold)).foregroundStyle(voice.listening ? .black : Color.okGreen)
+                    .font(.system(size: 22, weight: .semibold)).foregroundStyle(voice.listening ? Color.okPaper : Color.okMic)
                     .frame(width: 58, height: 58)
-                    .background(voice.listening ? Color.okGreen : Color.black.opacity(0.8), in: Circle())
-                    .overlay(Circle().stroke(Color.okGreen, lineWidth: 1.5))
+                    .background(voice.listening ? Color.okMic : Color.okPaper.opacity(0.9), in: Circle())
+                    .overlay(Circle().stroke(Color.okMic, lineWidth: 1.5))
                     .symbolEffect(.variableColor.iterative, isActive: voice.listening)
             }
             .accessibilityLabel(voice.listening ? "說完了" : "對智能體說話")

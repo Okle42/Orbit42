@@ -14,7 +14,6 @@
   <key>LSRequiresIPhoneOS</key><true/>
   <key>ITSAppUsesNonExemptEncryption</key><false/>
   <key>UILaunchScreen</key><dict><key>UIColorName</key><string>LaunchBg</string></dict>
-  <key>UIUserInterfaceStyle</key><string>Dark</string>
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
   <!-- Mac 的 Orbit42 只在 Tailscale 私人網路上開 http（100.64.0.0/10，加密由 Tailscale 負責）；ATS 沒辦法對 IP 開例外 -->
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>

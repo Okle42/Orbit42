@@ -8,6 +8,7 @@ struct Orbit42PhoneApp: App {
     @State private var link: MacLink? = ProcessInfo.processInfo.environment["ORBIT_PHONE_DEMO"] != nil ? .demo : MacLink.load()
     @StateObject private var tailnet = Tailnet.shared
     @Environment(\.scenePhase) private var phase
+    @ObservedObject private var look = Look.shared
     init() {
         // 11-24 深色白綠對調：導覽列標題（系統畫的）深色時用綠；淺色終端機頁維持系統黑字
         let title = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1) : .label }
@@ -29,9 +30,10 @@ struct Orbit42PhoneApp: App {
             .onReceive(NotificationCenter.default.publisher(for: ListenTrigger.note)) { _ in listenIfAsked() }
             .onChange(of: link?.base) { _, _ in VoiceInput.shared.link = link?.isDemo == true ? nil : link }
             .task { VoiceInput.shared.link = link?.isDemo == true ? nil : link; listenIfAsked() }
-            .preferredColorScheme(.dark)
-            .foregroundStyle(Color.okGreen)          // 11-24 深色綠白對調：原本白的字改綠、原本綠的強調改白；灰字、黑底維持
-            .tint(Color.white)
+            .modifier(LookProbe())
+            .preferredColorScheme(look.scheme)       // 11-24 跟著球體的配色（自動＝跟 iPhone）
+            .foregroundStyle(Color.okInk)          // 11-24 深色綠白對調：原本白的字改綠、原本綠的強調改白；灰字、黑底維持
+            .tint(Color.okAccent)
         }
     }
 }
@@ -55,7 +57,7 @@ struct ConnectView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                (Text("OKLE").foregroundStyle(Color.okGreen) + Text("42").foregroundStyle(.yellow) + Text("  ·  ORBIT").foregroundStyle(.secondary) + Text("42").foregroundStyle(.yellow))
+                (Text("OKLE").foregroundStyle(Color.okInk) + Text("42").foregroundStyle(.yellow) + Text("  ·  ORBIT").foregroundStyle(.secondary) + Text("42").foregroundStyle(.yellow))
                     .font(.system(size: 12, weight: .semibold, design: .monospaced)).kerning(3)
                 Text("連到你的 Mac").font(.largeTitle.bold())
                 TailnetBox()
@@ -63,7 +65,7 @@ struct ConnectView: View {
                     .foregroundStyle(.secondary)
                 TextField("http://100.x.y.z:埠/?t=…", text: $text, axis: .vertical)
                     .font(.system(.callout, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .padding(12).background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                    .padding(12).background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
                 if let error { Text(error).foregroundStyle(.red).font(.callout) }
                 HStack {
                     Button { connect(text) } label: { Label(checking ? "連線中…" : "連線", systemImage: "link") }
@@ -80,7 +82,7 @@ struct ConnectView: View {
             }
             .padding(24)
         }
-        .background(Color.black.ignoresSafeArea())
+        .background(Color.okPaper.ignoresSafeArea())
         .sheet(isPresented: $scanning) { QRScanner { s in scanning = false; text = s; connect(s) } }
     }
 
@@ -135,7 +137,7 @@ struct MainView: View {
     var body: some View {
         TabView(selection: $tab) {
             ZStack(alignment: .bottom) {
-                Color.black.ignoresSafeArea()
+                Color.okPaper.ignoresSafeArea()
                 WebBox(web: sphere.web)          // 避開瀏海／動態島和分頁列（球體的工具列、狀態字才不會被蓋到）
                 if !link.isDemo, !tailnet.isRunning { TailnetBox().padding() }      // 內建 Tailscale 還沒上線（例如要重新登入）：主畫面也給登入按鈕
                 else if let e = sphere.error { Banner(text: e) }
@@ -150,7 +152,7 @@ struct MainView: View {
                     ForEach(sats) { s in
                         NavigationLink(value: s) {
                             HStack {
-                                Circle().fill(s.state == "busy" ? Color.white : s.state == "exited" ? .gray : Color.okGreen).frame(width: 8, height: 8)
+                                Circle().fill(s.state == "busy" ? Color.okAccent : s.state == "exited" ? .gray : Color.okGreen).frame(width: 8, height: 8)
                                 VStack(alignment: .leading) {
                                     Text(s.name).font(.headline)
                                     Text("\(s.brainLabel) · \(stateText(s.state))").font(.caption).foregroundStyle(.secondary)
@@ -180,6 +182,7 @@ struct MainView: View {
             if ProcessInfo.processInfo.environment["ORBIT_PHONE_TAB"] == "sat" { await loadSats(); tab = 1; if let s = sats.first { path = [s] } }
             await satLoop()
         }
+        .onReceive(VoiceInput.shared.$listening) { if $0 { tab = 0 } }      // 11-24 動作按鈕／控制中心開始聽 ⇒ 回球體分頁（字幕在那）
         .onAppear {
             // 點球上的 session：是 Orbit42 衛星就切過去看它的終端機
             sphere.onFocus = { sid in
@@ -206,6 +209,7 @@ struct MainView: View {
 
 struct TermScreen: View {
     @StateObject var model: TermModel
+    @ObservedObject private var look = Look.shared
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
@@ -215,15 +219,13 @@ struct TermScreen: View {
             KeyBar(light: model.light, send: { model.send(Data($0.utf8)) })
         }
         .background(model.light ? Color(uiColor: TermModel.lightBG) : Color.black)
-        .preferredColorScheme(model.light ? .light : .dark)          // 標題列、鍵盤跟著終端機深淺
         .navigationTitle(model.sat.name).navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
-            Button { model.toggleTheme() } label: { Image(systemName: model.light ? "moon" : "sun.max") }
-                .accessibilityLabel(model.light ? "換深色" : "換淺色")
             Button { model.toggleKeyboard() } label: { Image(systemName: model.keyboard ? "keyboard.chevron.compact.down" : "keyboard") }
                 .accessibilityLabel(model.keyboard ? "收起鍵盤" : "打字")
         } }
-        .onAppear { _ = model.web; model.start() }
+        .onAppear { _ = model.web; model.setLight(look.light); model.start() }
+        .onChange(of: look.light) { _, l in model.setLight(l) }      // 11-24 智能體換配色 ⇒ 終端機跟著換
         .onDisappear { model.stop() }
     }
 }
@@ -276,13 +278,20 @@ struct TailnetBox: View {
             }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
     }
     var icon: String { if case .running = tailnet.state { return "checkmark.shield.fill" }; if case .failed = tailnet.state { return "exclamationmark.triangle.fill" }; return "network" }
-    var color: Color { if case .running = tailnet.state { return .white }; if case .failed = tailnet.state { return .red }; return .secondary }
+    var color: Color { if case .running = tailnet.state { return .okAccent }; if case .failed = tailnet.state { return .red }; return .secondary }
 }
 
 /// 11-24 Okle42 深色綠白對調（跟 Mac 衛星終端機同一套）：一般字綠、強調白、次要字灰、黑底
 extension Color {
+    private static func pick(_ dark: UIColor, _ light: UIColor) -> Color { Color(uiColor: UIColor { $0.userInterfaceStyle == .light ? light : dark }) }
+    /// 會跟深淺色變的：字（深色綠／淺色黑）、強調（深色白／淺色紅）、底
+    static let okInk = pick(UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1), UIColor(white: 0.08, alpha: 1))
+    static let okAccent = pick(.white, UIColor(red: 0xd7 / 255, green: 0x26 / 255, blue: 0x1b / 255, alpha: 1))
+    /// 麥克風鈕：深色綠、淺色紅
+    static let okMic = pick(UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1), UIColor(red: 0xd7 / 255, green: 0x26 / 255, blue: 0x1b / 255, alpha: 1))
+    static let okPaper = pick(.black, UIColor(red: 0xfb / 255, green: 0xfb / 255, blue: 0xf9 / 255, alpha: 1))
     static let okGreen = Color(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255)
 }
