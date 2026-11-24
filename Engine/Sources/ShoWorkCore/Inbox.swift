@@ -41,9 +41,9 @@ public enum Inbox {
             if let p = c.asks.first {
                 let ctx = c.detail.flatMap { d in d.isEmpty || d == p.ask ? nil : d }
                 let opts = p.options ?? []
-                return InboxItem(id: c.id, card: c, kind: .reply, question: p.ask, context: ctx,
+                return InboxItem(id: c.id, card: c, kind: .reply, question: p.shown, context: ctx,
                                  options: opts.isEmpty ? genericOptions : opts, generic: opts.isEmpty,
-                                 since: p.at, answered: nil, askId: p.id, more: c.asks.count - 1)
+                                 since: p.since, answered: nil, askId: p.id, more: c.asks.count - 1)
             }
             let reply = c.reason.hasPrefix("要你決定")
             let ask = c.report?.ask?.trimmingCharacters(in: .whitespacesAndNewlines)

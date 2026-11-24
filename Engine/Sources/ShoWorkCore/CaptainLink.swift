@@ -592,6 +592,19 @@ extension CaptainInbox {
         return xs[k]
     }
 
+    /// 使用者在終端機送出一句話（UserPromptSubmit）：記成事先放行；鍵盤打的、而且點名了等著的單，當場放行。
+    /// 答案卡打進去的（TypedMark）只記事先放行，等那個指令重跑才過。每句只記一次
+    public static func typedPrompt(sid: String, prompt p: String, who: String, now: Date) -> CaptainInboxItem? {
+        let fromCard = TypedMark.take(sid: sid, prompt: p, now: now)
+        recordAnswer(sid: sid, answer: p, question: nil, now: now)
+        guard !fromCard else { return nil }
+        let waiting = all().filter { $0.kind == .block && $0.sid == sid && $0.released == nil && now.timeIntervalSince($0.at) < releaseTTL }
+        guard let item = waiting.last(where: { i in !i.kinds.isEmpty && i.kinds.allSatisfy { authorizes(p, rule: $0) } }),
+              let pre = usePreapproval(sid: sid, rules: item.kinds, now: now) else { return nil }
+        _ = release(id: item.id, target: sid, by: sid, byName: "使用者（在 \(who) 的終端機下指令：\(pre.answer.prefix(40))）", source: "使用者輸入", now: now)
+        return item
+    }
+
     /// 事先放行的擋單：直接記成已放行＋已用，寫稽核紀錄
     @discardableResult
     public static func releaseByAnswer(_ item: CaptainInboxItem, answer: Preapproval, now: Date) -> CaptainInboxItem {

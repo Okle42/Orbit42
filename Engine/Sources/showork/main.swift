@@ -37,6 +37,8 @@ nonisolated(unsafe) var permitReqPath: UnsafePointer<CChar>?   // SIGTERM 時刪
 let isReviewer = ProcessInfo.processInfo.environment["SHOWORK_REVIEWER"] != nil
     || ((ProcessInfo.processInfo.environment["CLAUDE_CODE_ENTRYPOINT"] ?? "").hasPrefix("sdk")
         && ProcessInfo.processInfo.environment["SHOWORK_OWNED"] == nil)
+// App 問這支 showork 會什麼（舊版不認得，什麼都不印到 stdout）：會 typed-mark 才准把答案卡打進終端機，不然放行會提早
+if args.first == "caps" { print("typed-mark"); exit(0) }
 if args.first == "brief" {
     if !isReviewer {
         var sid = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ID"].flatMap { $0.isEmpty ? nil : $0 }
@@ -127,13 +129,7 @@ if args.first == "title" {
         guard event == "UserPromptSubmit", let sid, CaptainLink.needsStart(prompt: prompt) else { return nil }
         let p = (prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !p.hasPrefix("放行") else { return nil }
-        let now = Date()
-        CaptainInbox.recordAnswer(sid: sid, answer: p, question: nil, now: now)
-        let waiting = CaptainInbox.all().filter { $0.kind == .block && $0.sid == sid && $0.released == nil && now.timeIntervalSince($0.at) < CaptainInbox.releaseTTL }
-        guard let item = waiting.last(where: { i in !i.kinds.isEmpty && i.kinds.allSatisfy { CaptainInbox.authorizes(p, rule: $0) } }),
-              let pre = CaptainInbox.usePreapproval(sid: sid, rules: item.kinds, now: now) else { return nil }
-        let who = NicknameStore.get(sid)?.name ?? "使用者"
-        _ = CaptainInbox.release(id: item.id, target: sid, by: sid, byName: "使用者（在 \(who) 的終端機下指令：\(pre.answer.prefix(40))）", source: "使用者輸入", now: now)
+        guard let item = CaptainInbox.typedPrompt(sid: sid, prompt: p, who: NicknameStore.get(sid)?.name ?? "使用者", now: Date()) else { return nil }
         return "使用者這則指令已點名放行單號 \(item.id)（\(item.text)）。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。"
     }()
     let handoverNote = event == "UserPromptSubmit" ? sid.flatMap { Handover.noteNewPrompt(sid: $0, prompt: prompt) } : nil

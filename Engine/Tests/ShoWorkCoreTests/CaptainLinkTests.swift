@@ -190,6 +190,43 @@ struct CaptainLinkTests {
         #expect(CaptainLink.releaseMissText(id: nil).contains("沒有放行任何東西"))
     }
 
+    @Test("④d 答案卡打進終端機不提早放行：只記一次事先放行、重跑才過；鍵盤打的照舊當場放行；記號一次性、綁 session 與內容、會過期")
+    func typedMark() throws {
+        LocalFixture.use()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("typed-\(UUID().uuidString)")
+        for (k, v) in [("SHOWORK_CAPTAIN_INBOX", "inbox"), ("SHOWORK_RELEASE_LOG", "rel.jsonl"), ("SHOWORK_PREAPPROVAL_LOG", "pre.json"), ("SHOWORK_TYPED_MARKS", "marks")] { setenv(k, dir.appendingPathComponent(v).path, 1) }
+        defer { for k in ["SHOWORK_CAPTAIN_INBOX", "SHOWORK_RELEASE_LOG", "SHOWORK_PREAPPROVAL_LOG", "SHOWORK_TYPED_MARKS"] { unsetenv(k) }; try? FileManager.default.removeItem(at: dir) }
+        let gh = "GitHub 公開發言（gh）"
+        func block(_ id: String, _ sid: String, _ at: Date) { var i = item(id, .block, sid: sid, at: at, fp: id); i.kinds = [gh]; CaptainInbox.save(i) }
+        // 鍵盤：當場放行（原本的行為）
+        block("BAAAA", "k", t0)
+        #expect(CaptainInbox.typedPrompt(sid: "k", prompt: "好，開 PR", who: "x", now: t0 + 1)?.id == "BAAAA")
+        // 卡片：不當場放行，單還擋著；只記一次，重跑時用得到那一次
+        block("BBBBB", "c", t0)
+        #expect(TypedMark.put(sid: "c", text: "好，開 PR", now: t0))
+        #expect(CaptainInbox.typedPrompt(sid: "c", prompt: "好，開 PR", who: "x", now: t0 + 1) == nil)
+        #expect(CaptainInbox.item("BBBBB")?.released == nil && !CaptainInbox.consume(sid: "c", fingerprint: "BBBBB", now: t0 + 2))
+        #expect(CaptainInbox.usePreapproval(sid: "c", rules: [gh], now: t0 + 3)?.answer == "好，開 PR")
+        #expect(CaptainInbox.usePreapproval(sid: "c", rules: [gh], now: t0 + 4) == nil)
+        // 用過就沒了：同一句再由鍵盤打＝照鍵盤
+        #expect(CaptainInbox.typedPrompt(sid: "c", prompt: "好，開 PR", who: "x", now: t0 + 5)?.id == "BBBBB")
+        // 綁 session、綁內容：別的 session、別句話不受影響，記號也不會被用掉
+        block("BCCCC", "d", t0)
+        #expect(TypedMark.put(sid: "e", text: "好，開 PR", now: t0) && TypedMark.put(sid: "d", text: "先不要", now: t0))
+        #expect(CaptainInbox.typedPrompt(sid: "d", prompt: "好，開 PR", who: "x", now: t0 + 1)?.id == "BCCCC")
+        #expect(TypedMark.take(sid: "d", prompt: "先不要", now: t0 + 2) && !TypedMark.take(sid: "d", prompt: "先不要", now: t0 + 3))
+        // 收成 [Pasted text]、前後多了字：從嚴
+        #expect(TypedMark.put(sid: "f", text: "開 PR", now: t0) && TypedMark.take(sid: "f", prompt: "[Pasted text #1 +3 lines]", now: t0 + 1))
+        #expect(TypedMark.put(sid: "f", text: "開 PR", now: t0) && TypedMark.take(sid: "f", prompt: "好 開PR 喔", now: t0 + 1))
+        // 過期；亂寫的記號不會放行任何東西
+        #expect(TypedMark.put(sid: "f", text: "開 PR", now: t0) && !TypedMark.take(sid: "f", prompt: "開 PR", now: t0 + TypedMark.ttl))
+        #expect(!TypedMark.put(sid: "../x", text: "a"))
+        block("BDDDD", "g", t0)
+        #expect(TypedMark.put(sid: "g", text: "先不要", now: t0))
+        #expect(CaptainInbox.typedPrompt(sid: "g", prompt: "先不要", who: "x", now: t0 + 1) == nil && CaptainInbox.item("BDDDD")?.released == nil)
+        #expect(CaptainInbox.usePreapproval(sid: "g", rules: [gh], now: t0 + 2) == nil)
+    }
+
     @Test("④b 戰情中心回答＝事先放行：點名的動作、30 分鐘、每種一次、否定小句不算、rm 不算")
     func preapproval() throws {
         LocalFixture.use()

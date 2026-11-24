@@ -15,6 +15,11 @@ public struct PendingAsk: Codable, Sendable, Equatable, Identifiable {
     public var options: [String]?
     public var at: Date                // 第一次問的時間（排隊順序）
     public var doing: String?
+    public var unsureAt: Date? = nil   // 答案打進終端機但沒確認到：題目留著、前面明講請看終端機
+    /// 介面上顯示的題目
+    public var shown: String { unsureAt == nil ? ask : "⚠ 剛才的答案沒確認有沒有送到，請先看它的終端機再決定要不要重答。" + ask }
+    /// 等了多久；沒確認到就從那時算（介面才會把它當成新的、重新可按）
+    public var since: Date { unsureAt ?? at }
     public init(id: String, ask: String, options: [String]? = nil, at: Date, doing: String? = nil) {
         self.id = id; self.ask = ask; self.options = options; self.at = at; self.doing = doing
     }
@@ -96,6 +101,13 @@ public enum AskQueue {
         save(sid, xs)
         Answered.clearCaptainCard(sid: sid, question: q.ask, dir: cardsDir)
         return q
+    }
+
+    /// 打進終端機但沒確認到
+    public static func markUnsure(sid: String, id: String, now: Date = Date()) {
+        var xs = load(sid)
+        guard let i = xs.firstIndex(where: { $0.id == id }) else { return }
+        xs[i].unsureAt = now; save(sid, xs)
     }
 
     /// 同一題（文字相同）拿掉：秘書卡片掛著組員已經被回答的題（Answered）

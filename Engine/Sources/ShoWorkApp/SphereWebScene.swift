@@ -409,7 +409,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             if let x = c.ctx { t["ctx"] = x.percent.rounded() }          // v5：戰情卡每列的記憶量
             if let t0 = c.lastActivity { t["ago"] = max(0, Int(now.timeIntervalSince(t0) / 60)) }
             if let a = c.asks.first {
-                t["ask"] = a.ask
+                t["ask"] = a.shown
                 if let opts = a.options, !opts.isEmpty { t["options"] = opts }
             } else if let p = c.permit {
                 t["ask"] = p.isAsk ? (p.questions?.first?.question ?? "有選擇題要你回答")

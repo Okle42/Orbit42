@@ -94,13 +94,14 @@ public enum TermAnswer {
     public struct IO {
         public var target: () -> Target?
         public var screen: () async -> Screen?
+        public var mark: () -> Bool                 // 貼字前寫好「這句是卡片打的」（TypedMark）；寫不進去就不打
         public var write: (Data) -> Void
         public var typing: () -> Bool               // 使用者剛剛在這個終端機按過鍵
         public var added: () -> Data?               // 對話紀錄從開始到現在新增的內容；nil＝找不到對話紀錄
         public var wait: (Double) async -> Void
-        public init(target: @escaping () -> Target?, screen: @escaping () async -> Screen?, write: @escaping (Data) -> Void,
+        public init(target: @escaping () -> Target?, screen: @escaping () async -> Screen?, mark: @escaping () -> Bool, write: @escaping (Data) -> Void,
                     typing: @escaping () -> Bool, added: @escaping () -> Data?, wait: @escaping (Double) async -> Void) {
-            self.target = target; self.screen = screen; self.write = write; self.typing = typing; self.added = added; self.wait = wait
+            self.target = target; self.screen = screen; self.mark = mark; self.write = write; self.typing = typing; self.added = added; self.wait = wait
         }
     }
 
@@ -123,6 +124,7 @@ public enum TermAnswer {
         }
         if let w = wrong(name) { return .notStarted(w) }
         if io.typing() { return .notStarted("你正在打字") }
+        guard io.mark() else { return .notStarted("寫不了記號") }
         io.write(Data("\u{1B}[200~\(text)\u{1B}[201~".utf8))
         var ok = false
         for _ in 0..<15 {

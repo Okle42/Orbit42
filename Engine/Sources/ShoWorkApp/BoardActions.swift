@@ -232,11 +232,16 @@ enum BoardActions {
         return t
     }
 
+    /// hook 用的 showork 看得懂記號嗎（舊版看不懂會提早放行 ⇒ 不打字，走訊息）
+    static func hookKnowsMark(_ exe: String = TaskRouter.showork) -> Bool {
+        Tools.run(exe, ["caps"], timeout: 2).out.split(separator: "\n").contains("typed-mark")
+    }
+
     /// 按答案卡：有開著的衛星終端機就打進去（跟自己打字一樣），看不準才走原本的訊息。done＝之後的結果（打進去、改走訊息、沒確認到）
     static func answer(_ c: BoardCard, text: String, source: AnswerSource, done: @escaping @MainActor (String) -> Void) -> String {
         if typingInto.contains(c.sessionId) { return "「\(c.title)」上一個答案還在送" }
         guard let t = typable(c, text: text, source: source, resolvesAsk: true), SessionHost.shared.handle(for: c.sessionId) == nil,
-              let type = SphereEmbed.typeAnswer else { return answer(c, text: text) }
+              let type = SphereEmbed.typeAnswer, hookKnowsMark() else { return answer(c, text: text) }
         let ask = c.asks.first, question = ask?.ask ?? c.report?.ask
         typingInto.insert(c.sessionId)
         let started = type(c.sessionId, t) { r in
@@ -252,6 +257,7 @@ enum BoardActions {
                 if let a = ask, !AskQueue.load(c.sessionId).contains(where: { $0.id == a.id }) { done("「\(c.title)」這題已經答過了"); return }
                 done(answer(c, text: text) + "（\(why)，改用訊息送達）")
             case .unsure(let why):      // 寫過字了：絕不再走訊息，題目留著
+                if let a = ask { AskQueue.markUnsure(sid: c.sessionId, id: a.id) }
                 BoardModel.shared.append(["ev": "answer-unsure", "id": c.sessionId, "project": c.project, "text": t, "why": why])
                 done("「\(c.title)」\(why)，請到它的終端機看一下；這題先留著")
             }

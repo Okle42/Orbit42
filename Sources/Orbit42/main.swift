@@ -61,6 +61,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 guard let j = try? await v.evaluateJavaScript("window.orbitScreen ? window.orbitScreen(\"\(id)\") : null") as? String else { return nil }
                 return try? JSONDecoder().decode(TermAnswer.Screen.self, from: Data(j.utf8))
             },
+            mark: { TypedMark.put(sid: sid, text: text) },
             write: { pty.write($0) },
             typing: { [weak self] in self?.lastKey[id].map { Date().timeIntervalSince($0) < 5 } ?? false },
             added: {

@@ -35,6 +35,17 @@ struct TermAnswerTests {
         #expect(TermAnswer.blocked(menu, name: "Hana5") != nil)
     }
 
+    @Test("沒確認到：題目留著、介面上明講請看終端機、重新可按；比對同一題仍用原字；舊檔照讀")
+    func unsure() throws {
+        var a = PendingAsk(id: "Q1", ask: "要 push 嗎", at: Date(timeIntervalSince1970: 1))
+        #expect(a.shown == "要 push 嗎" && a.since == a.at)
+        a.unsureAt = Date(timeIntervalSince1970: 9)
+        #expect(a.shown.contains("請先看它的終端機") && a.shown.hasSuffix("要 push 嗎") && a.since == a.unsureAt)
+        #expect(AskQueue.adding(SelfReport(status: .review, ask: "要 push 嗎"), to: [a]).count == 1)
+        let old = #"{"id":"Q1","ask":"x","at":"2026-10-21T00:00:00.000Z"}"#
+        #expect(try BoardJSON.decoder.decode(PendingAsk.self, from: Data(old.utf8)).unsureAt == nil)
+    }
+
     @Test("確認：只認使用者那一行；跨 session 訊息、系統訊息、別句不算")
     func confirm() {
         func line(_ c: String, _ extra: String = "") -> Data { Data(#"{"type":"user"\#(extra),"message":{"role":"user","content":"\#(c)"}}"#.utf8) }

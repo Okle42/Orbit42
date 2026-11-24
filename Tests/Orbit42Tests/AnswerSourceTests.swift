@@ -19,6 +19,19 @@ final class AnswerSourceTests: XCTestCase {
         var board = card(); board.kind = "board"
         XCTAssertNil(BoardActions.typable(board, text: "好", source: .user, resolvesAsk: true))
     }
+    /// 舊的 showork（不認得 caps）、不存在的：不打字
+    func testOldHookMeansNoTyping() throws {
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("caps-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: d) }
+        func exe(_ body: String) throws -> String {
+            let f = d.appendingPathComponent(UUID().uuidString); try ("#!/bin/sh\n" + body + "\n").write(to: f, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: f.path); return f.path
+        }
+        XCTAssertTrue(BoardActions.hookKnowsMark(try exe("echo typed-mark")))
+        XCTAssertFalse(BoardActions.hookKnowsMark(try exe("echo usage typed-mark >&2")))
+        XCTAssertFalse(BoardActions.hookKnowsMark(d.path + "/none"))
+    }
     /// 會標成 user 的呼叫處只有這幾個介面；新增的要先過這裡
     func testCallers() throws {
         let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Engine/Sources")

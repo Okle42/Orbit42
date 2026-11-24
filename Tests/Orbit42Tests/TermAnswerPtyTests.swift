@@ -32,7 +32,7 @@ while True:
 """#.replacingOccurrences(of: "\\\\", with: "\\")
 
     func run(_ mode: String, text: String = "好，推上去（完整一句，超過四十個字也不能被剪掉，一路到句尾都要在，最後一個字是完）", sid: String = "s1",
-             live: String = "s1", idle: Bool = true, unique: Bool = true, typing: Bool = false) async throws -> (TermAnswer.Outcome, log: String, raw: Data) {
+             live: String = "s1", idle: Bool = true, unique: Bool = true, typing: Bool = false, markOK: Bool = true) async throws -> (TermAnswer.Outcome, log: String, raw: Data) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ta-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -50,7 +50,7 @@ while True:
         }
         for _ in 0..<100 where screen() == nil { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertNotNil(screen())
-        let io = TermAnswer.IO(target: { .init(sid: live, name: "Fake1", idle: idle, unique: unique) }, screen: { screen() }, write: { pty.write($0) },
+        let io = TermAnswer.IO(target: { .init(sid: live, name: "Fake1", idle: idle, unique: unique) }, screen: { screen() }, mark: { markOK }, write: { pty.write($0) },
                                typing: { typing }, added: { try? Data(contentsOf: log) }, wait: { try? await Task.sleep(for: .seconds($0 / 4)) })
         let r = await TermAnswer.send(text, to: sid, io: io)
         try await Task.sleep(for: .milliseconds(200))
@@ -75,6 +75,11 @@ while True:
             guard case .notStarted = r else { XCTFail("\(m) \(r)"); continue }
             XCTAssertTrue(raw.isEmpty && log.isEmpty, m)
         }
+    }
+    func testWritesNothingWithoutMark() async throws {
+        let (r, log, raw) = try await run("ok", markOK: false)
+        guard case .notStarted = r else { return XCTFail("\(r)") }
+        XCTAssertTrue(raw.isEmpty && log.isEmpty)
     }
     /// 貼了卻沒出現在框裡：不按 Enter、不回 notStarted（不然會再走訊息送第二次）
     func testNoEnterIfPasteNotSeen() async throws {
