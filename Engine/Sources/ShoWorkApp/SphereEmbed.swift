@@ -26,6 +26,8 @@ public enum SphereEmbed {
         public let cwd: String?
         public let name: String
     }
+    /// 名卡順序（手機的衛星清單照同一份排）
+    public static var cardOrder: [String] { BoardModel.shared.order }
     /// 11-25 固定兩行標示（衛星標題列、手機衛星清單用）：第一行、第二行、整行
     public static func label(_ sid: String?) -> (head: String, work: String, line: String)? { sid.flatMap { BoardModel.shared.labels[$0] }.map { ($0.head, $0.work, $0.line) } }
     /// 點衛星：回 true＝宿主處理掉了（開它的終端機）；false＝照舊（跳 Ghostty 視窗／attach）

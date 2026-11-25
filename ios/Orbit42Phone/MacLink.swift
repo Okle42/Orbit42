@@ -156,6 +156,8 @@ struct OrbitAPI: Sendable {
     func say(_ text: String) async throws {
         _ = try await request("api/say", body: ["text": text])
     }
+    /// 11-25 名卡順序（ids 可以只有一部分；nil＝恢復預設）
+    func order(_ ids: [String]?) async throws { _ = try await request("api/order", body: ids.map { ["ids": $0] } ?? ["reset": true]) }
     /// 回答答案卡（走 Mac 跟收件匣按鈕同一條路；Mac 那端會記稽核）
     func answer(session: String, text: String, askId: String?, option: String? = nil, free: String? = nil) async throws -> String {
         let d = try await request("api/answer", body: ["id": session, "text": text, "askId": askId, "option": option, "free": free].compactMapValues { $0 })

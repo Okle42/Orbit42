@@ -110,3 +110,4 @@ powershell -ExecutionPolicy Bypass -File ..\tests\w1_e2e.ps1
 Mac 版每張卡固定兩行「職責 · 主專案／工作標題」（`Engine/Sources/ShoWorkCore/WorkLabel.swift`），由派工單或開工卡定住。
 Windows 版的核心還沒移植：`board\jobs`、`--role`／`--title` 都不認得，球體清單照舊顯示 session 名與自報的任務。
 球體網頁是同一份，Windows 沒送 `faded`，列的順序由 C# 決定，畫面不受影響。
+名卡拖動排序（`CardOrder.swift`）也是 Mac 版才有：Windows 沒送 `orderable`，網頁就不開拖動、選單與鍵盤排序，畫面照舊。
