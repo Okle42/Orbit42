@@ -776,7 +776,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         login.web.wantsLayer = true; login.web.layer?.zPosition = 1               // 小視窗從 10 起跳，點到的再往上（raise）
         if let f = AskFloat() {                // 11-25 Keng：答案卡浮在最上層；建得起來、說過 ready 球體才不畫
             f.terminals = { [weak self] in self?.satWins.values.filter { !$0.isHidden && $0.wantShown }.map(\.frame) ?? [] }
-            f.focusInput = { [weak self] in self?.typingSat.flatMap { self?.satWins[$0]?.frame }.map { NSRect(x: $0.minX, y: $0.minY, width: $0.width, height: min(AskFloatLayout.inputZone, $0.height)) } }
             f.composing = { [weak self] in self.map { s in s.host.composing.contains { s.satWins[$0]?.isHidden == false } } ?? false }
             root.addSubview(f.view); root.float = f.view; askFloat = f
             f.suppressed = !login.web.isHidden
@@ -1699,7 +1698,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private var stackOrder: [String] { SatStack.order(stackWins, pinned: pinned, lifted: lift.lifted) }
     private func hoverSat() -> String? {
         guard let p = mouse else { return nil }
-        if let f = askFloat?.view, !f.isHidden, f.frame.contains(p) { return nil }       // 在答案卡上：不算碰到底下的終端機
+        if askFloat?.covers(p) == true { return nil }       // 在答案卡上：不算碰到底下的終端機
         let shown = satWins.filter { !$0.value.isHidden && $0.value.wantShown }
         return SatStack.hit(p, order: stackOrder, frames: shown.mapValues(\.frame))
     }
@@ -1767,7 +1766,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private func raiseUnder(_ e: NSEvent) {
         guard e.window === window, let root = window.contentView else { return }
         let p = root.convert(e.locationInWindow, from: nil)
-        if let f = askFloat?.view, !f.isHidden, f.frame.contains(p) { return }        // 點在答案卡上：不把底下的衛星提上來
+        if askFloat?.covers(p) == true { return }        // 點在答案卡上：不把底下的衛星提上來
         guard let w = root.subviews.last(where: { ($0 as? TermWindowView)?.yieldingToAsk == false && !$0.isHidden && $0.frame.contains(p) }) else { return }
         raise(w)
     }
