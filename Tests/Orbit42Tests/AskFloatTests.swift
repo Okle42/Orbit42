@@ -127,6 +127,32 @@ final class AskFloatTests: XCTestCase {
         f.handle(["action": "askDrag", "phase": "start"]); f.handle(["action": "askDrag", "phase": "move", "dx": -100, "dy": -100]); f.handle(["action": "askDrag", "phase": "end"])
         XCTAssertNil(ud.array(forKey: "orbit.askCorner")); XCTAssertNotNil(ud.array(forKey: "orbit.askFan"))
     }
+    /// T1125192544：縮起後再展開一定是完整的寬，右緣不溢出（自動展開、答完接權限框、重新載入後第一次、深淺、窄視窗）
+    func testExpandIsNeverClipped() async throws {
+        let (_, r, f, _, _) = try make(); try await waitReady(f); f.lastKey = -100
+        func js(_ s: String) async -> String { (try? await f.webView.evaluateJavaScript(s)).map { "\($0)" } ?? "" }
+        func until(_ m: String) async throws { for _ in 0..<80 where f.mode != m { try await Task.sleep(for: .milliseconds(50)) }; XCTAssertEqual(f.mode, m); try await Task.sleep(for: .milliseconds(700)) }
+        func whole(_ at: String) async {
+            let w = r.bounds.width; XCTAssertEqual(f.view.frame.width, min(560, w - 28) + 2, accuracy: 3, at); XCTAssertTrue(inside(f.view.frame, r.bounds.size), at)
+            XCTAssertEqual(f.view.frame.midX, w / 2, accuracy: 1, at)
+            let c = await js("[...document.querySelectorAll('#wrap,#card,.top,.q,.opt,.free,#over')].filter(x=>x.offsetWidth).every(x=>{const b=x.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+.5})&&document.querySelector('#card').scrollWidth<=document.querySelector('#card').clientWidth?'ok':'cut'"); XCTAssertEqual(c, "ok", at)
+        }
+        func q(_ ids: [String], permit: Bool = false) -> Data {
+            var xs = ids.map { "{\"status\":\"需要你\",\"sessionId\":\"s\($0)\",\"askId\":\"\($0)\",\"name\":\"甲\",\"ask\":\"\(String(repeating: "很長的問題", count: 12))\",\"options\":[\"\(String(repeating: "長選項", count: 10))\",\"不要\",\"改天\",\"取消\"]}" }
+            if permit { xs.append("{\"status\":\"需要你\",\"sessionId\":\"p\",\"name\":\"權限\",\"ask\":\"要不要執行\",\"permit\":{\"id\":\"P\",\"kind\":\"tool\",\"tool\":\"Bash\",\"summary\":\"ls\"}}") }
+            return Data("{\"team\":[\(xs.joined(separator: ","))]}".utf8)
+        }
+        for (th, s) in [("dark", root), ("light", NSSize(width: 360, height: 420)), ("dark", NSSize(width: 620, height: 460))] {
+            r.setFrameSize(s); f.theme = th; f.update(Data(#"{"team":[]}"#.utf8)); try await until("hidden"); try await Task.sleep(for: .milliseconds(1700)); _ = await js("seen.clear(),askRestore(true),0")
+            f.update(q(["A"])); try await until("card"); await whole("第一次 \(th) \(s)")
+            _ = await js("collapse(false),0"); try await until("strip"); _ = await js("expand(),0"); try await until("card"); await whole("縮起→展開 \(th) \(s)")
+            _ = await js("collapse(false),0"); try await until("strip"); f.update(q(["A", "B"])); try await until("card"); await whole("自動展開 \(th) \(s)")
+            _ = await js("collapse(false),0"); try await until("strip"); _ = await js("expand(),0"); try await until("card"); f.update(q([], permit: true)); try await Task.sleep(for: .milliseconds(2400)); try await until("card")
+            let permit = await js("document.querySelectorAll('.opt').length"); XCTAssertEqual(permit, "3"); await whole("接權限框 \(th) \(s)")
+            _ = await js("collapse(false),0"); try await until("strip")
+            f.webViewWebContentProcessDidTerminate(f.webView); f.heartbeat(now: f.loadAt + 1.1); try await waitReady(f); try await until("strip"); _ = await js("expand(),0"); try await until("card"); await whole("重新載入後 \(th) \(s)")
+        }
+    }
     func waitReady(_ f: AskFloat, _ s: Double = 8) async throws {
         for _ in 0..<Int(s * 20) { if f.ready { return }; try await Task.sleep(for: .milliseconds(50)) }
         XCTFail("浮層沒有 ready")
