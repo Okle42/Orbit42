@@ -98,7 +98,9 @@ final class LiftTracker: NSResponder {
 enum AgentSwap {
     static let label = "ai.okle42.showork.agent"
     static var plist: String { NSHomeDirectory() + "/Library/LaunchAgents/\(label).plist" }
-    static func launchctl(_ args: [String]) { let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/launchctl"); p.arguments = args; try? p.run(); p.waitUntilExit() }
+    static func launchctl(_ args: [String]) { let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/launchctl"); p.arguments = args
+        do { try p.run() } catch { return NSLog("launchctl %@ 開不起來：%@", args.joined(separator: " "), "\(error)") }      // 記下來照常開：舊的 ShoWorkAgent 可能還在
+        p.waitUntilExit() }
     static func stop() { launchctl(["bootout", "gui/\(getuid())/\(label)"]) }
     static func start() { if FileManager.default.fileExists(atPath: plist) { launchctl(["bootstrap", "gui/\(getuid())", plist]) } }
 }

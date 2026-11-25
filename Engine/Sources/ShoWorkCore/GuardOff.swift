@@ -49,6 +49,9 @@ public enum GuardOff {
     /// App 端：有人連就回到期時間（沒暫停回 0）
     public static func serve(_ path: String = socketPath, until: @escaping @Sendable () -> Date?) -> Int32? {
         guard var a = address(path), case let fd = socket(AF_UNIX, SOCK_STREAM, 0), fd >= 0 else { return nil }
+        // 設在監聽端，接進來的會繼承：對方連上就斷時，對已斷的插座設會失敗（EINVAL），接著 write 的 SIGPIPE 會讓整個 App 結束（11-25）
+        var quiet: Int32 = 1
+        guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &quiet, socklen_t(MemoryLayout<Int32>.size)) == 0 else { close(fd); return nil }
         unlink(path)
         let ok = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
         guard ok == 0, chmod(path, 0o600) == 0, listen(fd, 64) == 0 else { close(fd); return nil }

@@ -311,7 +311,8 @@ if !options.waitForAccessibility && !AXIsProcessTrusted() {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
         p.arguments = ["--ax-check"]
-        try? p.run(); p.waitUntilExit()
+        do { try p.run() } catch { continue }             // 開不起來：2 秒後再試，不當成已經允許
+        p.waitUntilExit()
         if p.terminationStatus == 0 { break }
     }
     FileHandle.standardError.write(Data("ShoWorkAgent: Accessibility granted — restarting to pick it up\n".utf8))

@@ -24,13 +24,7 @@ struct PushGuardTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("pg-\(UUID().uuidString)").path
         var work: String { root + "/w" }
         let git: PushGuard.Git = { dir, a in
-            let p = Process(), pipe = Pipe()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            p.arguments = ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"] + a
-            p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
-            try? p.run()
-            let d = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
-            return (p.terminationStatus, String(decoding: d, as: UTF8.self))
+            Spawn.run("/usr/bin/git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"] + a)
         }
         init(name: String) {
             let remote = root + "/Okle42/\(name).git"

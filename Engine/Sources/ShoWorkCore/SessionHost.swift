@@ -74,7 +74,7 @@ public final class OwnedSession: @unchecked Sendable {
 
     private let proc = Process()
     private let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-    private let lock = NSLock()
+    private let lock = NSLock(), logLock = NSLock()
     private var buf = Data()
     private var reqSeq = 0
     private let log: URL
@@ -91,6 +91,7 @@ public final class OwnedSession: @unchecked Sendable {
         for (k, v) in env { e[k] = v }
         proc.environment = e
         proc.standardInput = stdin; proc.standardOutput = stdout; proc.standardError = stderr
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)      // 對方先結束：寫入回錯誤，不可以讓整個 App 收到 SIGPIPE 結束
     }
 
     func launch() throws {
@@ -145,11 +146,12 @@ public final class OwnedSession: @unchecked Sendable {
     }
 
     private func append(_ line: Data) {
-        guard let h = try? FileHandle(forWritingTo: log) else {
-            try? (line + Data([0x0A])).write(to: log); return
-        }
-        defer { try? h.close() }
-        h.seekToEndOfFile(); h.write(line + Data([0x0A]))
+        // O_APPEND＋O_CREAT：自己送的話（呼叫端執行緒）和串流輸出（讀取執行緒）同時寫，不會互相覆蓋（11-25：檔案還沒建立時兩邊各建一次，先寫的不見）
+        let fd = open(log.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        guard fd >= 0 else { return }
+        let h = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+        logLock.lock(); try? h.write(contentsOf: line + Data([0x0A])); logLock.unlock()
+        Darwin.close(fd)
     }
 
     private func write(_ o: [String: Any]) -> Bool {

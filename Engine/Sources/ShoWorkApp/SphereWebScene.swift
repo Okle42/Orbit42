@@ -496,7 +496,8 @@ enum GhosttyTheme {
             let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             p.arguments = ["-e", "tell application \"System Events\" to if exists process \"Ghostty\" then tell process \"Ghostty\" to click menu item \"Reload Configuration\" of menu 1 of menu bar item 2 of menu bar 1"]
             p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-            try? p.run(); p.waitUntilExit()
+            do { try p.run() } catch { return Log.note("Ghostty 重讀設定失敗：\(error)") }      // 設定檔已寫好，Ghostty 下次自己讀到
+            p.waitUntilExit()
         }
     }
 }
