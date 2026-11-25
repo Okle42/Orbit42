@@ -154,13 +154,56 @@ static partial class CaptainLink
     /// (原文, 比對用)：原文給預告摘要
     public static List<(string Raw, string Norm)> SegmentPairs(string cmd)
     {
+        var (segs, piped, assigns) = Split(cmd);
+        var o = new List<(string, string)>();
+        for (int k = 0; k < segs.Count; k++)
+        {
+            var s = segs[k];
+            if (IsShowork(s))
+            {
+                if (InternalShowork(s) is { } sub) o.Add((s, sub));
+                foreach (var x in Unwrap.InSubstitutions(s)) o.Add((s, InternalShowork(x) ?? (IsShowork(x) ? "Q" : x)));        // 參數裡的 $( … )、` … ` 照看
+                continue;
+            }        // showork 自己的指令整段不看；內部子指令要擋
+            var norm = s.StartsWith("ssh ", StringComparison.Ordinal) ? s : BlankQuotes(s);
+            o.Add((s, norm));
+            foreach (var v in Unwrap.Variable(s, cmd))
+            {
+                if (IsShowork(v)) { if (InternalShowork(v) is { } vs) o.Add((s, vs)); }
+                else if (v == Unwrap.Opaque) o.Add((s, v));
+                else foreach (var x in Unwrap.Inner(v).Prepend(BlankQuotes(v))) o.Add((s, x));
+            }
+            foreach (var x in Unwrap.Inner(s)) if (x != norm) o.Add((s, InternalShowork(x) ?? (IsShowork(x) ? "Q" : x)));
+            var tok = Unwrap.Tokens(s);
+            if (piped.Contains(k) && tok.Count > 0 && Unwrap.Shells.Contains(Unwrap.Base(tok[0])) && tok.Skip(1).All(x => x is "-" or "-s")) o.Add((s, Unwrap.Opaque));
+        }
+        // 前面被拿掉的賦值（A="$( … )"）裡的替換也會跑
+        foreach (var a in assigns) foreach (var x in Unwrap.InSubstitutions(a)) o.Add((a, InternalShowork(x) ?? (IsShowork(x) ? "Q" : x)));
+        if (Unwrap.HeredocDeletes(cmd)) o.Add(("程式 heredoc 刪檔", "rm ‹程式刪檔›"));
+        return o;
+    }
+    public const string OpaqueRule = "包裝指令（看不出要跑什麼）";
+    public const string InternalRule = "showork 內部指令";
+    /// 內建規則（不看 preview.tsv；同 Mac）
+    static List<Rule> Builtin => new() { new Rule(OpaqueRule, true, "^" + Unwrap.Opaque), new Rule(InternalRule, true, "^‹showork 內部指令›") };
+    static readonly HashSet<string> AiCommands = new() { "card", "task", "tasks", "roster", "captain", "asks", "b1", "names", "role", "release", "preview-check", "caps", "web", "guard", "help" };
+    static string? InternalShowork(string s)
+    {
+        if (!IsShowork(s)) return null;
+        var t = Unwrap.Tokens(s);
+        return t.Count > 1 && !t[1].StartsWith('-') && !t[1].StartsWith('>') && !t[1].StartsWith("2>", StringComparison.Ordinal) && !AiCommands.Contains(t[1]) ? "‹showork 內部指令›" + t[1] : null;
+    }
+    public static List<string> RawSegments(string cmd) => Split(cmd).Segs;
+
+    static (List<string> Segs, HashSet<int> Piped, List<string> Assigns) Split(string cmd)
+    {
         var t = cmd;
         // 同一條指令前面把變數設成暫存路徑（T=$(mktemp -d)、S=/private/tmp/…）⇒ 後面的 $T、${T} 當成 /tmp/ 底下
         foreach (var n in TempVar.Matches(t).Select(m => m.Groups[1].Value).Distinct().ToList())
             t = Regex.Replace(t, @"\$\{?" + n + @"\b\}?", "/tmp/" + n, RegexOptions.CultureInvariant);
         t = Heredoc.Replace(t, "$2");
         // 引號外的分隔符切段（保留原文，第 4 步才換引號內容）
-        var raw = new List<string>();
+        var raw = new List<string>(); var afterPipe = new HashSet<int>();
         var cur = new StringBuilder();
         char? q = null; bool esc = false;
         for (int i = 0; i < t.Length; i++)
@@ -174,22 +217,25 @@ static partial class CaptainLink
             {
                 raw.Add(cur.ToString()); cur.Clear();
                 if (i + 1 < t.Length && (c is '|' or '&') && t[i + 1] == c) i++;
+                else if (c == '|') afterPipe.Add(raw.Count);
                 continue;
             }
             if (c == '$' && i + 1 < t.Length && t[i + 1] == '(') { raw.Add(cur.ToString()); cur.Clear(); i++; continue; }   // $( … ) 裡也是指令
             cur.Append(c);
         }
         raw.Add(cur.ToString());
-        var out_ = new List<(string, string)>();
-        foreach (var seg in raw)
+        var segs = new List<string>(); var piped = new HashSet<int>(); var assigns = new List<string>();
+        for (int k = 0; k < raw.Count; k++)
         {
-            var s = SwiftText.TrimSpaces(Prefix.Replace(seg, ""));
-            if (s.Length == 0 || IsShowork(s)) continue;        // showork 自己的指令（card／release…）整段不看
-            var r = s;
-            if (!s.StartsWith("ssh ", StringComparison.Ordinal)) s = BlankQuotes(s);
-            out_.Add((r, s));
+            var s = SwiftText.TrimSpaces(Prefix.Replace(raw[k], ""));
+            var whole = raw[k].TrimEnd();
+            var cut = whole.EndsWith(s, StringComparison.Ordinal) ? whole[..^s.Length] : raw[k];
+            if (cut.Contains('"')) assigns.Add(cut);
+            if (s.Length == 0) continue;
+            if (afterPipe.Contains(k)) piped.Add(segs.Count);
+            segs.Add(s);
         }
-        return out_;
+        return (segs, piped, assigns);
     }
 
     /// 這段指令是不是 showork 本身（"…/ShoWork42/bin/showork" card …）。Windows 另外認 showork.exe 與反斜線路徑
@@ -219,7 +265,7 @@ static partial class CaptainLink
     {
         var segs = SegmentPairs(cmd);
         var out_ = new List<(Rule, string)>();
-        foreach (var r in rules)
+        foreach (var r in rules.Concat(Builtin))
         {
             if (Rx(r.Pattern) is not { } re) continue;
             foreach (var sg in segs)
@@ -281,6 +327,7 @@ static partial class CaptainLink
         var owner = LocalConfig.Current.OwnerName;
         return $"⛔️ 這個指令需要放行才能跑（{string.Join("、", item.Kinds)}，單號 {item.Id}）。已通知秘書，不要重試、不要換寫法繞過，也不要自己跑 showork release。\n"
             + $"要放行請秘書轉述{owner}的決定（秘書跑 showork release {item.Id}），或{owner}在這個 session 打：放行！{item.Id}（要用打的、要有驚嘆號；說「部署」「push」不算，語音聽寫通常沒有驚嘆號）。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
+            + (item.Kinds.Contains(OpaqueRule) ? "這次是看不出要跑什麼：請把當指令用的變數、eval、sh -c \"$變數\"、管線餵給 sh 這類寫法，換成實際的指令直接寫出來再跑，就會照內容判斷（這不算繞過）。\n" : "")
             + "等的時候用 showork card --status blocked 回報卡在哪；能改用暫存區（scratchpad、/tmp）的就改用。";
     }
 

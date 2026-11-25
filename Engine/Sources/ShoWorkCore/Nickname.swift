@@ -114,7 +114,7 @@ public enum ShortName {
 /// board/names/<sid>.json 的讀寫（CLI 寫、agent 讀）
 public enum NicknameStore {
     public static var dir: URL { Paths.supportDir.appendingPathComponent("board/names", isDirectory: true) }
-    static var sessionsDir: String { FileManager.default.homeDirectoryForCurrentUser.path + "/.claude/sessions" }
+    static var sessionsDir: String { TestEnv.home.path + "/.claude/sessions" }
 
     public static func get(_ sid: String) -> Nickname? {
         FileManager.default.contents(atPath: dir.appendingPathComponent(sid + ".json").path).flatMap { try? BoardJSON.decoder.decode(Nickname.self, from: $0) }
@@ -177,7 +177,7 @@ public enum NicknameStore {
 
     /// 這個 session 的 transcript 開頭（~/.claude/projects/*/<sid>.jsonl 前 16 KB）；找不到＝nil
     static func headOfTranscript(_ sid: String) -> Data? {
-        let root = FileManager.default.homeDirectoryForCurrentUser.path + "/.claude/projects"
+        let root = TestEnv.home.path + "/.claude/projects"
         for d in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [] {
             let f = root + "/" + d + "/" + sid + ".jsonl"
             guard let h = FileHandle(forReadingAtPath: f) else { continue }

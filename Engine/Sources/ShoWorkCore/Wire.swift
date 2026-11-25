@@ -28,7 +28,7 @@ public struct WireMessage: Codable, Sendable, Equatable {
 
 public enum Paths {
     public static var supportDir: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        TestEnv.home
             .appendingPathComponent("Library/Application Support/ShoWork42", isDirectory: true)
     }
     public static var socket: URL {

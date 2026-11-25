@@ -38,6 +38,11 @@ let isReviewer = ProcessInfo.processInfo.environment["SHOWORK_REVIEWER"] != nil
     || ((ProcessInfo.processInfo.environment["CLAUDE_CODE_ENTRYPOINT"] ?? "").hasPrefix("sdk")
         && ProcessInfo.processInfo.environment["SHOWORK_OWNED"] == nil)
 // App 問這支 showork 會什麼（舊版不認得，什麼都不印到 stdout）：會 typed-mark 才准把答案卡打進終端機，不然放行會提早
+// 防冒充方案 A 的狀態。關閉只能在 Orbit42 選單按（系統驗證），指令列做不到
+if args.first == "guard" {
+    if args.count > 1, args[1] != "status" { FileHandle.standardError.write(Data("showork guard：只看得到狀態。要關請在 Orbit42 選單按「暫停防冒充檢查⋯」\n".utf8)); exit(1) }
+    print("防冒充檢查：" + (GuardOff.current().map { "暫停到 \($0.formatted(date: .omitted, time: .shortened))" } ?? "開")); exit(0)
+}
 if args.first == "caps" { print("typed-mark"); exit(0) }
 if args.first == "brief" {
     if !isReviewer {
@@ -74,6 +79,7 @@ if args.first == "card" {
     guard let sid = env["CLAUDE_CODE_SESSION_ID"], !sid.isEmpty else {
         FileHandle.standardError.write(Data("showork card：找不到 CLAUDE_CODE_SESSION_ID（要在 Claude Code 裡跑）\n".utf8)); exit(1)
     }
+    if let why = Caller.check(sid) { FileHandle.standardError.write(Data("showork card：\(why)，沒有發卡（已記錄）\n".utf8)); exit(1) }
     switch SelfReport.parse(args: Array(args.dropFirst())) {
     case .failure(let e):
         FileHandle.standardError.write(Data("showork card：\(e.message)\n".utf8)); exit(1)
@@ -127,7 +133,7 @@ if args.first == "title" {
     // 收尾後只有使用者本人又下指令才不自動 /clear；其他 session／看板的訊息回一段「交接中」提醒（T1026230337）
     // 放行只認「放行！」開頭（ReleaseWord，Keng 11-25）；其他話不記任何放行。其他 session／系統訊息（needsStart 擋掉的 <…> 標籤）不算。
     let release: CaptainInbox.Decision = {
-        guard event == "UserPromptSubmit", let sid, CaptainLink.needsStart(prompt: prompt) else { return .none }
+        guard event == "UserPromptSubmit", let sid, CaptainLink.needsStart(prompt: prompt), Caller.isHook(of: sid) else { return .none }
         return CaptainInbox.typedPrompt(sid: sid, prompt: prompt ?? "", who: NicknameStore.get(sid)?.name ?? "使用者", now: Date())
     }()
     let handoverNote = event == "UserPromptSubmit" ? sid.flatMap { Handover.noteNewPrompt(sid: $0, prompt: prompt) } : nil
@@ -344,6 +350,7 @@ if args.first == "asks" {
     guard let sid = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ID"], !sid.isEmpty else {
         FileHandle.standardError.write(Data("showork asks：找不到 CLAUDE_CODE_SESSION_ID（要在 Claude Code 裡跑）\n".utf8)); exit(1)
     }
+    if let why = Caller.check(sid) { FileHandle.standardError.write(Data("showork asks：\(why)（已記錄）\n".utf8)); exit(1) }
     if args.count >= 2, args[1] == "withdraw" {
         guard args.count >= 3 else { FileHandle.standardError.write(Data("用法：showork asks withdraw <編號|all>\n".utf8)); exit(1) }
         let n = AskQueue.withdraw(sid: sid, id: args[2])

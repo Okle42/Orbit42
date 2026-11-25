@@ -249,9 +249,19 @@ enum BoardActions {
         let sid = c.sessionId, gone = "「\(c.title)」這題已經答過或已收掉，沒有送出"
         // 驗題目與選項、標成送出中：一把鎖。不行就什麼都不送、不記、不轉
         guard pick != nil else { return (false, "「\(c.title)」這題不在待答清單裡，這裡答不了，沒有送出；請到它的終端機回答") }
+        if let q = AskQueue.load(sid).first(where: { $0.id == pick?.askId }), CaptainClaim.needsMac(q, option: pick?.option, fromMac: source == .user) {
+            return (false, "換秘書要在 Mac 的介面按同意，這裡沒有送出，題目留著")
+        }
         let ask: PendingAsk, raw: String, queued: Int
         switch AskQueue.claim(sid: sid, pick: pick) {
         case .ok(let q, let t, let n): ask = q; raw = t; queued = n
+            if CaptainClaim.approves(q, option: pick?.option, free: pick?.free, fromMac: source == .user) {
+                guard let rec = NicknameStore.liveSessions().first(where: { $0.sessionId == sid }) else {
+                    AskQueue.resolve(sid: sid, id: q.id)
+                    return (false, "「\(c.title)」已經不在了，沒有換秘書")
+                }
+                CaptainStore.setCaptain(CaptainRecord(sessionId: sid, name: rec.name, proc: ProcStamp.of(rec.pid)))
+            }
         case .gone: return (false, gone)
         case .busy: return (false, "「\(c.title)」這題上一個答案還在送，或沒確認有沒有送到，這次沒有送出；請到它的終端機看")
         }

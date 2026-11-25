@@ -17,6 +17,7 @@ public struct PendingAsk: Codable, Sendable, Equatable, Identifiable {
     public var doing: String?
     public var unsureAt: Date? = nil   // 答案打進終端機但沒確認到：題目留著、前面明講請看終端機
     public var sendingAt: Date? = nil  // 有人按了答案、正在送（AskQueue.claim）；App 中途當掉就一直留著，當成沒確認到
+    public var action: String? = nil   // 看板自己發的題：captain＝按同意才換秘書（AI 的 card --ask 設不了這個）
     /// 介面上顯示的題目
     public var shown: String { unsureAt == nil && (sendingAt.map { Date().timeIntervalSince($0) < 60 } ?? true) ? ask : "⚠ 剛才的答案沒確認有沒有送到，輸入框裡可能還有字，請到它的終端機看；要答請直接在那裡打。" + ask }
     /// 等了多久；沒確認到就從那時算（介面才會把它當成新的、重新可按）
@@ -31,7 +32,7 @@ public enum AskQueue {
     public static let ttl: TimeInterval = 48 * 3600
 
     public static var dir: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_ASKS_DIR"] { return URL(fileURLWithPath: p, isDirectory: true) }
+        if let p = TestEnv.path("SHOWORK_ASKS_DIR") { return URL(fileURLWithPath: p, isDirectory: true) }
         return Paths.supportDir.appendingPathComponent("board/asks", isDirectory: true)
     }
 
@@ -80,7 +81,7 @@ public enum AskQueue {
         guard let q = r.ask?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty else { return xs }
         var out = xs
         if let i = out.firstIndex(where: { Answered.same($0.ask, q) }) {
-            if r.options != nil { out[i].options = r.options }
+            if r.options != nil, out[i].action == nil { out[i].options = r.options }      // 看板發的題不給 AI 改選項
             return out
         }
         out.append(PendingAsk(id: id(), ask: q, options: r.options, at: r.at, doing: r.doing))

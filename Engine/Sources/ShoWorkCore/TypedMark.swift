@@ -8,7 +8,7 @@ public enum TypedMark {
     struct Mark: Codable { var sid: String, text: String, at: Date }
 
     static var dir: URL {
-        if let p = ProcessInfo.processInfo.environment["SHOWORK_TYPED_MARKS"] { return URL(fileURLWithPath: p, isDirectory: true) }
+        if let p = TestEnv.path("SHOWORK_TYPED_MARKS") { return URL(fileURLWithPath: p, isDirectory: true) }
         return Captain.dir.appendingPathComponent("typed", isDirectory: true)
     }
     static func file(_ sid: String) -> URL { dir.appendingPathComponent(sid + ".json") }
