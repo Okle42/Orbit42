@@ -173,7 +173,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     }
     /// 只有網頁真的是從執行中這個 App 包裡讀的才看（開發用的資料夾不看）
     public func watchBundle(status s: URL) {
-        status = s; note("載入"); onSwap = { Notify.send("答案卡網頁已換新版", $0) }
+        status = s; note("載入"); onSwap = { Notify.send("答案卡網頁已更新", "\(Date().formatted(date: .omitted, time: .standard)) · \($0)") }
         let b = Bundle.main.bundleURL
         guard let root, root.standardizedFileURL == b.appendingPathComponent("Contents/Resources/Web").standardizedFileURL, let x = Bundle.main.executableURL?.lastPathComponent else { return }
         watch = AskPageWatch(bundle: b, executable: x, requirement: AskPage.ownRequirement, uuid: AskPage.runningUUID) { [weak self] in self?.found($0) }
