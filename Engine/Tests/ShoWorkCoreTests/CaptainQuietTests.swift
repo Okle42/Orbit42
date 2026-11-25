@@ -97,6 +97,8 @@ struct CaptainQuietTests {
         var n = Nickname(name: "Ethan"); n.role = "隊長"
         #expect(Nicknames.label(n, project: "x") == "秘書")
         #expect(!Nicknames.pool.contains("Ethan"))
+        for x in ["Ethan", "Ethan9"] { #expect(Nicknames.isRetired(x)) }
+        for x in ["Ethan-x", "Ethanol", "秘書", "Dora", ""] { #expect(!Nicknames.isRetired(x)) }
         #expect(Nicknames.inherited(Data(#"{"type":"custom-title","customTitle":"Ethan"}"#.utf8)) == "Ethan")
         #expect(CaptainThread.boardText("\(CaptainThread.boardPrefix)修球\n請照隊長守則處理") == "修球")
         #expect(!Captain.manual(showork: "s").contains("隊長") && !CaptainLaunch.bootstrap(showork: "s", task: "t").contains("隊長"))

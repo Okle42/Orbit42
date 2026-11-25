@@ -123,6 +123,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         host.onBusy = { [weak self] id, busy in guard let w = self?.satWins[id], !w.isHidden else { return }; w.setBreathing(busy) }
         host.startTimers()
         SphereEmbed.typeAnswer = { [weak self] sid, text, still, done in self?.host.typeAnswer(sid, text, still: still, done: done) ?? false }
+        SphereEmbed.typeClear = { [weak self] sid, still, done in self?.host.typeClear(sid, still: still, done: done) ?? false }
         host.registerRemote()                 // 11-23 iPhone App：衛星清單與畫面（ShoWork 網頁伺服器唯讀端點）
         if ProcessInfo.processInfo.environment["ORBIT_TEST_RESTORE"] == "load" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated { self?.host.restore() } }

@@ -54,13 +54,20 @@ public enum Handover {
     public static let keyIdle: TimeInterval = 0
     /// 送 /clear 後這麼久沒換 sid ⇒ 失敗
     public static let clearTimeout: TimeInterval = 20
+    /// Orbit42 終端機暫時不能打（輸入框有草稿、開著選單、正在打字…）：每隔這麼久再試，超過 retryFor 才算失敗
+    public static let retryEvery: TimeInterval = 10
+    public static let retryFor: TimeInterval = 1200
 
     public static var dir: URL {
         if let d = TestEnv.path("SHOWORK_HANDOVER_DIR") { return URL(fileURLWithPath: d, isDirectory: true) }
         return Paths.supportDir.appendingPathComponent("board/handover", isDirectory: true)
     }
     public static func load(_ sid: String) -> HandoverRecord? {
-        FileManager.default.contents(atPath: dir.appendingPathComponent(sid + ".json").path).flatMap { try? BoardJSON.decoder.decode(HandoverRecord.self, from: $0) }
+        FileManager.default.contents(atPath: dir.appendingPathComponent(sid + ".json").path).flatMap { try? BoardJSON.decoder.decode(HandoverRecord.self, from: $0) }.map {
+            var r = $0
+            if Nicknames.isRetired(r.name) { r.name = Nicknames.captainTitle }      // 改名前留下的紀錄
+            return r
+        }
     }
     public static func all() -> [HandoverRecord] {
         ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".json") }

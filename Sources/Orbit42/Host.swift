@@ -40,7 +40,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return true
     }
     /// 答案卡打進終端機（TermAnswer）。剛好一顆衛星現在就是這個 session 才做
-    func typeAnswer(_ sid: String, _ text: String, still: @escaping @MainActor () -> Bool, done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool {
+    func typeAnswer(_ sid: String, _ text: String, command: Bool = false, still: @escaping @MainActor () -> Bool, done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool {
         let hits = sats.values.filter { $0.exited == nil && $0.pty != nil && $0.brain == .claude && views[$0.id] != nil && sessionRecord($0)?.sessionId == sid }
         guard hits.count == 1, let s = hits.first, let pty = s.pty, let v = views[s.id], held[s.id] == nil else { return false }
         let id = s.id, start = Self.transcripts(sid)
@@ -57,7 +57,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 guard let j = try? await v.evaluateJavaScript("window.orbitScreen ? window.orbitScreen(\"\(id)\") : null") as? String else { return nil }
                 return try? JSONDecoder().decode(TermAnswer.Screen.self, from: Data(j.utf8))
             },
-            mark: { still() && TypedMark.put(sid: sid, text: text) },
+            mark: { still() && (command || TypedMark.put(sid: sid, text: text)) },
             write: { wrote = true; pty.write($0) },
             typing: { [weak self] in self?.lastKey[id].map { Date().timeIntervalSince($0) < 5 } ?? false },
             added: {
@@ -71,7 +71,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             },
             wait: { try? await Task.sleep(for: .seconds($0)) })
         Task { @MainActor in
-            let out = await TermAnswer.send(text, to: sid, io: io)
+            let out = await TermAnswer.send(text, to: sid, command: command, io: io)
             var safe = !wrote           // 一個字都沒寫＝跟平常一樣，原樣補回
             if wrote, let now = await io.screen() { safe = TermAnswer.plain(now, name: name) }
             let (r, rest) = TermAnswer.settle(out, held: self.held[id] ?? Data(), safe: safe)
@@ -80,6 +80,29 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             print("answer \(id) → \(r)"); fflush(stdout)
             done(r)
         }
+        return true
+    }
+    /// 自動 /clear（HandoverClear）：有衛星就打；背景 session 沒衛星就悄悄接上（不開視窗），下一次再打
+    func typeClear(_ sid: String, still: @escaping @MainActor () -> Bool, done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool {
+        if typeAnswer(sid, "/clear", command: true, still: still, done: done) { return true }
+        if sats.values.contains(where: { $0.exited == nil && $0.pty != nil && sessionRecord($0)?.sessionId == sid }) { done(.notStarted("它的終端機現在不能打字")); return true }
+        guard let r = NicknameStore.liveSessions().first(where: { $0.sessionId == sid }), let job = r.jobId, !recentlyClosed(job) else { return false }
+        if let s = sats.values.first(where: { $0.attachedJob == job }) {
+            if s.exited != nil { start(s, cols: 100, rows: 30) }          // 檢視斷掉了（session 還在）⇒ 重新接上
+        } else {
+            let s = Satellite(id: "bg-" + job, name: r.name ?? job, brain: .claude, cwd: r.cwd, command: "claude attach \(job)", attachedJob: job)
+            add(s)
+            let v = view(for: s.id)
+            // 沒有視窗的網頁不會跑 requestAnimationFrame、不會自己來開 ⇒ 這裡先開，之後點開視窗會照平常重新量
+            start(s, cols: 110, rows: 36)
+            Task { @MainActor [weak self, weak s] in
+                try? await Task.sleep(for: .seconds(4))
+                guard let s, self?.sats[s.id] === s else { return }
+                Self.call(v, "window.orbitHeadless", [s.id, 110, 36])
+                Self.call(v, "window.orbitReplay", [s.id, s.snapshot().base64EncodedString()])
+            }
+        }
+        done(.notStarted("正在接上它的終端機"))
         return true
     }
     /// 這個 session 的對話紀錄檔 → 現在多大

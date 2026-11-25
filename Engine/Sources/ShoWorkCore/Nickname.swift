@@ -20,6 +20,10 @@ public enum Nicknames {
     /// 11-24 Keng：戰情中心的隊長改稱「秘書」，不再有英文名（Ethan 從名單拿掉；舊對話標題還認得）
     public static let captainTitle = "秘書"
     public static let retired = ["Ethan"]
+    /// 已經拿掉的英文名（Ethan、Ethan9）
+    public static func isRetired(_ name: String) -> Bool {
+        retired.contains(String(name.prefix { $0.isLetter })) && name.drop { $0.isLetter }.allSatisfy(\.isNumber)
+    }
     /// 收件地址：新稱呼，加上改名前的「隊長」和英文名
     public static let captainAliases = ["秘書", "隊長", "Ethan"]
     /// 舊職稱照新稱呼顯示（names/*.json 不改）
@@ -117,7 +121,10 @@ public enum NicknameStore {
     static var sessionsDir: String { TestEnv.home.path + "/.claude/sessions" }
 
     public static func get(_ sid: String) -> Nickname? {
-        FileManager.default.contents(atPath: dir.appendingPathComponent(sid + ".json").path).flatMap { try? BoardJSON.decoder.decode(Nickname.self, from: $0) }
+        guard var n = FileManager.default.contents(atPath: dir.appendingPathComponent(sid + ".json").path).flatMap({ try? BoardJSON.decoder.decode(Nickname.self, from: $0) }) else { return nil }
+        // 舊檔還記著 Ethan：秘書一律顯示「秘書」（檔案不改）
+        if Nicknames.isRetired(n.name), CaptainStore.captain()?.sessionId == sid { n.name = Nicknames.captainTitle }
+        return n
     }
 
     public static func all() -> [String: Nickname] {
@@ -150,13 +157,14 @@ public enum NicknameStore {
     /// 這個 session 的名字；還沒有就從活著的 session 沒用到的名字裡挑一個存起來
     @discardableResult
     public static func ensure(_ sid: String) -> Nickname {
-        if let n = get(sid) { return n }
+        let kept = get(sid)
+        if let n = kept, !Nicknames.isRetired(n.name) { return n }      // 不是秘書卻還叫 Ethan ⇒ 重挑一個
         let all = all()
         let recs = liveSessions()
         let live = Set(recs.map(\.sessionId))
         // 11-22 Keng「Bella 停放到背景就變 Fiona」：背景 session 是某個終端機停放出來的（終端機的 parkedJobId 指向它）⇒ 沿用那個終端機的英文名和職稱
         if let me = recs.first(where: { $0.sessionId == sid }), let job = me.jobId ?? (me.kind == "bg" ? String(sid.prefix(8)) : nil),
-           let host = recs.first(where: { $0.parkedJobId == job && $0.sessionId != sid }), let hn = all[host.sessionId] {
+           let host = recs.first(where: { $0.parkedJobId == job && $0.sessionId != sid }), let hn = all[host.sessionId], !Nicknames.isRetired(hn.name) {
             var n = Nickname(name: hn.name, doing: hn.doing, at: Date()); n.role = hn.role
             save(sid, n)
             JobStore.carry(from: host.sessionId, to: sid)
@@ -164,13 +172,14 @@ public enum NicknameStore {
         }
         // 10-22 Bella→Kyle：同一個程序換了 sessionId（transcript 換一個檔，開頭抄著舊的 custom-title「Bella」）⇒ 沿用那個名字，
         // 只要現在沒有別的活著的 session 用它
-        if let old = Nicknames.inherited(headOfTranscript(sid)),
+        if let old = Nicknames.inherited(headOfTranscript(sid)), !Nicknames.isRetired(old),
            !all.contains(where: { $0.key != sid && live.contains($0.key) && $0.value.name == old }) {
             let n = Nickname(name: old, at: Date())
             save(sid, n)
             return n
         }
-        let n = Nickname(name: Nicknames.pick(taken: Nicknames.taken(all, live: live, me: sid, now: Date())), at: Date())
+        var n = Nickname(name: CaptainStore.captain()?.sessionId == sid ? Nicknames.captainTitle : Nicknames.pick(taken: Nicknames.taken(all, live: live, me: sid, now: Date())), at: Date())
+        n.doing = kept?.doing; n.role = kept?.role; n.handoverFrom = kept?.handoverFrom
         save(sid, n)
         return n
     }

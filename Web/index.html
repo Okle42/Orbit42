@@ -372,7 +372,7 @@ function openTerm(id) {
   // 11-23：等終端機視窗的大小定下來（連續 3 格一樣、不是 0）才量行列數、才啟動程式。
   // 之前一打開就量，視窗還在動畫／排版中，Claude 用錯的寬度畫完畫面，下一刻寬度一變就整片亂掉
   if (MIRROR) { mirrorTouch(t); mirrorFit(t); return; }
-  whenStable($("terms"), () => { t.fit.fit(); t.term.focus();
+  whenStable($("terms"), () => { t.headless = false; t.fit.fit(); t.term.focus();
     if (!t.started || sats.get(id)?.data.state === "exited") { t.started = true; post({ action: "open", id, cols: t.term.cols, rows: t.term.rows }); }
   });
 }
@@ -392,6 +392,7 @@ new ResizeObserver(() => {
   window.__fitT = setTimeout(() => {
     const t = active && terms.get(active); if (!t) return;
     if (MIRROR) return mirrorFit(t);
+    if (t.headless) return;
     if (t.phone) return fitPhone(t);
     const before = t.term.cols + "x" + t.term.rows;
     t.fit.fit();
@@ -810,6 +811,8 @@ window.orbitScreen = id => {
   }
   return JSON.stringify({ rows, cursorRow: b.cursorY, cursorCol: b.cursorX, paste: t.term.modes.bracketedPasteMode });
 };
+// 還沒有視窗就先接上（背景 session 自動 /clear）：大小照主程式給的，等真的打開視窗才量
+window.orbitHeadless = (id, cols, rows) => { const t = terms.get(id) || makeTerm(id); t.headless = true; t.term.resize(cols, rows); };
 window.orbitReset = id => { const t = terms.get(id); if (!t) return; carry.delete(id); sgrState.delete(id); t.term.reset(); };
 window.orbitExit = (id, code) => { terms.get(id)?.term.write(`\r\n\x1b[90m[已結束 ${code}] 點衛星可以重新開\x1b[0m\r\n`); const t = terms.get(id); if (t) t.started = false; };
 window.orbitOpened = id => openTerm(id);
