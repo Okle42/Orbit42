@@ -16,7 +16,7 @@
     --acc: #d7261b; --acc-dim: rgba(215,38,27,.5); --rec: rgba(215,38,27,.08); }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: transparent; color: var(--ink); font: 13px/1.45 -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default; }
-  #wrap { position: relative; width: max-content; max-width: 100%; }
+  #wrap { position: relative; width: max-content; }      /* 不可跟著頁寬縮：縮成扇形時頁面只有扇形寬，展開會量到那個寬、永遠撐不回來（11-25 Keng 看到卡片被切） */
   body.open #wrap, body:not(.open) #over > div { background: var(--panel); border: 1px solid var(--acc-dim); border-radius: 10px; }
   #card { display: none; width: var(--w, 560px); max-height: calc(var(--maxh, 100000px) - var(--slot) - 2px); overflow-y: auto; padding: 10px 14px 6px; }
   /* 縮起＝四張牌的扇形（11-25 Keng）：深色綠、淺色紅，牌中間寫 A。位置用 FAN 算，看得見的形狀回報給原生端，透明處不擋點擊 */
@@ -29,12 +29,12 @@
   /* 卡片最下面一格，高度固定、不在捲動區裡：平常放說明字和連結，有提示（狀態、復原）就換成提示，一次一條。
      不佔版、不疊在任何東西上面 ⇒ 出現、收掉、多題、窄框、捲動都不會蓋到或推動選項、權限鈕、送出（Gavin5 T1125050619） */
   :root { --slot: 58px; }
-  @media (max-width: 340px) { :root { --slot: 118px; } }
+  :root.narrow { --slot: 118px; }      /* 看原生端給的寬，不看現在的頁寬 */
   #over { width: var(--w, 560px); }
   body.open #over { height: var(--slot); overflow: hidden; border-top: 1px solid var(--line); }
   #over > div { display: flex; flex-wrap: wrap; align-items: center; align-content: center; gap: 4px 10px; padding: 6px 14px; font-size: 12px; height: 100%; }
   #over .t { flex: 1; min-width: 150px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-  @media (max-width: 340px) { #over .t { flex-basis: 100%; -webkit-line-clamp: 4; } }
+  :root.narrow #over .t { flex-basis: 100%; -webkit-line-clamp: 4; }
   #over .st { color: var(--acc); }
   body:not(.open) #over:empty { display: none; }      /* 空的不佔寬：縮成一條時右邊不可有看不見、會擋點擊的區域 */
   body.mini #over:not(:empty) { margin-top: 8px; }
@@ -309,7 +309,7 @@ function size() {
 }
 window.askUpdate = askUpdate;
 window.askTheme = n => { document.documentElement.dataset.theme = n; };
-window.askMax = (w, h) => { shifted(); document.documentElement.style.setProperty("--w", Math.min(560, w) + "px"); document.documentElement.style.setProperty("--maxh", Math.max(120, h) + "px"); size(); };
+window.askMax = (w, h) => { shifted(); document.documentElement.classList.toggle("narrow", w <= 340); document.documentElement.style.setProperty("--w", Math.min(560, w) + "px"); document.documentElement.style.setProperty("--maxh", Math.max(120, h) + "px"); size(); };
 window.askBlur = disarm;
 window.askMoved = shifted;                                                          // 原生端把整張卡移了位置（視窗縮放、拖動）
 window.askRestore = (o, ks) => { open = o !== false; restored = ks || []; for (const k of restored) seen.add(k); if (!open && booted) { const f = [...live.keys()].filter(k => ks && !ks.includes(k)); if (f.length) wantOpen(f.at(-1)); } render(); };                          // 重新載入後：縮成一條的狀態
