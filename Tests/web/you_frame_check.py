@@ -108,6 +108,8 @@ async function checks() {
   await clear(); f = you(4, ["殘留"]); await write(f.s); await write(`${go(4, 0)}${E}2K`); ok(fg(f.top, f.l) === COLD(), "標籤不見了要還原成灰 " + fg(f.top, f.l));
   const th = document.documentElement.dataset.theme;
   await clear(); f = you(4, ["切換"]); await write(f.s); window.orbitTheme(th === "dark" ? "light" : "dark"); frame(f, 1, "切深淺即時換"); window.orbitTheme(th); frame(f, 1, "切回來"); await pixels(f, 1, "切回來");
+  await write(""); await wait(50); frame(f, 1, "切過去再切回來、重上色後");
+  await recolors(); await clear(); await write(f.s);
   t.term.clearTextureAtlas(); await pixels(f, 1, "清字形貼圖後"); const fs0 = term.options.fontSize; term.options.fontSize = fs0 - 4; await wait(200); await pixels(f, 1, "縮放後"); term.options.fontSize = fs0; await wait(200); await pixels(f, 1, "縮放回來");
   const txt0 = term.buffer.active.getLine(term.buffer.active.viewportY + f.top + 1).translateToString(); ok(txt0.includes("│ 切換 │"), "選字複製的內容不可變 " + txt0);
   ok(!t.el.querySelector(".youSide"), "不可有疊層");
@@ -117,6 +119,31 @@ async function checks() {
   ok(fg(0, 6) === COLD(), "粗體結束不可清字色 " + fg(0, 6)); ok(fg(0, 8) === COLD(), "提示字結束要還原成原本的字色 " + fg(0, 8));
   ok(!cell(0, 6).isBold() && !cell(0, 8).isDim(), "22 要真的結束粗體與淡化");
   await write(`${E}?1003l${E}?1049l`); await clear(); f = you(3, ["一般模式"]); await write(f.s); await both(f, "一般模式");
+}
+// 切深淺：已經畫上去、程式不重送的字也要換色（Keng：切深色後 bypass permissions 還是紅字）
+async function recolors() {
+  const th = document.documentElement.dataset.theme, other = th === "dark" ? "light" : "dark", flip = async n => { window.orbitTheme(n); await write(""); await wait(30); };
+  const RED = { light: "#c4211a", dark: "#ffffff" }, bgc = (y, x) => "#" + cell(y, x).getBgColor().toString(16).padStart(6, "0");
+  const red = `${E}38;2;255;107;128m▸▸ bypass permissions on${E}39m`;
+  await flip("light"); await clear();
+  await write(`${go(1, 0)}${red}${go(2, 0)}${E}48;2;180;20;20mX${E}49m${go(3, 0)}${E}38;2;120;120;120mG${E}38;2;0;0;0mK${E}0m${go(4, 0)}${E}2mhint${E}22mN${E}31mP${E}0m${go(5, 0)}${E}38;2;255;107;128m`);
+  ok(fg(1, 3) === RED.light, "淺色先要是紅 " + fg(1, 3)); const g0 = fg(3, 0);
+  await flip("dark"); await write("續");      // 切之前就設好的字色，切完才打的字
+  ok(fg(1, 3) === RED.dark && fg(1, 23) === RED.dark, "切深色後還是紅字 " + fg(1, 3)); ok(bgc(2, 0) === "#2e2e30", "紅底沒換 " + bgc(2, 0));
+  const G = parseInt(fg(3, 0).slice(1, 3), 16); ok(Math.abs(G - 120) <= 3, "灰字差太多 " + fg(3, 0)); ok(fg(3, 1) === "#4fc36a", "黑字落在深底 " + fg(3, 1));
+  ok(fg(4, 0) === "#96969b" && cell(4, 0).isDim(), "提示字沒換灰 " + fg(4, 0)); ok(fg(4, 4) === "default", "預設字不可動 " + fg(4, 4)); ok(fg(4, 5) === "p1", "色票色不可動 " + fg(4, 5));
+  ok(fg(5, 0) === RED.dark, "切完接著打的字還是舊色 " + fg(5, 0));
+  await flip("light"); ok(fg(1, 3) === RED.light && fg(5, 0) === RED.light, "切回淺色要變回紅 " + fg(1, 3)); ok(fg(3, 0) === g0, "灰字來回要一樣 " + fg(3, 0)); ok(fg(4, 0) === "default" && cell(4, 0).isDim(), "提示字來回 " + fg(4, 0));
+  for (let i = 0; i < 6; i++) window.orbitTheme(i % 2 ? "light" : "dark"); await flip("dark"); ok(fg(1, 3) === RED.dark, "連切 " + fg(1, 3));
+  // 還沒畫完就切：排隊中的輸出也要換
+  await flip("light"); await clear(); window.orbitData("x", enc(go(1, 0) + red)); window.orbitTheme("dark"); window.orbitData("x", enc(go(2, 0) + red)); await write(""); await wait(30);
+  ok(fg(1, 3) === RED.dark && fg(2, 3) === RED.dark, "排隊中的輸出 " + fg(1, 3) + fg(2, 3));
+  // 捲動紀錄與另一個畫面
+  await flip("light"); await write(`${E}0m${E}?1049l`); await clear(); await write(go(0, 0) + red + "\r\n".repeat(R + 20)); await write(`${E}?1049h`); await flip("dark");
+  const nb = term.buffer.normal; let hits = 0, old = 0; for (let y = 0; y < nb.length; y++) { const c = nb.getLine(y).getCell(3); if (c.getChars() === "b" && c.isFgRGB()) { hits++; if (c.getFgColor() !== 0xffffff) old++; } }
+  ok(hits > 0 && !old, `捲動紀錄 ${hits} ${old}`);
+  const big = "一般 text ".repeat(6) + "\r\n"; await write(`${E}?1049l` + (E + "38;2;90;90;90m" + big).repeat(6000)); const t0 = performance.now(); await flip("light"); window.__recolorMs = Math.round(performance.now() - t0);
+  await write(`${E}0m${E}3J${E}?1049h${E}?1003h${E}?1006h`); await flip(th);
 }
 async function shot() {
   await write(`${E}?1049h${E}?1003h`); await clear();
@@ -142,7 +169,7 @@ addEventListener("load", async () => {
     await wait(600); term.resize(90, 34); C = term.cols; R = term.rows; await wait(200);
     if (CASE === "check") await Promise.race([checks(), wait(70000).then(() => fails.push("跑太久，停在：" + where))]); else if (CASE === "cpu") await cpu(); else await shot();
   } catch (e) { fails.push("例外 " + e.stack); }
-  const d = document.createElement("pre"); d.id = "RESULT"; d.style.display = "none"; d.textContent = JSON.stringify({ n, fails, maxStep, cpu: window.__cpu }); document.body.append(d);
+  const d = document.createElement("pre"); d.id = "RESULT"; d.style.display = "none"; d.textContent = JSON.stringify({ n, fails, maxStep, recolorMs: window.__recolorMs, cpu: window.__cpu }); document.body.append(d);
   fetch("/result", { method: "POST", body: d.textContent });
 });
 """
@@ -188,7 +215,7 @@ bad = 0
 for theme in ("dark", "light"):
     for dpr in (1, 2):
         r = result(f"theme={theme}&case=check", dpr); bad += len(r["fails"]) + (r["n"] == 0)
-        print(f"{theme} {dpr}x：{r['n']} 項，失敗 {len(r['fails'])}，側邊相鄰像素最大差 {r.get('maxStep')}")
+        print(f"{theme} {dpr}x：{r['n']} 項，失敗 {len(r['fails'])}，側邊相鄰像素最大差 {r.get('maxStep')}，重上色含等待 {r.get('recolorMs')}ms")
         for x in r["fails"][:12]: print("   ✗", x)
 if a.cpu: print("CPU（微秒；*_us＝每次寫入到處理完、*_scan_us＝掃一次）", result("theme=dark&case=cpu", 2).get("cpu"))
 if a.shots:

@@ -11,13 +11,15 @@ final class AskFloatTests: XCTestCase {
     func inside(_ f: NSRect, _ r: NSSize) -> Bool { f.minX >= 0 && f.minY >= 0 && f.maxX <= r.width && f.maxY <= r.height }
 
     func testPlacement() {
-        let d = AskFloatLayout.card(card, root: root, corner: nil)
-        XCTAssertEqual(d, NSRect(x: 1440 - 14 - 440, y: 14, width: 440, height: 360))                       // 預設右下
-        for c in [NSPoint(x: -500, y: -500), NSPoint(x: 5000, y: 5000), NSPoint(x: 0, y: 899)] { XCTAssertTrue(inside(AskFloatLayout.card(card, root: root, corner: c), root)) }
-        let c = NSPoint(x: 900, y: 500), small = NSSize(width: 600, height: 420)                             // 視窗變小自動拉回，變大回原位
-        XCTAssertTrue(inside(AskFloatLayout.card(card, root: small, corner: c), small))
-        XCTAssertEqual(AskFloatLayout.card(card, root: root, corner: c).minX, 100)
-        let over = AskFloatLayout.card(NSSize(width: 440, height: 900), root: small, corner: nil)            // 比視窗高：標題列一定看得到
+        XCTAssertEqual(AskFloatLayout.card(card, root: root, spot: nil), NSRect(x: 500, y: 270, width: 440, height: 360))      // 正中央
+        for w in [NSSize(width: 360, height: 420), NSSize(width: 620, height: 460), NSSize(width: 1440, height: 900), NSSize(width: 1920, height: 1080)] {      // 尺寸跟著視窗、完整看得到、置中
+            let m = AskFloatLayout.maxSize(w), f = AskFloatLayout.card(m, root: w, spot: nil)
+            XCTAssertEqual(m.width, min(560, w.width - 28)); XCTAssertTrue(inside(f, w)); XCTAssertEqual(f.midX, w.width / 2, accuracy: 1); XCTAssertEqual(f.midY, w.height / 2, accuracy: 1)
+        }
+        for c in [NSPoint(x: -500, y: -500), NSPoint(x: 5000, y: 5000), NSPoint(x: 0, y: 899)] { XCTAssertTrue(inside(AskFloatLayout.card(card, root: root, spot: c), root)) }
+        let small = NSSize(width: 600, height: 420)
+        XCTAssertTrue(inside(AskFloatLayout.card(card, root: small, spot: NSPoint(x: 900, y: 500)), small))
+        let over = AskFloatLayout.card(NSSize(width: 440, height: 900), root: small, spot: nil)            // 比視窗高：標題列一定看得到
         XCTAssertEqual(over.maxY, small.height)
         XCTAssertTrue(inside(AskFloatLayout.clamp(NSRect(x: -9999, y: 9999, width: 440, height: 360), in: root), root))
     }
@@ -82,12 +84,14 @@ final class AskFloatTests: XCTestCase {
         let (_, r, f, _, ud) = try make()
         f.handle(["action": "askSize", "mode": "card", "w": 440, "h": 360])
         f.handle(["action": "askDrag", "phase": "start"]); f.handle(["action": "askDrag", "phase": "move", "dx": -300, "dy": -200]); f.handle(["action": "askDrag", "phase": "end"])
-        let f1 = f.view.frame; XCTAssertEqual(f1.minX, 1440 - 14 - 440 - 300); XCTAssertEqual(f1.minY, 214)
-        XCTAssertEqual(ud.array(forKey: "orbit.askCorner") as? [Double], [314, 214])
+        let f1 = f.view.frame; XCTAssertEqual(f1.origin, NSPoint(x: 200, y: 470))
+        f.handle(["action": "askSize", "mode": "card", "w": 440, "h": 300]); XCTAssertEqual(f.view.frame.minX, 200)                              // 展開期間留在拖到的位置
         f.handle(["action": "askDrag", "phase": "start"]); f.handle(["action": "askDrag", "phase": "move", "dx": 9000, "dy": 9000]); f.handle(["action": "askDrag", "phase": "end"])
         XCTAssertTrue(inside(f.view.frame, root))
-        f.corner = NSPoint(x: 314, y: 214); r.setFrameSize(NSSize(width: 500, height: 400)); f.layout(); XCTAssertTrue(inside(f.view.frame, NSSize(width: 500, height: 400)))
-        r.setFrameSize(root); f.layout(); XCTAssertEqual(f.view.frame, f1)
+        f.handle(["action": "askOpen", "open": false]); f.handle(["action": "askOpen", "open": true]); f.layout()                                  // 再展開＝回正中央
+        XCTAssertEqual(f.view.frame.midX, 720, accuracy: 1); XCTAssertEqual(f.view.frame.midY, 450, accuracy: 1)
+        for s in [NSSize(width: 500, height: 400), NSSize(width: 1920, height: 1080)] { r.setFrameSize(s); f.layout(); XCTAssertTrue(inside(f.view.frame, s)); XCTAssertEqual(f.view.frame.midX, s.width / 2, accuracy: 1) }
+        ud.set([1444.0, 33.0], forKey: "orbit.askCorner"); f.layout(); XCTAssertEqual(f.view.frame.midX, 960, accuracy: 1)                        // 舊版記住的左下角不再作用
     }
     /// T1125120137：打字中先不展開、停 2 秒才展開、不搶焦點；位置拉回；展開閃開輸入框；拖條不改卡片
     func testAutoExpandWaitsForTyping() async throws {
@@ -104,14 +108,15 @@ final class AskFloatTests: XCTestCase {
         XCTAssertTrue(w.firstResponder === term); let cur = await js("askState().cur"); XCTAssertEqual(cur, "sB|a:B"); let armed = await js("askState().armed"); XCTAssertEqual(armed, "0")
         _ = await js("collapse(false),0"); try await until("strip"); f.lastKey = -100
         f.update(q(["B", "A"])); try await Task.sleep(for: .milliseconds(400)); XCTAssertEqual(f.mode, "strip")                                       // 看過的不再彈
-        f.focusInput = { NSRect(x: 800, y: 0, width: 640, height: 96) }
         f.update(q(["A", "B", "C"])); try await until("card"); XCTAssertEqual(f.mode, "card"); try await Task.sleep(for: .milliseconds(300))
-        XCTAssertFalse(f.view.frame.intersects(NSRect(x: 800, y: 0, width: 640, height: 96))); XCTAssertNil(ud.array(forKey: "orbit.askCorner"))        // 閃開輸入框，不改記住的位置
-        _ = await js("collapse(false),0"); try await until("strip")
+        XCTAssertEqual(f.view.frame.midX, root.width / 2, accuracy: 1); XCTAssertEqual(f.view.frame.midY, root.height / 2, accuracy: 1)                  // 自動展開也在正中央
+        _ = await js("collapse(false),0"); try await until("strip"); XCTAssertEqual(f.view.frame.size, NSSize(width: 188, height: 100))
+        let o = f.view.frame; XCTAssertTrue(f.covers(NSPoint(x: o.midX, y: o.maxY - 50)))                                                              // 牌上點得到
+        for p in [NSPoint(x: o.minX + 2, y: o.maxY - 2), NSPoint(x: o.minX + 2, y: o.minY + 2), NSPoint(x: o.maxX - 2, y: o.minY + 2), NSPoint(x: o.midX, y: o.minY + 3)] {
+            XCTAssertFalse(f.covers(p)); XCTAssertNil(f.view.hitTest(p))                                                                               // 扇形外的透明處不擋點擊
+        }
         f.handle(["action": "askDrag", "phase": "start"]); f.handle(["action": "askDrag", "phase": "move", "dx": -100, "dy": -100]); f.handle(["action": "askDrag", "phase": "end"])
-        XCTAssertNil(ud.array(forKey: "orbit.askCorner")); XCTAssertNotNil(ud.array(forKey: "orbit.askStrip"))
-        let sw = Double(await js("document.getElementById('strip').getBoundingClientRect().width")) ?? 0; XCTAssertEqual(f.view.frame.width, sw.rounded(.up), accuracy: 1)      // 沒有透明區擋點擊
-        XCTAssertEqual(AskFloatLayout.card(card, root: root, corner: NSPoint(x: 1480, y: 0)).origin, NSPoint(x: 8, y: 8))                                // 記住的位置貼死角落 ⇒ 拉回
+        XCTAssertNil(ud.array(forKey: "orbit.askCorner")); XCTAssertNotNil(ud.array(forKey: "orbit.askFan"))
     }
     func waitReady(_ f: AskFloat, _ s: Double = 8) async throws {
         for _ in 0..<Int(s * 20) { if f.ready { return }; try await Task.sleep(for: .milliseconds(50)) }
@@ -137,7 +142,7 @@ final class AskFloatTests: XCTestCase {
         XCTAssertFalse(SphereEmbed.askFloat)                                        // 還沒 ready：球體自己畫
         try await waitReady(f); XCTAssertTrue(SphereEmbed.askFloat)
         let q = #"{"team":[{"status":"需要你","sessionId":"s1","askId":"A","name":"甲","ask":"要嗎","options":["好","不要"]}]}"#
-        f.update(Data(q.utf8)); w.setContentSize(NSSize(width: 360, height: 420)); r.setFrameSize(NSSize(width: 360, height: 420)); f.layout(); f.corner = NSPoint(x: 5, y: 60)
+        f.update(Data(q.utf8)); w.setContentSize(NSSize(width: 360, height: 420)); r.setFrameSize(NSSize(width: 360, height: 420)); f.layout()
         func js(_ s: String) async -> String { (try? await f.webView.evaluateJavaScript(s)).map { "\($0)" } ?? "" }
         for _ in 0..<40 where f.mode != "card" { try await Task.sleep(for: .milliseconds(50)) }
         _ = await js("collapse(false),0"); for _ in 0..<40 where f.mode != "strip" { try await Task.sleep(for: .milliseconds(50)) }
