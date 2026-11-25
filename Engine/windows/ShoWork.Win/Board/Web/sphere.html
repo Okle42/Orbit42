@@ -24,7 +24,7 @@
   :root, :root[data-theme="dark"] {
     color-scheme: dark;
     --bg: #0b0b0c; --glow: rgba(255,255,255,.045);
-    --ink: #f2f2f2; --ink-dim: rgba(242,242,242,.56); --ink-faint: rgba(242,242,242,.3);
+    --ink: #f2f2f2; --ink-dim: rgba(242,242,242,.6); --ink-faint: rgba(242,242,242,.5);
     --panel: rgba(20,20,21,.9); --panel-solid: rgba(17,17,18,.96);
     --line: rgba(255,255,255,.14); --soft: rgba(255,255,255,.05); --seg: rgba(255,255,255,.1);
     --acc: #4fc36a; --gray: #9a9a9a; --done: #6a6a6a; --gold: #d4af37;
@@ -35,7 +35,7 @@
   :root[data-theme="light"] {
     color-scheme: light;
     --bg: #f3f3f1; --glow: rgba(0,0,0,.035);
-    --ink: #141414; --ink-dim: rgba(20,20,20,.58); --ink-faint: rgba(20,20,20,.32);
+    --ink: #141414; --ink-dim: rgba(20,20,20,.66); --ink-faint: rgba(20,20,20,.61);
     --panel: rgba(255,255,255,.92); --panel-solid: rgba(255,255,255,.97);
     --line: rgba(0,0,0,.13); --soft: rgba(0,0,0,.045); --seg: rgba(0,0,0,.1);
     --acc: #d7261b; --gray: #6e6e6e; --done: #a6a6a6; --gold: #a8801a;
@@ -70,7 +70,7 @@
   #caption { position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
     width: min(560px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line);
     border-radius: 6px; padding: 10px 14px 12px; }
-  #caption .who { font-size: 10px; letter-spacing: .18em; color: var(--ink-dim); display: flex; gap: 8px; align-items: center; }
+  #caption .who { font-size: 11px; letter-spacing: .18em; color: var(--ink-dim); display: flex; gap: 8px; align-items: center; }
   #caption .who i { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); display: inline-block; transition: background-color 1.2s ease; }
   body.alert #caption .who i { background: var(--warn); }
   #caption .text { margin-top: 6px; font-size: 15px; letter-spacing: .04em; min-height: 1.4em; }
@@ -108,13 +108,13 @@
   body.orbitMode.stack.asking #cardTeam { opacity: 1; pointer-events: auto; }
   /* Xena3 驗收：戰情卡有高度上限，答案卡展開時第 4 個選項／補充框／送出被切掉 ⇒ 有答案卡時暫時放寬到幾乎整個畫面高（答完恢復；手動拉過的高度也暫時讓開） */
   /* （答題時戰情卡長高改由 autoLayout 讓它優先分高度，不再用 !important 硬撐、蓋到同欄的卡） */
-  .card .k { font-size: 10px; letter-spacing: .18em; color: var(--ink-dim); }
+  .card .k { font-size: 11px; letter-spacing: .18em; color: var(--ink-dim); }
   .card .head { display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0 8px; }
   .card .head span { font-size: 14px; letter-spacing: .06em; }
   .card .head b { font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; }
   .row { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; font-size: 12px; padding: 5px 0;
     border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
-  .row .t { color: var(--ink-dim); font-size: 10px; letter-spacing: .12em; padding-top: 1px; }
+  .row .t { color: var(--ink-dim); font-size: 11px; letter-spacing: .12em; padding-top: 1px; }
   .meter { grid-column: 1 / -1; height: 2px; background: var(--line); margin-top: 3px; }
   .meter b { display: block; height: 100%; background-color: var(--acc); transition: width .8s ease, background-color 1.2s ease; }
   #cardUsage { left: 24px; top: 34%; }
@@ -145,7 +145,7 @@
     border-radius: 6px; padding: 10px 14px 12px;
     opacity: 0; pointer-events: none; transition: opacity .3s, transform .3s; }
   #askCard.on { opacity: 1; pointer-events: auto; transform: translateX(-50%); }
-  #askCard .top { display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .16em; color: var(--warn); }
+  #askCard .top { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .16em; color: var(--warn); }
   #askCard .top .nm { color: var(--ink); letter-spacing: .06em; font-size: 12px; }
   #askCard .top .nav { margin-left: auto; display: flex; gap: 4px; align-items: center; color: var(--ink-dim); }
   #askCard .top .ago { color: var(--ink-dim); letter-spacing: .04em; font-size: 11px; }
@@ -169,7 +169,7 @@
   :root.orbit:not([data-theme="light"]) #askCard .pill.opt.rec i { color: #ffffff; }
   #askCard .pill.opt b { font-weight: 600; color: var(--ink-dim); margin-right: 6px; font-size: 11px; }
   #askCard .opts > .pill.opt:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  #askCard .pill.opt i { display: block; font-style: normal; font-size: 10.5px; letter-spacing: .12em; color: var(--acc); margin-bottom: 2px; }
+  #askCard .pill.opt i { display: block; font-style: normal; font-size: 11px; letter-spacing: .12em; color: var(--acc); margin-bottom: 2px; }
   #askCard .free { margin-top: 8px; display: flex; gap: 6px; align-items: flex-end; }
   #askCard .free textarea { flex: 1; min-width: 0; resize: vertical; min-height: 2.6em; max-height: 9em; background: var(--soft); color: var(--ink);
     border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; line-height: 1.45; outline: none; }
@@ -177,7 +177,7 @@
   #askCard .free input { flex: 1; min-width: 0; background: var(--soft); color: var(--ink); border: 1px solid var(--line);
     border-radius: 14px; padding: 5px 12px; font: inherit; font-size: 12px; outline: none; }
   #askCard .free input:focus { border-color: var(--acc-dim); }
-  #askCard .foot { margin-top: 8px; display: flex; align-items: center; gap: 10px; font-size: 10.5px; color: var(--ink-dim); letter-spacing: .04em; }
+  #askCard .foot { margin-top: 8px; display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-dim); letter-spacing: .04em; }
   #askCard .foot .links { margin-left: auto; display: flex; gap: 12px; white-space: nowrap; }
   #askCard .lnk { background: none; border: 0; padding: 0; font: inherit; color: var(--ink-dim); cursor: pointer; }
   #askCard .lnk:hover { color: var(--acc); text-decoration: underline; }
@@ -219,7 +219,7 @@
     color: var(--ink-dim); cursor: grab;
     border-bottom: 1px solid var(--soft); background: linear-gradient(var(--soft), transparent); }
   /* 品牌：OKLE42 · SHOWORK42，42 用金色 */
-  .brand { font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .24em; color: var(--ink); white-space: nowrap; }
+  .brand { font: 600 11px ui-monospace, Menlo, monospace; letter-spacing: .24em; color: var(--ink); white-space: nowrap; }
   .brand b { color: var(--gold); font-weight: 700; }
   .brand .dim { color: var(--ink-dim); font-weight: 500; }
   #brandTab { position: fixed; top: 22px; left: 22px; z-index: 3; }
@@ -240,7 +240,7 @@
   #satCard { background: var(--panel-solid); position: fixed; width: var(--cw); z-index: 6; pointer-events: auto; }
   #satCard .head b { font-size: 14px; font-weight: 500; }
   #satCard .ln { font-size: 12px; line-height: 1.5; padding: 4px 0; border-top: 1px solid var(--line); color: var(--ink); }
-  #satCard .ln .t { color: var(--ink-dim); font-size: 10px; letter-spacing: .12em; margin-right: 6px; }
+  #satCard .ln .t { color: var(--ink-dim); font-size: 11px; letter-spacing: .12em; margin-right: 6px; }
   #satCard .detail { color: var(--ink-dim); max-height: 4.5em; overflow: hidden; }
   #satCard .btns { display: flex; gap: 6px; margin-top: 8px; }
   #satCard:not(.on) { pointer-events: none; }
@@ -253,7 +253,7 @@
   .tl .nm { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tl .bar { position: relative; height: 12px; background: var(--soft); border-radius: 2px; }
   .tl .bar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
-  .tl .axis { position: relative; height: 14px; font-size: 10px; color: var(--ink-dim); }
+  .tl .axis { position: relative; height: 14px; font-size: 11px; color: var(--ink-dim); }
   .tl .axis span { position: absolute; transform: translateX(-50%); }
   .tl .axis span::before { content: ""; position: absolute; left: 50%; top: -3px; height: 3px; border-left: 1px solid var(--line); }
   .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--ink-dim); margin-top: 10px; }
@@ -262,7 +262,7 @@
   /* ① 狀態標籤：中文＋英文（解碼動畫） */
   #state { bottom: 70px; }
   #state .zh { display: block; font-size: 12px; letter-spacing: .32em; }
-  #state .en { display: inline-flex; align-items: center; gap: 10px; margin-top: 5px; font: 500 10px ui-monospace, Menlo, monospace;
+  #state .en { display: inline-flex; align-items: center; gap: 10px; margin-top: 5px; font: 500 11px ui-monospace, Menlo, monospace;
     letter-spacing: .38em; color: var(--acc); transition: color 1.2s; }
   #state .en::before, #state .en::after { content: ""; width: 22px; height: 1px; background: currentColor; opacity: .5; }
   body.alert #state .en { color: var(--warn); }
@@ -281,7 +281,7 @@
   svg#links path.pop { stroke-width: 1.2; opacity: .9; transition: stroke-dashoffset .45s ease-out; }
   svg#links circle { fill: var(--acc); }
   /* 11-23：字外面一圈「背景色」光暈（paint-order: stroke，字不會變粗），壓在虛線環上也看得清楚 */
-  svg#links text { pointer-events: auto; cursor: pointer; fill: var(--ink); stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; font: 400 10.5px ui-monospace, Menlo, monospace; letter-spacing: .08em; paint-order: stroke; }
+  svg#links text { pointer-events: auto; cursor: pointer; fill: var(--ink); stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; font: 400 11px ui-monospace, Menlo, monospace; letter-spacing: .08em; paint-order: stroke; }
   svg#links text.warn, svg#links text.bad, svg#links tspan.warn { fill: var(--acc); stroke: var(--bg); }      /* 只變色（光暈維持背景色；不然會被 .warn 的紅描邊蓋成粗體） */
   svg#links .warn { stroke: var(--warn); fill: var(--warn); }
   svg#links .bad { stroke: var(--bad); fill: var(--bad); }
@@ -298,7 +298,7 @@
   @keyframes scan { 0% { top: 0; opacity: 1; } 100% { top: 100%; opacity: 0; } }
   .pop .head b { font-size: 22px; }
   .pop .ln { font-size: 12px; line-height: 1.5; padding: 4px 0; border-top: 1px solid var(--line); }
-  .pop .ln .t { color: var(--ink-dim); font-size: 10px; letter-spacing: .12em; margin-right: 6px; }
+  .pop .ln .t { color: var(--ink-dim); font-size: 11px; letter-spacing: .12em; margin-right: 6px; }
   /* ③ 額度儀表 */
   #cardUsage, #cardSys, #cardCool { width: var(--cw); }
   #cardCool { right: 24px; bottom: 150px; }
@@ -316,12 +316,12 @@
   #satMenu .mi:hover { background: var(--soft); } #satMenu small { color: var(--ink-dim); }
   .row .abtn { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
   .row.arow { padding-top: 2px; }
-  .row .abtn .pill { padding: 1px 7px; font-size: 10px; }
+  .row .abtn .pill { padding: 1px 7px; font-size: 11px; }
   .row .abtn .pill.on { color: var(--acc); border-color: var(--acc); }
-  .row .aks { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; margin-top: 3px; }
+  .row .aks { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; margin-top: 3px; }
   .row.atip { font-size: 11px; color: var(--ink-dim); padding: 2px 0; }
   .row.atip span:last-child { grid-column: 2 / -1; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-  .row .rs { display: block; font-size: 10px; color: var(--ink-dim); letter-spacing: .04em; margin-top: 1px; }
+  .row .rs { display: block; font-size: 11px; color: var(--ink-dim); letter-spacing: .04em; margin-top: 1px; }
   .fc { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 11px; line-height: 1.45; color: var(--ink-dim); }
   .qage { margin-top: 6px; font-size: 11px; line-height: 1.45; color: var(--ink-dim); }
   .qage.stale { color: var(--bad); font-weight: 600; }
@@ -332,14 +332,14 @@
   /* ④ 戰情卡 */
   #cardTeam { width: var(--cw); max-height: calc(58% - 20px); overflow: auto; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
-  .chips span { font-size: 10px; letter-spacing: .06em; color: var(--ink-dim); display: inline-flex; align-items: center; gap: 4px; }
+  .chips span { font-size: 11px; letter-spacing: .06em; color: var(--ink-dim); display: inline-flex; align-items: center; gap: 4px; }
   .chips i, .trow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c); display: inline-block; }
   .row.trow { grid-template-columns: 12px 1fr auto; align-items: center; }
   /* 11-22 Keng：進行中那一列要一眼看出在跑 ⇒ 紅色雷達波從名字前的點（原點）一圈圈往外擴散，掃過整個名牌再淡掉 */
   .row.trow.live { position: relative; isolation: isolate; }   /* 11-23 Keng：拿掉 overflow:hidden，名字前那顆點的光暈不再被切掉一半（canvas 本來就跟列一樣大） */
   /* 11-23 Keng「波浪低畫質」：原本是 640px 放射漸層用 transform 放大（點陣圖被拉糊）、環線只有 0.8% 寬（次像素、鋸齒）
      ⇒ 改成 canvas 依螢幕解析度逐格重畫：抗鋸齒細環線＋後面一段柔和的拖尾（radarLoop） */
-  .row.trow.live > canvas.radar { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+  .row.trow.live > canvas.radar { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; opacity: .5; }
   /* 11-23 Keng：訊號已改由完成度條第一格發出（radarLoop），名字前的點不再另外閃紅圈／縮放 */
   .trow .dot { box-shadow: 0 0 6px var(--c); }
   .trow .dot.pulse { animation: dpulse 1.2s ease-in-out infinite; }
@@ -357,9 +357,9 @@
   .trow.float { position: fixed; z-index: 100000; pointer-events: none; margin: 0; background: var(--panel-solid); border: 1px solid var(--ink-dim); border-radius: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.38); cursor: grabbing;
     transform: scale(1.02); transition: transform .12s ease; box-sizing: border-box; padding-left: 8px; padding-right: 8px; }
   @media (prefers-reduced-motion: reduce) { .trow.float { transform: none; transition: none; } }
-  #teamRows button.more { display: block; width: 100%; background: none; border: 0; font: inherit; font-size: 10px; cursor: pointer; }
+  #teamRows button.more { display: block; width: 100%; background: none; border: 0; font: inherit; font-size: 11px; cursor: pointer; }
   #teamRows button.more:hover, #teamRows button.more:focus-visible { color: var(--ink); }
-  .trow .sub { grid-column: 2 / -1; font-size: 10px; color: var(--ink-dim); letter-spacing: .04em; margin-top: -2px; }
+  .trow .sub { grid-column: 2 / -1; font-size: 11px; color: var(--ink-dim); letter-spacing: .04em; margin-top: -2px; }
   .trow .sub .hi { color: var(--warn); }
   .trow .sub .askTag { color: var(--warn); cursor: pointer; } .trow .sub .askTag:hover { text-decoration: underline; }
   .trow .meter { grid-column: 2 / -1; margin-top: 0; }
@@ -370,7 +370,7 @@
     clip-path: inset(0 calc(100% - var(--p, 0%)) 0 0); transition: clip-path .8s ease; }
   .trow.flash { animation: rflash 1.6s ease-out; }
   @keyframes rflash { 0%, 35% { background: var(--acc-soft); } 100% { background: transparent; } }
-  .more { font-size: 10px; color: var(--ink-dim); text-align: right; padding-top: 6px; letter-spacing: .08em; }
+  .more { font-size: 11px; color: var(--ink-dim); text-align: right; padding-top: 6px; letter-spacing: .08em; }
   /* ⑥ 警示橫幅：橫過球的整條（像影片的 HEAVY RAIN · 16:00） */
   #banner { position: fixed; left: 50%; width: min(620px, calc(100% - 24px)); top: 50%; transform: translate(-50%, -50%); z-index: 6; pointer-events: none; cursor: pointer;
     background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--acc) 82%, #000) 12%, color-mix(in srgb, var(--acc) 82%, #000) 88%, transparent);
@@ -380,7 +380,7 @@
   #banner.warn { background: linear-gradient(90deg, transparent, rgba(16,16,17,.92) 12%, rgba(16,16,17,.92) 88%, transparent); border-color: var(--acc); }
   @keyframes flick { 50% { opacity: .55; } }
   #banner .in { width: calc(100% - 64px); margin: 0 auto; }
-  #banner .meta { display: flex; justify-content: space-between; font: 9px ui-monospace, Menlo, monospace; letter-spacing: .22em; color: rgba(255,255,255,.6); }
+  #banner .meta { display: flex; justify-content: space-between; font: 11px ui-monospace, Menlo, monospace; letter-spacing: .22em; color: rgba(255,255,255,.6); }
   #banner .main { display: flex; align-items: center; gap: 10px; margin: 4px 0 3px; font-size: 22px; letter-spacing: .1em; font-weight: 500; }
   #banner .main svg { flex: none; }
   #banner .main .bt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -409,13 +409,13 @@
   .dropMenu { position: fixed; z-index: 9; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 8px; padding: 6px;
     display: none; min-width: 200px; font-size: 12px; color: var(--ink); box-shadow: 0 8px 24px rgba(0,0,0,.28); }
   .dropMenu.on { display: block; }
-  .dropMenu .hd { padding: 4px 8px 6px; font-size: 10px; letter-spacing: .08em; color: var(--ink-dim); }
+  .dropMenu .hd { padding: 4px 8px 6px; font-size: 11px; letter-spacing: .08em; color: var(--ink-dim); }
   .dropMenu .row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; }
   .dropMenu button.row { width: 100%; background: none; border: 0; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   .dropMenu button.row:hover { background: var(--soft); }
   .dropMenu .row .ic { width: 16px; text-align: center; color: var(--ink-dim); }
   .dropMenu .row .lb { flex: 1; }
-  .dropMenu .row small { color: var(--ink-dim); font-size: 10px; }
+  .dropMenu .row small { color: var(--ink-dim); font-size: 11px; }
   .dropMenu .row .ck { width: 12px; color: var(--acc); }
   .dropMenu button.row.sel .lb { color: var(--acc); }
   .dropMenu .sep { border-top: 1px solid var(--line); margin: 4px 0; }
@@ -483,24 +483,25 @@
      ⇒ 細字、小字、灰字、半透明底特別糊。只在 1x 螢幕套用（Retina 維持原樣）：
      小字至少 11–12px、灰字提亮、小字字距收窄（大字距在 1x 會把筆畫拆散）、面板底色更實、刻度字加粗＋加厚描邊 */
   @media (max-resolution: 1.5dppx) {
-    :root, :root[data-theme="dark"] { --ink-dim: rgba(242,242,242,.74); --ink-faint: rgba(242,242,242,.52);
+    :root, :root[data-theme="dark"] { --ink-dim: rgba(242,242,242,.74); --ink-faint: rgba(242,242,242,.62);
       --panel: rgba(20,20,21,.97); --panel-solid: rgba(17,17,18,.99); --line: rgba(255,255,255,.2); }
-    :root[data-theme="light"] { --ink-dim: rgba(20,20,20,.74); --ink-faint: rgba(20,20,20,.55);
+    :root[data-theme="light"] { --ink-dim: rgba(20,20,20,.74); --ink-faint: rgba(20,20,20,.68);
       --panel: rgba(255,255,255,.98); --panel-solid: #fff; --line: rgba(0,0,0,.18); }
     body { -webkit-font-smoothing: auto; }
-    .card .k, #caption .who, #askCard .top { font-size: 11.5px; letter-spacing: .1em; font-weight: 500; }
+    .card .k, #caption .who, #askCard .top { font-size: 12px; letter-spacing: .1em; font-weight: 500; }
     .row { font-size: 13px; }
-    .row .t, #satCard .ln .t, .pop .ln .t { font-size: 11.5px; letter-spacing: .06em; font-weight: 500; }
-    .row .rs, .trow .sub, .chips span, .more, .row .aks, .tl .axis, .dropMenu .hd, .dropMenu .row small { font-size: 11.5px; letter-spacing: .02em; }
+    .row .t, #satCard .ln .t, .pop .ln .t { font-size: 12px; letter-spacing: .06em; font-weight: 500; }
+    .row .rs, .trow .sub, .chips span, .more, .row .aks, .tl .axis, .dropMenu .hd, .dropMenu .row small { font-size: 12px; letter-spacing: .02em; }
     .row.atip, .fc, .qage, .legend, .trow .nm small, .pill.sm, .dropMenu .pct { font-size: 12px; }
     .row .abtn .pill { font-size: 11px; }
     .brand { font-size: 11px; letter-spacing: .16em; }
     #state .zh { font-size: 13px; letter-spacing: .2em; color: var(--ink); }
-    #state .en { font-size: 11.5px; font-weight: 600; letter-spacing: .3em; }
+    #state .en { font-size: 12px; font-weight: 600; letter-spacing: .3em; }
     #hint { font-size: 12px; letter-spacing: .04em; color: var(--ink-dim); }
     #banner .meta { font-size: 11px; letter-spacing: .12em; color: rgba(255,255,255,.8); }
     svg#links text { font: 600 12px ui-monospace, Menlo, monospace; letter-spacing: .04em; stroke-width: 4px; }
   }
+  button:focus-visible, textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -555,8 +556,8 @@
 <div class="card pop" id="pop" role="status"></div>
 <div id="banner" role="alert"><div class="in"></div></div>
 
-<div id="deskBar" aria-hidden="true"><i></i><span class="brand">OKLE<b>42</b></span><span class="brand dim wide">· SHOWORK<b>42</b> · 智能體</span></div>
-<div id="brandTab" class="brand" aria-hidden="true">OKLE<b>42</b> <span class="dim">· SHOWORK<b>42</b></span></div>
+<div id="deskBar" aria-hidden="true"><i></i><span class="brand">OKLE<b>42</b></span><span class="brand dim wide">· ORBIT<b>42</b> · 智能體</span></div>
+<div id="brandTab" class="brand" aria-hidden="true">OKLE<b>42</b> <span class="dim">· ORBIT<b>42</b></span></div>
 <svg id="deskGrip" viewBox="0 0 18 18" aria-label="拖曳縮放"><path d="M16 7 7 16M16 11.5 11.5 16" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
 <div id="tools">
   <button class="pill sm on" id="bNewSat" title="開一顆新衛星（新的 AI 工作者，Orbit42）" hidden>＋ 新衛星</button>
@@ -1742,8 +1743,8 @@ function render() {
   roll($("u7"), data.seven_day); roll($("u7b"), data.seven_day); roll($("u5"), data.five_hour); roll($("uc"), ctxV);
   meter("m7", data.seven_day); meter("m5", data.five_hour); meter("mc", ctxV);
   const d7 = $("d7"); d7.setAttribute("stroke-dasharray", `${Math.min(100, data.seven_day ?? 0)} 100`); d7.style.stroke = lvlCol(data.seven_day ?? 0);
-  $("r5").textContent = data.five_reset != null ? `${hm(data.five_reset)} 後重置` : "";
-  $("r7").textContent = data.seven_reset != null ? `${hm(data.seven_reset)} 後重置` : "";
+  $("r5").textContent = data.five_reset != null ? (data.five_reset < 1 ? "不到1分鐘後重置" : `${hm(data.five_reset)} 後重置`) : "";
+  $("r7").textContent = data.seven_reset != null ? (data.seven_reset < 1 ? "不到1分鐘後重置" : `${hm(data.seven_reset)} 後重置`) : "";
   $("rc").textContent = top ? `最高：${top.name}` : "最近的 session";
   renderQuotaAge();
   if (!quotaStale()) track5(data.five_hour);
@@ -1768,8 +1769,8 @@ function teamShown() { return (data.team || []).map((c, i) => [c, i]).filter(([c
 function teamRowsHtml() {
   const team = data.team || [], shown = teamShown();
   return shown.map(([c, i]) => {
-    const col = ST_COL[c.status] || "var(--done)", changed = lastSt.has(c.sessionId) && lastSt.get(c.sessionId) !== c.status;
-    const sub = [esc(c.status === "卡住" && /等外部/.test(c.reason || "") ? "等待中" : c.status || ""), c.ctx != null ? `<span class="${c.ctx >= 80 ? "hi" : ""}">記憶 ${c.ctx}%</span>` : "", c.ago != null ? (c.ago < 1 ? "剛剛" : c.ago < 60 ? `${c.ago} 分鐘前` : `${Math.floor(c.ago / 60)} 小時前`) : ""].filter(Boolean).join(" · ");
+    const wait = c.status === "卡住" && /等外部/.test(c.reason || ""), col = wait ? "var(--gray)" : ST_COL[c.status] || "var(--done)", changed = lastSt.has(c.sessionId) && lastSt.get(c.sessionId) !== c.status;
+    const sub = [wait ? "等待中" : c.status === "卡住" ? `<b>▲ 卡住</b>` : esc(c.status || ""), c.ctx != null ? `<span class="${c.ctx >= 80 ? "hi" : ""}">記憶 ${c.ctx}%</span>` : "", c.ago != null ? (c.ago < 1 ? "剛剛" : c.ago < 60 ? `${c.ago} 分鐘前` : `${Math.floor(c.ago / 60)} 小時前`) : ""].filter(Boolean).join(" · ");
     return `<div class="row trow${c.status === "進行中" ? " live" : c.status === "卡住" ? " live wait" : ""}${c.sessionId ? " link" : ""}${changed ? " flash" : ""}${c.faded ? " faded" : ""}" data-i="${i}" data-sid="${esc(c.sessionId || "")}"${data.orderable && c.sessionId ? ` tabindex="0" role="button" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc((c.name || "") + " " + (c.doing || "") + " " + (c.status || ""))}"` : ""} title="${c.sessionId ? "點一下跳到這個 session" + (data.orderable ? "；拖動可以排順序" : "") : ""}">
       <span class="dot${c.status === "需要你" ? " pulse" : ""}" style="--c:${col}"></span>
       <span class="nm">${esc(c.name || "")}${c.doing ? `<small>${esc(c.doing)}</small>` : ""}</span><span>${c.progress != null ? c.progress + "%" : ""}</span>
@@ -2039,7 +2040,7 @@ function showBanner(b) {
   const el = $("banner"), now = new Date();
   bannerOn = true; bannerLevel = b.level || "warn"; bannerSid = b.sid || null;
   el.className = bannerLevel === "warn" ? "warn" : "";
-  el.querySelector(".in").innerHTML = `<div class="meta"><span>${esc(b.tag || "WARNING")}</span><span>${esc(b.source || "SHOWORK42")}</span><span>${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}</span></div>
+  el.querySelector(".in").innerHTML = `<div class="meta"><span>${esc(b.tag || "WARNING")}</span><span>${esc(b.source || "ORBIT42")}</span><span>${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}</span></div>
     <div class="main">${ICON[b.icon || "warn"]}<span class="bt"></span><span class="cur">_</span></div>${b.sub ? `<div class="sub">${esc(b.sub)}</div>` : ""}`;
   void el.offsetWidth; el.classList.add("on"); motionAt = performance.now();
   decode(el.querySelector(".bt"), b.title, 520);
@@ -2991,7 +2992,7 @@ async function demo() {
   if (c0) showPop(sessionPop(c0));
   await speak(`現在有 ${data.sessions ?? "幾"} 個 session 在線。`);
   hidePop(1200);
-  showBanner({ level: "warn", icon: "warn", tag: "示範 · DEMO", source: "SHOWORK42", title: "這是警示橫幅", sub: "有人在等你、卡住、額度快爆或機器過熱時會出現", ms: 4500 });
+  showBanner({ level: "warn", icon: "warn", tag: "示範 · DEMO", source: "ORBIT42", title: "這是警示橫幅", sub: "有人在等你、卡住、額度快爆或機器過熱時會出現", ms: 4500 });
   await speak("有人在等你或卡住時，會這樣提醒你。");
   await wait(800);
   setState("idle"); await speak("有事再叫我。"); demoRunning = false;

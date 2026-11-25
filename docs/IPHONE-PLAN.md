@@ -1,5 +1,7 @@
 # Orbit42 iPhone 連接版：規劃
 
+> 這是 11-23 的規劃紀錄；現況（衛星可操作、內建 Tailscale）以 `ios/README.md` 為準。
+
 2026-11-23（Fiona4）。Keng 追加：Windows 版之後做 iPhone 連接版。
 
 ## 現有基礎（不用從零做）

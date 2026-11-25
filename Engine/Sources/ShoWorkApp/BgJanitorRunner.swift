@@ -76,7 +76,7 @@ final class BgJanitorRunner: @unchecked Sendable {
     }
 
     private func log(_ s: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) \(s)\n"
+        let line = "\(Stamp.iso()) \(s)\n"
         print("bgjanitor:", s); fflush(stdout)
         if let h = try? FileHandle(forWritingTo: logURL) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
         else { try? Data(line.utf8).write(to: logURL) }

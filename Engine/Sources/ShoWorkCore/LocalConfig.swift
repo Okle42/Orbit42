@@ -12,7 +12,6 @@ import Foundation
 //   "winHosts": ["winbox"],                   // ssh 到這些遠端 Windows 的寫入動作要預告
 //   "noKickoffRepos": ["Secretary42"],        // 在這些 repo 裡的 session 不提醒發開工卡
 //   "captainHandoff": "~/Documents/交接.md",  // 秘書換哨提醒要它更新的交接文件（11-10；預設「秘書交接文件」）
-//   "village": { "shopName": "我的店", "zones": { "某專案": "shop" }, "shopKeywords": ["關鍵字"] }   // 小島村莊（11-12，Village.swift）
 // }
 public struct LocalConfig: Codable, Sendable, Equatable {
     public var owner: String?
@@ -21,7 +20,6 @@ public struct LocalConfig: Codable, Sendable, Equatable {
     public var winHosts: [String]?
     public var noKickoffRepos: [String]?
     public var captainHandoff: String? = nil
-    public var village: VillageConfig? = nil
 
     public init(owner: String? = nil, headsetProjects: [String]? = nil, privateDataRepos: [String]? = nil,
                 winHosts: [String]? = nil, noKickoffRepos: [String]? = nil) {

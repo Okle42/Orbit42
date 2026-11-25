@@ -84,7 +84,7 @@ struct HandoverTests {
         #expect(a.sig != plain.sig)
     }
 
-    @Test("T1026230337 收尾後：巡檢／組員訊息不算打斷、看板訊息暫存到接手；使用者打字才取消", .serialized)
+    @Test("T1026230337 收尾後：巡檢／組員訊息不算打斷、看板訊息暫存到接手；使用者打字才取消")
     func notInterruptedByPeers() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("handover-\(UUID().uuidString)/handover")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)

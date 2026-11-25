@@ -57,6 +57,8 @@
   #enter { padding: 8px 20px; }
   .spin { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--dim); border-top-color: transparent; border-radius: 50%; animation: r 0.8s linear infinite; vertical-align: -1px; }
   @keyframes r { to { transform: rotate(360deg); } }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>

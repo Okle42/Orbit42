@@ -1,4 +1,5 @@
 import AppKit
+import ShoWorkApp
 import ApplicationServices
 import LocalAuthentication
 import ScreenCaptureKit
@@ -28,9 +29,8 @@ final class MacWindows: NSObject, NSMenuItemValidation {
 
     // MARK: 選單
     func installMenu() {
-        guard let m = NSApp.mainMenu?.items.first?.submenu else { return }
         let i = NSMenuItem(title: "手機可以看和操作這台 Mac 的視窗", action: #selector(toggle), keyEquivalent: "")
-        i.target = self; m.insertItem(i, at: 0); m.insertItem(.separator(), at: 1)
+        i.target = self; _ = EditMenu.addAppItem(i)
     }
     func validateMenuItem(_ i: NSMenuItem) -> Bool { i.state = Self.enabled ? .on : .off; return true }
     @objc private func toggle() {

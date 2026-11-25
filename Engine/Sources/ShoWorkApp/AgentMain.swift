@@ -1,5 +1,4 @@
 import AppKit
-import SceneKit
 import ShoWorkCore
 
 // 11-23：ShoWorkAgent 拆成函式庫（ShoWorkApp），原本 main.swift 的內容整段搬進來當 run()，行為不變；
@@ -80,112 +79,6 @@ if argv.count == 2, argv[1] == "--board-dump" {
     exit(0)
 }
 
-// Test/debug: ShoWorkAgent --office-bench <walk|move|still> [秒] [fps]  → 3D 辦公室渲染量測（不開視窗，SCNRenderer 畫進螢幕外貼圖；10-20 第四版）
-if argv.count >= 3, argv[1] == "--office-bench" {
-    MainActor.assumeIsolated {
-        OfficeBench.run(mode: argv[2], seconds: argv.count > 3 ? Double(argv[3]) ?? 20 : 20,
-                        fps: argv.count > 4 ? Double(argv[4]) ?? 10 : (argv[2] == "move" ? 24 : argv[2] == "still" ? 12 : 10))
-    }
-}
-
-// Test/debug: ShoWorkAgent --office-dump  → 3D 辦公室的資料層（10-20）：常駐／臨時部門、保全狀態、格局燈光設定，不開視窗
-if argv.count == 2, argv[1] == "--office-dump" {
-    let r = BoardReader()
-    let s = r.read()
-    let fm = FileManager.default
-    let cards = Board.build(sessions: s.sessions, transcripts: s.transcripts, glows: s.glows, teams: s.teams, inbox: s.inbox,
-                            reports: s.reports, reviews: s.reviews, decisions: s.decisions, contexts: s.contexts, nicknames: s.nicknames, asks: s.asks,
-                            now: Date(), home: BoardPaths.home, isRepo: { fm.fileExists(atPath: $0 + "/.git") })
-    let deps = OfficeDepartments.build(residents: s.residents.map(\.name), cards: cards)
-    let df = ISO8601DateFormatter(); df.timeZone = .current
-    print("repos:", BoardPaths.repos)
-    print("departments:", deps.count, "（常駐 \(deps.filter(\.isResident).count)、臨時 \(deps.filter { !$0.isResident }.count)、有人 \(deps.filter(\.isActive).count)）")
-    let last = Dictionary(uniqueKeysWithValues: s.residents.map { ($0.name, $0.lastCommit) })
-    for (i, d) in deps.enumerated() {
-        print(String(format: "%2d", i + 1), d.isResident ? "常駐" : "臨時", d.isActive ? "有人" : "暗著", d.name,
-              last[d.name].map { "最後 commit " + df.string(from: $0) } ?? "")
-    }
-    let g = s.guardStatus
-    print("guard:", g.level.title, "|", g.summary)
-    print("  hasData=\(g.hasData) lastScan=\(g.lastScan.map(df.string) ?? "nil") known=\(g.knownCount) online=\(g.onlineCount) stale=\(g.stale)")
-    for d in g.flagged { print("  flagged", d.kind.rawValue, d.online ? "在線" : "離線", d.ip ?? "-", d.mac, d.label ?? "", d.vendor ?? "") }
-    let p = OfficePrefs()
-    print("prefs: \(OfficePrefs.layoutKey)=\(p.layout.rawValue) \(OfficePrefs.lightingKey)=\(p.lighting.rawValue) \(OfficePrefs.guardPatrolKey)=\(p.guardPatrol) 現在夜晚=\(p.isNight())")
-    print("script:", BoardPaths.wifiwatchScript)
-    // 科技大樓（10-20 第 2 棒）：樓層表、主題、閒晃。名冊只讀不存（dump 不改你的樓層號）
-    var reg = TowerStore.load()
-    let hadReg = !reg.numbers.isEmpty
-    var usageShown: [String: Double]?
-    let (plan, dirty) = TowerPlan.build(departments: deps, cards: cards, registry: &reg,
-                                        usage: { let u = TowerStore.usage(departments: deps, cards: cards); usageShown = u; return u },
-                                        accents: TowerDecor.shared.picker.all().mapValues(\.accentColor), now: Date())
-    print("tower: 名冊 \(TowerPaths.registry.path)（\(hadReg ? "已存在" : "還沒有，這次是第一次排名")；dump 不存檔\(dirty ? "，正式 agent 會存" : "")）")
-    if let u = usageShown {
-        print("  7 天用量（MB，對話紀錄檔大小）:", u.sorted { $0.value > $1.value }.map { "\($0.key) \(String(format: "%.1f", $0.value))" }.joined(separator: "、"))
-    }
-    for f in plan.floors.reversed() {
-        let y = String(format: "y=%5.1f h=%.1f", f.y, f.height)
-        switch f.kind {
-        case .roof: print("  RF  ", y, "空中花園・休息區")
-        case .lobby: print("  01  ", y, "大廳＋前台保全（\(g.level.title)）")
-        case .idle: print("  薄層", y, f.plates.map { "\($0.floorNo.isEmpty ? "" : $0.floorNo + " ")\($0.name)" }.joined(separator: "、"))
-        case .project:
-            let last = reg.lastSeen[(f.project ?? "").lowercased()].map { " 最後有人 " + df.string(from: $0) } ?? ""
-            print("  \(f.floorNo)  ", y, f.project ?? "", f.active ? "有人" : "緩衝中（2 小時內有人）", "桌 \(f.seats)", last)
-        }
-    }
-    let numbered = reg.numbers.sorted { $0.value < $1.value }.map { "\(TowerSpec.label($0.value)) \(reg.names[$0.key] ?? $0.key)" }
-    print("  樓層號:", numbered.joined(separator: "、"))
-    // 主題：快取（AI／本地）＋這次用真資料算的本地評分（不呼叫 AI）
-    let cache = TowerDecor.shared.picker.all()
-    for f in plan.projectFloors {
-        guard let name = f.project else { continue }
-        let mine = cards.filter { $0.project.caseInsensitiveCompare(name) == .orderedSame && !$0.id.contains("#") }
-        let inp = TowerDecor.gather(name, cards: mine, readme: true)
-        let sig = WorkSignature.make(inp)
-        let top = sig.scores.sorted { $0.value > $1.value }.prefix(3).map { "\($0.key.rawValue) \($0.value)" }.joined(separator: "、")
-        let c = cache[name.lowercased()]
-        print("  theme \(f.floorNo) \(name): 快取=\(c.map { "\($0.theme.rawValue)（\($0.theme.title)）\($0.source) \($0.accentColor) \($0.props) 「\($0.reason)」" } ?? "無")",
-              "| 本地評分=\(sig.best.theme.rawValue)（\(top.isEmpty ? "沒命中" : top)）| 線索: 指示 \(inp.prompts.count)、路徑 \(inp.paths.count)、指令 \(inp.commands.count)、README \(inp.readme == nil ? "無" : "有")")
-    }
-    let l = TowerDecor.shared.picker.ledgerSnapshot.recent(Date())
-    print("  decor: AI 裝潢=\(TowerDecor.shared.enabled ? "開" : "關") 24 小時內呼叫 \(l.count) 次、成本 US$\(String(format: "%.4f", l.reduce(0) { $0 + ($1.cost ?? 0) }))")
-    let people = TowerStore.people(cards, tower: plan)
-    let w = WanderPlanner.plan(people: people, tower: plan, previous: [:], now: Date(), visible: true, mode: .animate)
-    for p in people {
-        let st = w.states[p.sid]!
-        print("  wander \(p.sid.prefix(8)) \(p.floor) \(p.mood.rawValue) 座位 \(p.seat + 1)/\(p.seats) → \(st.spot)\(st.trip.map { String(format: " 行程 %.1f 秒（%d 點）", $0.duration, $0.nodes.count) } ?? "")")
-    }
-    exit(0)
-}
-
-// Test: ShoWorkAgent --decor-pick <專案> [--real] [--save]  → 跟正式版同一條路（ThemePicker＋同一組 claude 旗標）問一次主題，印結果與耗時。
-//       沒帶 --real 用假 runner（不呼叫 AI）；沒帶 --save 寫到暫存資料夾（不動你的 board/themes）（10-20）
-if argv.count >= 3, argv[1] == "--decor-pick" {
-    let name = argv[2], real = argv.contains("--real"), keep = argv.contains("--save")
-    let s = BoardReader().read()
-    let fm = FileManager.default
-    let cards = Board.build(sessions: s.sessions, transcripts: s.transcripts, glows: s.glows, teams: s.teams, inbox: s.inbox,
-                            reports: s.reports, reviews: s.reviews, decisions: s.decisions, contexts: s.contexts, nicknames: s.nicknames, asks: s.asks,
-                            now: Date(), home: BoardPaths.home, isRepo: { fm.fileExists(atPath: $0 + "/.git") })
-    let mine = cards.filter { $0.project.caseInsensitiveCompare(name) == .orderedSame && !$0.id.contains("#") }
-    let dir = keep ? BoardPaths.dir : fm.temporaryDirectory.appendingPathComponent("showork-decor-\(UUID().uuidString)")
-    let picker = ThemePicker(dir: dir, model: DecorRunner.model, runner: real ? DecorRunner.real : DecorRunner.fake)
-    let inp = TowerDecor.gather(name, cards: mine, readme: true)
-    let sig = WorkSignature.make(inp)
-    print("decor-pick \(name) runner=\(real ? "claude -p " + DecorRunner.args().joined(separator: " ") : "假") dir=\(dir.path)")
-    print("  卡片 \(mine.count) 張；本地評分 \(sig.best.theme.rawValue)；提示詞 \(DecorPrompt.make(inp, signature: sig, current: nil).count) 字")
-    let sem = DispatchSemaphore(value: 0)
-    let t0 = Date()
-    let ok = picker.consider(name, turnEnded: true, enabled: true, force: true, input: { inp },
-                             changed: { v in print("  寫入 \(v.source): \(v.theme.rawValue)（\(v.theme.title)）\(v.accentColor) \(v.props) 「\(v.reason)」 cost=\(v.costUSD.map { String(format: "%.5f", $0) } ?? "-") 秒=\(v.seconds.map { String($0) } ?? "-")"); fflush(stdout) },
-                             finished: { d in print("  結果 \(d)，總耗時 \(String(format: "%.1f", Date().timeIntervalSince(t0))) 秒"); fflush(stdout); sem.signal() })
-    if !ok { print("  沒有排工作"); exit(1) }
-    sem.wait()
-    if let c = picker.ledgerSnapshot.calls.last { print("  紀錄: ok=\(c.ok) cost=\(c.cost.map { String($0) } ?? "-") 秒=\(c.seconds.map { String($0) } ?? "-")") }
-    exit(0)
-}
-
 // Test: ShoWorkAgent --guard-scan [--real]  → 跟「立即掃描」同一條路（GuardScanner、同時只跑一個），印結束碼。
 //       沒設 SHOWORK_WIFIWATCH_SCRIPT（假腳本）又沒帶 --real 就不跑：測試不准真的掃網路（10-20）
 if argv.count >= 2, argv[1] == "--guard-scan" {
@@ -199,13 +92,6 @@ if argv.count >= 2, argv[1] == "--guard-scan" {
     print("first=\(first) second=\(second) running=\(sc.isRunning)")
     sem.wait()
     print("running after=\(sc.isRunning)")
-    exit(0)
-}
-
-// Test: ShoWorkAgent --label-sheet <背景.png> <輸出.png>  → 把各狀態的玻璃名牌（假名）疊在背景圖上，驗亮底／暗底的可讀性
-//       （螢幕外視窗的截圖拍不到標籤圖層，10-23）
-if argv.count == 4, argv[1] == "--label-sheet" {
-    MainActor.assumeIsolated { OfficeLabels.labelSheet(bg: argv[2], out: argv[3]) }
     exit(0)
 }
 
@@ -230,15 +116,6 @@ if argv.count == 5, argv[1] == "--work-snap" {
             }
         }
     }
-    NSApplication.shared.run()
-}
-
-// Test: ShoWorkAgent --office-web-snap <輸出.png> [demo]  → 3D 辦公大樓 Web 版（OfficeWebHost，WKWebView 載 office.html）開在螢幕外、不搶焦點；
-//       demo＝office.html?demo=1（網頁自己讀 bench/mac-input.json），否則推真的 BoardModel 資料（動作一律不送出、設定不寫回）。
-//       網頁 ready 後等 SHOWORK_SNAP_WAIT 秒（預設 6，WebGL 要畫好）截圖，印出網頁收到幾張卡、推了幾次 office2。
-//       WebGL canvas 另外用 toDataURL（?test=1 時 preserveDrawingBuffer）取回，墊在網頁截圖底下
-if argv.count >= 3, argv[1] == "--office-web-snap" {
-    MainActor.assumeIsolated { OfficeWebSnap.run(out: argv[2], demo: argv.count >= 4 && argv[3] == "demo") }
     NSApplication.shared.run()
 }
 
@@ -345,18 +222,6 @@ if argv.count == 2, argv[1] == "--board-window" {
         BoardWindow.shared.show()
         if ProcessInfo.processInfo.environment["SHOWORK_TEST_SPHERE_MINI"] != nil { SphereMini.shared.show() }   // 小球開在螢幕外
         if ProcessInfo.processInfo.environment["SHOWORK_TEST_BGJANITOR"] != nil { BgJanitorRunner.shared.start() }   // 測試：空轉背景 session 清理
-        // SHOWORK_TEST_REOPEN=1（10-24 C）：4 秒後先打開互動板、選大廳、記一個鏡頭，再關窗（內容拆掉）、1 秒後重開；截圖要看到原樣
-        if ProcessInfo.processInfo.environment["SHOWORK_TEST_REOPEN"] != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                OfficeMemory.boardOpen = true; OfficeMemory.selectedFloor = "lobby"
-                OfficeMemory.camera = (SCNMatrix4MakeTranslation(18, 6, 14), SCNVector3(2, 1, -1))
-                BoardWindow.shared.closeForTest()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    print("reopen: 關窗後內容 \(BoardWindow.shared.hasContent ? "還在" : "已拆")"); fflush(stdout)
-                    BoardWindow.shared.show()
-                }
-            }
-        }
         // SHOWORK_TEST_DROP=<路徑>（10-26）：10 秒後（等卡片讀完）對對話輸入框跑拖檔那段（插路徑＋拉焦點），再用鍵盤事件打「接著打」，印出框裡的字
         if let path = ProcessInfo.processInfo.environment["SHOWORK_TEST_DROP"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
@@ -446,7 +311,8 @@ if !options.waitForAccessibility && !AXIsProcessTrusted() {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
         p.arguments = ["--ax-check"]
-        try? p.run(); p.waitUntilExit()
+        do { try p.run() } catch { continue }             // 開不起來：2 秒後再試，不當成已經允許
+        p.waitUntilExit()
         if p.terminationStatus == 0 { break }
     }
     FileHandle.standardError.write(Data("ShoWorkAgent: Accessibility granted — restarting to pick it up\n".utf8))

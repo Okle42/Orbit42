@@ -1,10 +1,8 @@
 import AppKit
-import SceneKit
 import SwiftUI
 import ShoWorkCore
 
-// 戰情中心視窗：3D 辦公室（OfficeWebScene，three.js）／3D 辦公大樓（OfficeView，SceneKit）。11-08 部門島拿掉。
-// 欄位分法（BoardColumn）照舊，是角色狀態的來源；P2 的自報＋審核、放行／退回／丟待辦、新任務、右上角帳號流量都還在。
+// 戰情中心視窗：智能體＋工具列（新任務、秘書、派工、退回、審核、自動收尾、保全）。3D 辦公室／大樓／村莊 11-25 拿掉。
 // 一般可縮放的視窗，記住位置；agent 沒有 Dock 圖示，打開時要 activate。
 
 @MainActor
@@ -43,7 +41,7 @@ final class BoardWindow: NSObject, NSWindowDelegate {
             w.delegate = self
             window = w
         } else if window?.contentView == nil {
-            window?.contentView = Self.content()        // 關窗時拆掉了，重建（鏡頭、樓層、互動板位置在 OfficeMemory）
+            window?.contentView = Self.content()        // 關窗時拆掉了，重建
         }
         if BoardWindow.testMode {      // 不搶你的焦點；排進畫面後再放回螢幕外一次
             window?.orderFront(nil)
@@ -55,43 +53,9 @@ final class BoardWindow: NSObject, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    /// 測試視窗自己存截圖（視窗在螢幕外，screencapture 拍不到）：先畫 SwiftUI 部分，再把 3D 畫面的 snapshot 疊上去
     func snapshot(to path: String) -> Bool {
         guard let v = window?.contentView, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return false }
         v.cacheDisplay(in: v.bounds, to: rep)
-        let swiftUI = rep.copy() as? NSBitmapImageRep          // SwiftUI 那層（3D 區域是空底＋疊在上面的卡片、選單）
-        func scnViews(_ x: NSView) -> [SCNView] { (x as? SCNView).map { [$0] } ?? x.subviews.flatMap(scnViews) }
-        var rects: [NSRect] = []
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        for scn in scnViews(v) {
-            var r = v.convert(scn.bounds, from: scn)
-            if v.isFlipped { r.origin.y = v.bounds.height - r.maxY }
-            scn.snapshot().draw(in: r)
-            rects.append(r)
-        }
-        NSGraphicsContext.restoreGraphicsState()
-        // 10-20：3D 畫面上疊的 SwiftUI（回答卡、保全面板、右上角選單）會被 snapshot 蓋掉 ⇒ 把 SwiftUI 層裡跟空底顏色不同的像素補回去
-        if let ui = swiftUI, let dst = rep.bitmapData, let src = ui.bitmapData, rep.bitsPerPixel == 32, ui.bitsPerPixel == 32 {
-            let k = CGFloat(rep.pixelsWide) / max(1, v.bounds.width), bpr = rep.bytesPerRow
-            for r in rects {
-                let x0 = Int(r.minX * k), x1 = min(rep.pixelsWide, Int(r.maxX * k))
-                let y0 = Int((v.bounds.height - r.maxY) * k), y1 = min(rep.pixelsHigh, Int((v.bounds.height - r.minY) * k))
-                // 空底的顏色：取 3D 區域四個角＋正中央，最多的那個（10-20 第 4 棒：螢幕空間標籤剛好蓋在正中央時，整片 3D 被當成「疊在上面的 UI」蓋掉）
-                let pts = [((y0 + y1) / 2, (x0 + x1) / 2), (y0 + 3, x0 + 3), (y0 + 3, x1 - 4), (y1 - 4, x0 + 3), (y1 - 4, x1 - 4)]
-                let cols = pts.map { (y, x) in let c = y * bpr + x * 4; return [src[c], src[c + 1], src[c + 2]] }
-                let best = cols.max { a, b in cols.filter { $0 == a }.count < cols.filter { $0 == b }.count }!
-                let ref = (best[0], best[1], best[2])
-                for y in y0..<y1 {
-                    for x in x0..<x1 {
-                        let i = y * bpr + x * 4
-                        if abs(Int(src[i]) - Int(ref.0)) + abs(Int(src[i + 1]) - Int(ref.1)) + abs(Int(src[i + 2]) - Int(ref.2)) > 6 {
-                            dst[i] = src[i]; dst[i + 1] = src[i + 1]; dst[i + 2] = src[i + 2]; dst[i + 3] = src[i + 3]
-                        }
-                    }
-                }
-            }
-        }
         guard let png = rep.representation(using: .png, properties: [:]) else { return false }
         return (try? png.write(to: URL(fileURLWithPath: path))) != nil
     }
@@ -153,8 +117,8 @@ struct BoardView: View {
     @State private var dispatchCard: BoardCard?
     @State private var toCaptain = false
     @State private var toast: String?
-    /// 檢視：office＝3D 辦公室、tower＝3D 辦公大樓（11-08 部門島拿掉；舊存檔 islands 當 office）
-    @AppStorage("board.mode", store: UserDefaults(suiteName: "ai.okle42.showork")) private var view = "office"
+    @State private var guardOpen = false
+    @AppStorage(AppPrefs.guardPatrolKey, store: UserDefaults(suiteName: AppPrefs.suite)) private var patrol = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -171,23 +135,12 @@ struct BoardView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // 測試視窗可用 SHOWORK_TEST_VIEW=office|tower 指定檢視（只讀不寫，不會改到你存的選擇；10-20 審查）
-            // 11-08 使用者：部門島拿掉；兩種檢視＝3D 辦公室（three.js 單層開放式，跟 Windows 同一份）／3D 辦公大樓（SceneKit 大樓剖面）。
-            // 舊存檔的 "islands" 當成 3D 辦公室
-            // 11-13 使用者：第三個分頁「小島村莊」（學弟 PR #1）。小島和大樓是同一個 OfficeView、各自指定場景；
-            // .id 讓切分頁時整個換掉重建（不留另一個場景的節點）。沒選到的分頁不存在、不畫、不耗資源。
-            if let scene = Self.scene(for: (BoardWindow.testMode ? ProcessInfo.processInfo.environment["SHOWORK_TEST_VIEW"] : nil) ?? view) {
-                    OfficeView(cards: model.cards, departments: model.departments, tower: model.tower, decor: model.decor, wander: model.wander, guardStatus: model.guardStatus, guardScanning: model.guardScanning, captainThread: model.captainThread, captainTasks: model.captainTasks, sessionThread: model.sessionThread, runs: model.runs, city: model.city, loaded: model.loaded,
-                               reviewing: model.reviewing, onSendBack: { sendBackCard = $0 }, onPark: { parkCard = $0 },
-                               onDispatch: { dispatchCard = $0 }, onToast: show, forcedScene: scene)
-                    .id(scene)
-            } else if ((BoardWindow.testMode ? ProcessInfo.processInfo.environment["SHOWORK_TEST_VIEW"] : nil) ?? view) == "sphere" {
-                // 11-21 使用者：第四個分頁「球體助理」（參考 IG 的 K.A.R.A 2.0），見 SphereWebScene.swift
-                SphereWebScene()
-            } else {
-                OfficeWebScene(onSendBack: { sendBackCard = $0 }, onPark: { parkCard = $0 },
-                               onDispatch: { dispatchCard = $0 }, onToast: show)
-            }
+            SphereWebScene()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in   // 設定窗改了，這裡跟著變
+            if reviewOn != Reviewer.shared.enabled { reviewOn = Reviewer.shared.enabled }
+            if autoWrap != CtxGuard.shared.autoWrapUp { autoWrap = CtxGuard.shared.autoWrapUp }
+            if ctxTokens != ContextGuard.tokenLimit { ctxTokens = ContextGuard.tokenLimit }
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -213,25 +166,24 @@ struct BoardView: View {
 
     private var captainCard: BoardCard? { model.cards.first { $0.captain } }
 
-    /// 分頁 → SceneKit 場景；nil＝3D 辦公室（three.js）
-    static func scene(for view: String) -> OfficeScene3D? {
-        switch view { case "tower": .tower; case "island": .island; default: nil }
-    }
-
     /// 工具列按鈕與開關；`short` 時用短標籤（完整說明在 help）。fixedSize：寧可換排也不壓字
     @ViewBuilder private func controls(short: Bool) -> some View {
-        Picker("檢視", selection: $view) {
-            Image(systemName: "cube").tag("office").help("3D 辦公室")
-            Image(systemName: "building.2").tag("tower").help("3D 辦公大樓")
-            Image(systemName: "tree").tag("island").help("小島村莊")
-            Image(systemName: "circle.hexagongrid").tag("sphere").help("智能體")
-        }
-        .pickerStyle(.segmented).labelsHidden().fixedSize()
         Button { newTask = true } label: { Label(short ? "新任務" : "新任務⋯", systemImage: "plus") }
             .keyboardShortcut("n").fixedSize()
         Button { toCaptain = true } label: { Label(short ? "秘書" : "交給秘書⋯", systemImage: "crown") }
             .fixedSize()
             .help(captainCard == nil ? "還沒有秘書：送出時會開一個 \(BoardActions.modelTitle(BoardActions.captainModel)) 背景秘書" : "把一件事交給秘書，由它決定給哪個 session")
+        SwiftUI.Menu {
+            ForEach(model.cards.filter { !$0.id.contains("#") }) { c in
+                SwiftUI.Menu(c.display) { cardActions(c) }
+            }
+        } label: { Label("卡片", systemImage: "person.2") }
+            .fixedSize()
+        Button { guardOpen.toggle() } label: { Label("保全", systemImage: "shield") }
+            .fixedSize()
+            .popover(isPresented: $guardOpen, arrowEdge: .bottom) {
+                GuardCard(status: model.guardStatus, scanning: model.guardScanning, patrol: $patrol, onScan: guardScan, onClose: { guardOpen = false })
+            }
         Toggle(short ? "審核" : "AI 審核", isOn: $reviewOn)
             .toggleStyle(.switch).controlSize(.small).fixedSize()
             .onChange(of: reviewOn) { _, v in Reviewer.shared.enabled = v }
@@ -250,6 +202,32 @@ struct BoardView: View {
                 .onChange(of: autoWrap) { _, v in CtxGuard.shared.autoWrapUp = v }
                 .help("自動收尾：AI 記憶量到 \(String(ctxTokens / 1000))k 會通知你；開著時，等那個 AI 停下來就請它 commit、規則允許才 push、更新交接")
         }
+    }
+
+    /// 一張卡的動作（原本在 3D 辦公室的右鍵選單）
+    @ViewBuilder private func cardActions(_ c: BoardCard) -> some View {
+        if c.kind == "board" {
+            Button("打開工作視窗") { if !BoardWindow.testMode { WorkWindow.show(SessionHost.shared.handle(for: c.sessionId) ?? c.sessionId, cwd: c.cwd) } }
+        } else {
+            Button("跳到這個視窗") { if !BoardWindow.testMode, let m = BoardActions.jumpOrAttach(c) { show(m) } }
+            Button("搬進戰情中心") {
+                guard !BoardWindow.testMode else { return }
+                show(OwnedActions.moveIn(c.sessionId, cwd: c.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path))
+                if SessionHost.shared.session(c.sessionId) != nil { WorkWindow.show(c.sessionId, cwd: c.cwd) }
+            }
+        }
+        if c.column == .review { Button("放行") { BoardActions.approve(c); show("已放行「\(c.title)」") } }
+        if !c.captain { Button("派工給它⋯") { dispatchCard = c } }
+        Button("退回並補指示⋯") { sendBackCard = c }
+        Button("丟回待辦⋯") { parkCard = c }
+        Button("重新審核") { Reviewer.shared.start(c, force: true) }.disabled(model.reviewing.contains(c.sessionId) || c.lastActivity == nil)
+        Divider()
+        Button("拷貝Session ID") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(c.sessionId, forType: .string) }
+    }
+    /// 測試視窗（沒配假腳本）不掃真的網路
+    private func guardScan() {
+        if BoardWindow.testMode && ProcessInfo.processInfo.environment["SHOWORK_WIFIWATCH_SCRIPT"] == nil { return show("測試視窗不掃描真的網路") }
+        show(model.guardScan() ? "開始掃描Wi-Fi（約數十秒）" : "已經在掃描了")
     }
 
     private func show(_ s: String) {

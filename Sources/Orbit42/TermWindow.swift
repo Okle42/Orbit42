@@ -186,7 +186,7 @@ final class TermWindowView: NSView {
 
     // MARK: 秘書（11-24 Keng 選 B：3px 框＋光暈＋「秘書」小標；深色護眼綠 #4fc36a、淺色紅 #d7261b，跟著深淺即時換）
     static func secretaryColor(_ dark: Bool) -> NSColor {
-        dark ? NSColor(srgbRed: 0x4f / 255.0, green: 0xc3 / 255.0, blue: 0x6a / 255.0, alpha: 1) : NSColor(srgbRed: 0.843, green: 0.149, blue: 0.106, alpha: 1)
+        dark ? Palette.green : Palette.red
     }
     private let stroke = CAShapeLayer()
     private let badgeText = NSTextField(labelWithString: Nicknames.captainTitle)
@@ -319,7 +319,7 @@ final class TermWindowView: NSView {
         glass.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         bar.layer?.backgroundColor = (dark ? NSColor(white: 0.09, alpha: 0.12) : NSColor(white: 0.97, alpha: 0.12)).cgColor   // 11-23 Keng：再透一點
         clip.layer?.borderColor = (dark ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12)).cgColor
-        titleLabel.textColor = dark ? NSColor(srgbRed: 0x4f / 255.0, green: 0xc3 / 255.0, blue: 0x6a / 255.0, alpha: 1) : NSColor(white: 0.08, alpha: 1)      // 11-24 深色綠白對調：標題字原本白 ⇒ 綠
+        titleLabel.textColor = dark ? Palette.green : NSColor(white: 0.08, alpha: 1)      // 11-24 深色綠白對調：標題字原本白 ⇒ 綠
         lights.forEach { $0.needsDisplay = true }
         paintSecretary(dark)
     }
@@ -420,9 +420,9 @@ final class TrafficLight: NSButton {
         //   淺色：紅 #d7261b／灰 #8c8c8c／白 #ffffff，外圈加深一點（白點在淺灰標題列上才看得到）
         let fill: NSColor, ring: NSColor
         switch kind {
-        case .close: fill = dark ? NSColor(srgbRed: 0.929, green: 0.929, blue: 0.929, alpha: 1)      /* 11-24 綠白對調：關閉燈綠 ⇒ 白、放大燈白 ⇒ 綠 */ : NSColor(srgbRed: 0.843, green: 0.149, blue: 0.106, alpha: 1)
+        case .close: fill = dark ? NSColor(srgbRed: 0.929, green: 0.929, blue: 0.929, alpha: 1)      /* 11-24 綠白對調：關閉燈綠 ⇒ 白、放大燈白 ⇒ 綠 */ : Palette.red
         case .minimize: fill = dark ? NSColor(srgbRed: 0.541, green: 0.541, blue: 0.561, alpha: 1) : NSColor(white: 0.55, alpha: 1)
-        case .zoom: fill = dark ? NSColor(srgbRed: 0.310, green: 0.765, blue: 0.416, alpha: 1) : .white
+        case .zoom: fill = dark ? Palette.green : .white
         }
         ring = kind == .zoom && !dark ? NSColor(white: 0, alpha: 0.35) : NSColor(white: 0, alpha: dark ? 0.45 : 0.18)
         let c = NSBezierPath(ovalIn: bounds.insetBy(dx: 0.5, dy: 0.5))

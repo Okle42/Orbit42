@@ -22,9 +22,7 @@ final class PauseState: @unchecked Sendable {
         GuardOff.local = { st.until }
         if GuardOff.serve(until: { st.until }) == nil { NSLog("guard.sock 開不起來：暫停功能不能用，檢查照常") }
         item.target = self
-        if let app = NSApp.mainMenu?.items.first?.submenu {
-            app.insertItem(item, at: min(1, app.items.count))
-        } else {
+        if !EditMenu.addAppItem(item) {
             let bar = NSApp.mainMenu ?? NSMenu(), top = NSMenuItem(), m = NSMenu(title: "Orbit42")
             m.addItem(item); top.submenu = m; bar.insertItem(top, at: 0)
             if NSApp.mainMenu == nil { NSApp.mainMenu = bar }

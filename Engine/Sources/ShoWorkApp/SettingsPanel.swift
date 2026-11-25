@@ -8,9 +8,10 @@ import ShoWorkCore
 // everything applies the moment you change it.
 
 enum SettingsTab: String, CaseIterable {
-    case glow, layout, about
+    case work, glow, layout, about
     var title: String {
         switch self {
+        case .work: "工作"
         case .glow: "光暈"
         case .layout: "排版"
         case .about: "關於與檢查"
@@ -18,6 +19,7 @@ enum SettingsTab: String, CaseIterable {
     }
     var symbol: String {
         switch self {
+        case .work: "gearshape"
         case .glow: "sparkles"
         case .layout: "rectangle.3.group"
         case .about: "stethoscope"
@@ -88,7 +90,8 @@ struct SettingsPage: View {
     let tab: SettingsTab
     var body: some View {
         Group {
-            if tab == .glow { GlowPage() }
+            if tab == .work { WorkPage() }
+            else if tab == .glow { GlowPage() }
             else if tab == .layout { LayoutPage() }
             else { AboutPage() }
         }
@@ -178,6 +181,35 @@ struct GlowPage: View {
     }
 }
 
+/// 原本只在戰情中心工具列的開關，跟那邊同一份設定
+struct WorkPage: View {
+    @State private var review = Reviewer.shared.enabled
+    @State private var wrap = CtxGuard.shared.autoWrapUp
+    @State private var ctx = ContextGuard.tokenLimit
+    @AppStorage(AppPrefs.guardPatrolKey, store: UserDefaults(suiteName: AppPrefs.suite)) private var patrol = false
+    var body: some View {
+        Form {
+            Section {
+                Toggle("AI審核", isOn: $review).onChange(of: review) { _, v in Reviewer.shared.enabled = v }
+            } footer: { Text("卡片進「待審」時，請AI獨立審一次，會用訂閱額度。").foregroundStyle(.secondary) }
+            Section {
+                Toggle("自動收尾", isOn: $wrap).onChange(of: wrap) { _, v in CtxGuard.shared.autoWrapUp = v }
+                Picker("記憶量門檻", selection: $ctx) {
+                    ForEach(Array(Set([250, 400, 600, 750, 800, 1000].map { $0 * 1000 } + [ctx])).sorted(), id: \.self) { Text("\($0 / 1000)k").tag($0) }
+                }
+                .onChange(of: ctx) { _, v in ContextGuard.tokenLimit = v }
+            } footer: { Text("用到門檻會通知；開著自動收尾時，等那個AI停下來就請它交接。").foregroundStyle(.secondary) }
+            Section {
+                Toggle("定時巡邏Wi-Fi", isOn: $patrol)
+            } footer: { Text("開著時每30分鐘最多掃一次。").foregroundStyle(.secondary) }
+        }
+        .formStyle(.grouped)
+        .toggleStyle(.switch)
+        .frame(height: 420)
+        .onAppear { review = Reviewer.shared.enabled; wrap = CtxGuard.shared.autoWrapUp; ctx = ContextGuard.tokenLimit }
+    }
+}
+
 struct LayoutPage: View {
     @ObservedObject private var layout = LayoutSettings.shared
     var body: some View {
@@ -212,7 +244,7 @@ struct AboutPage: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("ShoWork42", value: "開發版（本機）")
+                LabeledContent("Orbit42", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "開發版")
                 LabeledContent("輔助使用權限") {
                     Label(trusted ? "已允許" : "尚未允許", systemImage: trusted ? "checkmark.circle.fill" : "xmark.circle.fill")
                         .foregroundStyle(trusted ? .green : .red)

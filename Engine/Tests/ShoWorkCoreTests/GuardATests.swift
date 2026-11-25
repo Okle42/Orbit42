@@ -82,4 +82,17 @@ import Testing
         let xs = AskQueue.adding(SelfReport(status: .review, ask: "x", options: ["好", "不"], at: Date()), to: [q])
         #expect(xs.count == 1 && xs[0].options == q.options)
     }
+
+    @Test("防冒充插座：對方連上就斷 200 次，伺服端不會被 SIGPIPE 結束、之後照常回答")
+    func dropBeforeAnswer() {
+        let path = "/private/tmp/sw42-drop-\(getpid()).sock"
+        let until = Date(timeIntervalSince1970: 1_900_000_000)
+        let fd = GuardOff.serve(path, until: { until }); #expect(fd != nil)
+        defer { unlink(path) }
+        for _ in 0..<200 { _ = GuardOff.ask(path, trusted: { _ in false }) }      // 連上、不信任、馬上關
+        // 連灌 200 次會塞滿 64 格排隊，馬上再問可能被拒；3 秒內要恢復（伺服執行緒停了就永遠不會）
+        var got: Date?
+        for _ in 0..<60 where got == nil { got = GuardOff.ask(path, trusted: { _ in true }); if got == nil { usleep(50_000) } }
+        #expect(got == until)
+    }
 }

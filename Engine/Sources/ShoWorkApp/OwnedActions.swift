@@ -57,12 +57,11 @@ enum OwnedActions {
     }
 
     nonisolated static func ghosttyScript(cwd: String, input: String) -> String {
-        func q(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
         return """
             tell application id "com.mitchellh.ghostty"
               set cfg to new surface configuration
-              set initial working directory of cfg to "\(q(cwd))"
-              set initial input of cfg to "\(q(input))\\n"
+              set initial working directory of cfg to "\(Notify.quote(cwd))"
+              set initial input of cfg to "\(Notify.quote(input))\\n"
               new window with configuration cfg
               activate
               return "ok"

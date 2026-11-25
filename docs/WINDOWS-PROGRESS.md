@@ -3,9 +3,9 @@
 最後更新：2026-11-23 19:45（Fiona4）
 
 ## 架構
-- `windows/Orbit42.Win/`（C#、WinForms、WebView2、ConPTY）＋ ShoWork42 的 `windows/ShoWork.Win`（ProjectReference，預設找旁邊的 ShoWork42 repo，`-p:ShoWork42Dir=` 可改）
+- `windows/Orbit42.Win/`（C#、WinForms、WebView2、ConPTY）＋ `Engine/windows/ShoWork.Win`（ProjectReference）
 - 主視窗＝戰情中心 Orbit 模式（只留球體鋪滿）→ 上面蓋登入畫面 → 再上面是衛星小視窗
-- 三頁網頁跟 Mac 共用：球體 `sphere.html`（ShoWork42）、登入 `Web/login.html`、衛星終端機 `Web/index.html`
+- 三頁網頁跟 Mac 共用：球體 `sphere.html`（Engine）、登入 `Web/login.html`、衛星終端機 `Web/index.html`
 
 ## 在 Surface 實測過（11-23 19:45，Surface 螢幕上正式跑）
 - [x] 打包安裝：`pwsh windows\pack.ps1` → %LOCALAPPDATA%\Programs\Orbit42，桌面與開始選單有 Orbit42 捷徑（圖示同 Mac）
@@ -38,3 +38,6 @@
 ## 測試方法
 Mac 上跑 scratchpad 的 `orbit_win_test.sh '<環境變數 JSON>' [秒數]`：同步原始碼 → Surface 編譯 → 排程 Orbit42Test 在桌面 session 螢幕外跑 → 抓回截圖。
 環境變數：ORBIT_OFFSCREEN、ORBIT_TEST_LOGIN_SHOT、ORBIT_TEST_TERM="<指令>@<txt>"、ORBIT_TEST_SHOT、ORBIT_TEST_QUIT、SHOWORK_DEBUG
+
+## 2026-11-25
+Mac 版已拆掉 3D 辦公室／大樓／村莊；Windows 的對應程式（`Board/View/OfficeHost.cs`、`Board/Core`、`Web/office*`、`Web/scene`、`Web/ui`）還在，要在 Surface 上拆並編譯驗證。

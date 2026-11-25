@@ -42,12 +42,12 @@ final class SphereWatch {
             let st = SphereWebHost.needsYou(c) ? "需要你" : c.column.title
             if last[c.sessionId] != st {
                 last[c.sessionId] = st
-                lines.append(["at": ISO8601DateFormatter().string(from: now), "sid": c.sessionId, "name": c.display, "status": st])
+                lines.append(["at": Stamp.iso(now), "sid": c.sessionId, "name": c.display, "status": st])
             }
         }
         for sid in last.keys where !seen.contains(sid) {
             last[sid] = nil
-            lines.append(["at": ISO8601DateFormatter().string(from: now), "sid": sid, "status": "離線"])
+            lines.append(["at": Stamp.iso(now), "sid": sid, "status": "離線"])
         }
         if !lines.isEmpty, !BoardWindow.testMode { append(lines) }
         notifyAsks(people)
@@ -77,10 +77,7 @@ final class SphereWatch {
     }
 
     static func notify(title: String, body: String) {
-        func q(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: " ") }
-        DispatchQueue.global().async {
-            Tools.run("/usr/bin/osascript", ["-e", "display notification \"\(q(body))\" with title \"AI工作戰情中心\" subtitle \"\(q(title))\""], timeout: 10)
-        }
+        Notify.send(title, body)
     }
 
     // MARK: E 時間軸

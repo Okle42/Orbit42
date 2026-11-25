@@ -228,15 +228,6 @@ final class WorkWindow: NSObject, NSWindowDelegate, WKScriptMessageHandler {
     }
 }
 
-/// WKUserContentController 會強引用 handler；中間隔一層，視窗關掉才放得掉
-private final class WeakHandler: NSObject, WKScriptMessageHandler {
-    weak var target: (any WKScriptMessageHandler)?
-    init(_ t: any WKScriptMessageHandler) { target = t }
-    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        target?.userContentController(ucc, didReceive: message)
-    }
-}
-
 /// 網頁裡拖檔拿不到完整路徑：圖片以外的檔在這裡接，路徑推給網頁插進輸入框；圖片照常交給網頁（讀成附件）
 final class WorkWebView: WKWebView {
     var onDropPaths: (([String]) -> Void)?

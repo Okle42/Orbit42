@@ -49,7 +49,6 @@ final class BoardReader: @unchecked Sendable {
         var contexts: [String: ContextUse] = [:]
         var captain: CaptainRecord?
         var tasks: [CaptainTask] = []
-        var residents: [ResidentProject] = []        // 3D 辦公室常駐部門（10-20）
         var guardStatus = GuardStatus()              // 前台・保全（10-20）
         var permits: [String: PermitRequest] = [:]   // 等你按允許的（10-21）
         var handovers: [String: HandoverRecord] = [:] // 自動交接（Handover.swift）：舊 sid → 紀錄
@@ -97,16 +96,6 @@ final class BoardReader: @unchecked Sendable {
             if FileManager.default.fileExists(atPath: p) { pathCache[sid] = p; return p }
         }
         return nil
-    }
-
-    // 10-20 3D 辦公室：常駐名冊每 30 分鐘重算一次（read() 至少每 15 秒被保底 timer 叫一次，這裡只比時間，不另開 timer）
-    private var residents: [ResidentProject] = []
-    private var residentsAt: Date?
-    func residentProjects(now: Date = Date()) -> [ResidentProject] {
-        if let t = residentsAt, now.timeIntervalSince(t) < ResidentProjects.rescanInterval, now >= t { return residents }
-        residents = ResidentProjects.scan(root: BoardPaths.repos, now: now)
-        residentsAt = now
-        return residents
     }
 
     /// 保全：名冊／紀錄的 mtime＋大小沒變、也還沒跨過「24 小時沒掃描」那條線，就沿用上次的結果（不重新解析）
@@ -176,7 +165,6 @@ final class BoardReader: @unchecked Sendable {
             let f = "\(BoardPaths.claude)/cache/ctx/\(r.sessionId).json"
             if let d = fm.contents(atPath: f), let c = ContextUse.parse(d) { s.contexts[r.sessionId] = c }
         }
-        s.residents = residentProjects()
         s.guardStatus = guardStatus()
         return s
     }
@@ -376,7 +364,6 @@ final class BoardModel: ObservableObject {
     @Published private(set) var runs: [RunProgress] = []          // 背景長工作的即時進度（名字下方的進度條；10-26）
     @Published private(set) var reviewing = Set<String>()
     /// 3D 辦公室的部門（常駐照名稱＋臨時接在後面；10-20）。內容變了才發布
-    @Published private(set) var departments: [OfficeDepartment] = []
     /// 前台・保全看到的 Wi-Fi 狀態（10-20）。內容變了才發布
     @Published private(set) var guardStatus = GuardStatus()
     @Published private(set) var captainThread: [CaptainLine] = []   // 秘書對話（10-22 第 3 步）
@@ -393,24 +380,6 @@ final class BoardModel: ObservableObject {
     @Published private(set) var guardScanning = false
     /// 讀過第一輪了沒（3D 辦公室：讀到之前卡片是空的，不能當成「第一次載入」；10-20）
     @Published private(set) var loaded = false
-    /// 科技大樓（10-20 第 2 棒）：由下往上的樓層（大廳、閒置薄層、專案樓層、頂樓）。內容變了才發布
-    @Published private(set) var tower = TowerPlan()
-    /// 上一次 tower 變動時的搬家清單（第 3 棒播「飄出→升降→插回」；跟 tower 同一次發布）
-    private(set) var towerMoves: [TowerMove] = []
-    /// 每個專案（小寫）的樓層主題：快取＋本地預設＋測試覆寫。內容變了才發布
-    @Published private(set) var decor: [String: FloorDecor] = [:]
-    /// 角色閒晃：每個人待哪、這次新出發的行程。內容變了才發布
-    @Published private(set) var wander = WanderPlan()
-    /// 外部空間城市（10-21）：CityMonitor 在背景收，跟上次不一樣才交過來
-    @Published private(set) var city = CityState()
-    func setCity(_ c: CityState) { if c != city { city = c } }
-    /// 畫面告訴資料層「看得到」（第 3 棒接 occlusion：被蓋住／縮小／辦公室沒開就設 false）。
-    /// false 時不出發新行程、進行中的直接落地；改值會馬上重排一次（不等下次刷新）
-    var wanderVisible = BoardWindow.testMode {
-        didSet { if wanderVisible != oldValue { replanWander() } }
-    }
-    private var towerReg = TowerStore.load()
-
     private let reader = BoardReader()
     private let queue = DispatchQueue(label: "showork.board")
     private var timer: Timer?
@@ -432,10 +401,9 @@ final class BoardModel: ObservableObject {
         loadHistory()
         refresh()
         HeatGate.shared.check()
-        CityMonitor.shared.tick(force: true)
         watcher = BoardWatcher { urgent in MainActor.assumeIsolated { BoardModel.shared.refresh(urgent: urgent) } }
         timer = Timer.scheduledTimer(withTimeInterval: Self.fallbackInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh(); self?.patrol(); HeatGate.shared.check(); CityMonitor.shared.tick() }
+            MainActor.assumeIsolated { self?.refresh(); self?.patrol(); HeatGate.shared.check() }
         }
     }
 
@@ -574,8 +542,6 @@ final class BoardModel: ObservableObject {
         if rv != reviewing { reviewing = rv }
         if s.rateLimits != rateLimits { rateLimits = s.rateLimits }
         if s.runs != runs { runs = s.runs }
-        let deps = OfficeDepartments.build(residents: s.residents.map(\.name), cards: cards)
-        if deps != departments { departments = deps }
         if s.guardStatus != guardStatus { guardStatus = s.guardStatus }
         if s.captainThread != captainThread { captainThread = s.captainThread }
         if reader.watching != nil, s.sessionThread != sessionThread { sessionThread = s.sessionThread }
@@ -587,7 +553,6 @@ final class BoardModel: ObservableObject {
             return (t.state.open && age < 3 * 86400) || (t.state == .review && age < 86400)
         }.sorted { (rank($0.state), $1.updatedAt) < (rank($1.state), $0.updatedAt) }
         if open != captainTasks { captainTasks = open }
-        applyTower(deps, cards: cards)
         updated = Date()
         if !loaded { loaded = true }
     }
@@ -597,9 +562,9 @@ final class BoardModel: ObservableObject {
     private var relayState = CardRelay.State()
     private func relayCards(_ s: BoardReader.Snapshot, captain: String?, cards: [BoardCard]) {
         guard Engine.current != nil,                                   // 只有正式 agent 送（測試視窗、截圖不送）
-              UserDefaults(suiteName: OfficePrefs.suite)?.object(forKey: CardRelay.settingKey) as? Bool ?? true else { return }
+              UserDefaults(suiteName: AppPrefs.suite)?.object(forKey: CardRelay.settingKey) as? Bool ?? true else { return }
         let project = Dictionary(cards.map { ($0.sessionId, $0.project) }, uniquingKeysWith: { a, _ in a })
-        let policy = CardRelay.Policy.from(UserDefaults(suiteName: OfficePrefs.suite))     // 11-10：只推要秘書動手的卡、開工卡只進收件匣
+        let policy = CardRelay.Policy.from(UserDefaults(suiteName: AppPrefs.suite))     // 11-10：只推要秘書動手的卡、開工卡只進收件匣
         let out = CardRelay.plan(reports: s.reports, captain: captain, captainLive: captain != nil, state: &relayState, policy: policy) { sid, r in
             CardRelay.text(name: s.nicknames[sid]?.name ?? project[sid] ?? String(sid.prefix(8)), project: project[sid], report: r)
         }
@@ -624,7 +589,7 @@ final class BoardModel: ObservableObject {
     private lazy var alarmSig: String? = CaptainLink.loadAlarmSig(alarmFile)
     private func captainAlarm(_ roster: Roster, captain: String?, cards: [BoardCard], now: Date) {
         guard Engine.current != nil, let cap = captain else { return }
-        let d = UserDefaults(suiteName: OfficePrefs.suite)
+        let d = UserDefaults(suiteName: AppPrefs.suite)
         captainShift(roster, captain: cap, defaults: d)
         let min = d?.object(forKey: CaptainLink.alarmKey) as? Double ?? 30
         guard min > 0, now.timeIntervalSince(alarmAt) >= min * 60 else { return }
@@ -674,66 +639,6 @@ final class BoardModel: ObservableObject {
         }
     }
 
-    // MARK: 科技大樓（10-20 第 2 棒）
-
-    /// 樓層、主題、閒晃：都掛在這次刷新上，不另開 timer。名冊只有正式 agent 會存檔（測試視窗用假資料時不能污染你的樓層號）
-    private func applyTower(_ deps: [OfficeDepartment], cards: [BoardCard]) {
-        let now = Date()
-        let accents = decor.mapValues(\.accentColor)
-        let (plan, dirty) = TowerPlan.build(departments: deps, cards: cards, registry: &towerReg,
-                                            usage: { TowerStore.usage(departments: deps, cards: cards) }, accents: accents, now: now)
-        if dirty, TowerDecor.shared.official { TowerStore.save(towerReg) }
-        if plan != tower {
-            towerMoves = TowerPlan.moves(from: tower, to: plan)
-            tower = plan
-            scheduleDemotion(now: now)
-        }
-        decorChanged()
-        TowerDecor.shared.consider(cards: cards, tower: plan)
-        GraphSource.shared.consider(tower: plan, cards: cards)          // 地下室神經網路（10-22）：自己節流，10 分鐘內同一組專案不重排
-        replanWander(now: now)
-    }
-
-    /// 2 小時降樓：排一次性的 asyncAfter 到最近那個降樓時間（不輪詢；15 秒保底刷新也會順便算到）
-    private var demotionAt: Date?
-    private func scheduleDemotion(now: Date) {
-        guard let t = towerReg.nextDemotion(now: now), demotionAt != t else { return }
-        demotionAt = t
-        DispatchQueue.main.asyncAfter(deadline: .now() + max(1, t.timeIntervalSince(now) + 1)) {
-            MainActor.assumeIsolated { BoardModel.shared.demotionAt = nil; BoardModel.shared.refresh() }
-        }
-    }
-
-    /// 主題快取（或 AI 剛回來）→ 發布：快取有的用快取，沒有的先用專案名的本地評分（不阻塞畫面），測試覆寫最後蓋上去
-    func decorChanged() {
-        var d = TowerDecor.shared.picker.all()
-        for f in tower.projectFloors {
-            guard let name = f.project else { continue }
-            let k = name.lowercased()
-            // 10-20 UI/UX 優化 §4.3：用「專案身分」（專案名＋README 第一段）校正——AI 挑的主題不在身分前 2 名就不採用、識別色鎖主題色。
-            // 身分每個專案只算一次（README 讀一次）；正式 agent 校正後的結果寫回快取，立即生效
-            let id = TowerDecor.shared.identity(name, cards: cards.filter { $0.project.caseInsensitiveCompare(name) == .orderedSame })
-            if let c = d[k] {
-                let r = DecorPolicy.reconcile(c, identity: id)
-                if r != c { d[k] = r; if TowerDecor.shared.official { TowerDecor.shared.picker.store(name, r) } }
-            } else {
-                d[k] = FloorDecor.local(id, now: Date(timeIntervalSince1970: 0), reason: "還沒判斷，先用專案身分")
-            }
-        }
-        for (k, v) in TowerStore.themeOverrides() { d[k] = v }
-        if d != decor { decor = d }
-    }
-
-    /// 你按的「重新裝潢」（第 3 棒接右鍵選單）：回傳給 toast 的一句話
-    func redecorate(_ project: String) -> String { TowerDecor.shared.redecorate(project, cards: cards) }
-
-    private func replanWander(now: Date = Date()) {
-        let w = WanderPlanner.plan(people: TowerStore.people(cards, tower: tower), tower: tower, previous: wander.states,
-                                   now: now, visible: wanderVisible, mode: TowerStore.wanderMode,
-                                   rain: OfficeWeather.shared.current?.kind.isWet ?? false, cars: wander.cars)
-        if w != wander { wander = w }
-    }
-
     // MARK: B1 交流板：10-27 起不再叫醒 B1 閒置的人（T1027193007），改在收尾提示裡順便留（ShoWorkCore/B1Talk.swift）
 
     // MARK: 前台・保全（10-20）
@@ -756,7 +661,7 @@ final class BoardModel: ObservableObject {
     private func patrol() {
         guard Engine.current != nil else { return }
         let sc = BoardActions.guardScanner
-        if GuardScanner.patrolDue(enabled: OfficePrefs().guardPatrol, running: sc.isRunning,
+        if GuardScanner.patrolDue(enabled: AppPrefs().guardPatrol, running: sc.isRunning,
                                   lastScan: guardStatus.lastScan, lastStarted: sc.lastStarted, now: Date()) {
             guardScan()
         }
@@ -782,7 +687,7 @@ final class BoardModel: ObservableObject {
     }
 
     func append(_ o: [String: String]) {
-        var o = o; o["at"] = ISO8601DateFormatter().string(from: Date())
+        var o = o; o["at"] = Stamp.iso()
         guard var d = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]) else { return }
         d.append(0x0A)
         try? FileManager.default.createDirectory(at: BoardPaths.dir, withIntermediateDirectories: true)

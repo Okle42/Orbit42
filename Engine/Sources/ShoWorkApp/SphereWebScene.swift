@@ -38,13 +38,13 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         guard let dir, FileManager.default.fileExists(atPath: dir.appendingPathComponent("sphere.html").path) else { return nil }
         self.desk = desk; self.orbit = orbit
         let cfg = WKWebViewConfiguration()
-        cfg.setURLSchemeHandler(OfficeWebSchemeHandler(root: dir), forURLScheme: OfficeWebSchemeHandler.scheme)
+        cfg.setURLSchemeHandler(WebSchemeHandler(root: dir), forURLScheme: WebSchemeHandler.scheme)
         let wv = SphereWebView(frame: .zero, configuration: cfg)
         wv.desk = desk
         wv.orbit = orbit
         web = wv
         super.init()
-        cfg.userContentController.add(SphereWeakHandler(self), name: "sphere")
+        cfg.userContentController.add(WeakHandler(self), name: "sphere")
         audio.onEvent = { [weak self] ev in self?.voice(ev) }
         audio.onWord = { [weak self] loc, len in self?.web.evaluateJavaScript("window.karaVoice && window.karaVoice('word', \(loc), \(len))") }
         // 聲波在混音器後面量：音量調小時把量到的值放大回來，球的跳動不會跟著變小
@@ -62,7 +62,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         }
         web.navigationDelegate = self
         let q = [desk ? "desk=1" : nil, orbit ? "orbit=1" : nil].compactMap { $0 }.joined(separator: "&")
-        web.load(URLRequest(url: URL(string: "\(OfficeWebSchemeHandler.scheme)://web/sphere.html\(q.isEmpty ? "" : "?" + q)")!))
+        web.load(URLRequest(url: URL(string: "\(WebSchemeHandler.scheme)://web/sphere.html\(q.isEmpty ? "" : "?" + q)")!))
         model.start()
         model.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subs)
         // 溫度、額度重置倒數不會觸發 objectWillChange：每 10 秒補一次（內容一樣就不推）
@@ -86,7 +86,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
         // 只收自己包裡的頁面、主框架（answer／permit 會變成使用者的輸入）
-        guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == OfficeWebSchemeHandler.scheme, let m = message.body as? [String: Any] else { return }
+        guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == WebSchemeHandler.scheme, let m = message.body as? [String: Any] else { return }
         handle(m)
     }
     func handle(_ m: [String: Any]) {
@@ -368,7 +368,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     func pushAskFloat() { if orbit { web.evaluateJavaScript("window.karaAskFloat && window.karaAskFloat(\(SphereEmbed.askFloat))", completionHandler: nil) } }
     private func push() {
         guard loaded else { return }
-        let heat = CityParse.cool42(FileManager.default.contents(atPath: HeatGate.cool42Path), now: Date())
+        let heat = CoolParse.cool42(FileManager.default.contents(atPath: HeatGate.cool42Path), now: Date())
         var o = Self.payload(model.cards, model.rateLimits, runs: model.runs, heat: heat, order: model.order, ordered: model.orderManual)
         o["paused"] = HeatGate.shared.paused
         o["disks"] = SphereDisks.read()          // 11-22 Keng：球右半邊的硬碟空間刻度環
@@ -377,7 +377,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         o["auditBusy"] = SphereAudit.busy
         // v4 A：秘書最後一句（網頁判斷是不是回覆剛交辦的事）
         if let l = model.captainThread.last(where: { $0.role == .captain }) {
-            o["captain"] = ["id": l.id, "text": String(l.text.prefix(400)), "at": l.at.map { ISO8601DateFormatter().string(from: $0) } ?? ""]
+            o["captain"] = ["id": l.id, "text": String(l.text.prefix(400)), "at": l.at.map { Stamp.iso($0) } ?? ""]
         }
         guard let d = try? JSONSerialization.data(withJSONObject: o, options: .sortedKeys) else { return }
         let s = String(decoding: d, as: UTF8.self)
@@ -390,7 +390,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     }
 
     /// 網頁要的資料（純函式，方便測）
-    static func payload(_ cards: [BoardCard], _ limits: RateLimits?, runs: [RunProgress] = [], heat: CityPower? = nil, now: Date = Date(), order: [String] = [], ordered: Bool = false) -> [String: Any] {
+    static func payload(_ cards: [BoardCard], _ limits: RateLimits?, runs: [RunProgress] = [], heat: CoolState? = nil, now: Date = Date(), order: [String] = [], ordered: Bool = false) -> [String: Any] {
         let people = cards.filter { !$0.id.contains("#") }
         let l = limits?.current(now: now)
         var o: [String: Any] = ["sessions": people.count]
@@ -496,7 +496,8 @@ enum GhosttyTheme {
             let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             p.arguments = ["-e", "tell application \"System Events\" to if exists process \"Ghostty\" then tell process \"Ghostty\" to click menu item \"Reload Configuration\" of menu 1 of menu bar item 2 of menu bar 1"]
             p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-            try? p.run(); p.waitUntilExit()
+            do { try p.run() } catch { return Log.note("Ghostty 重讀設定失敗：\(error)") }      // 設定檔已寫好，Ghostty 下次自己讀到
+            p.waitUntilExit()
         }
     }
 }
@@ -605,7 +606,7 @@ enum SphereAudit {
             }
         }
         try? fm.createDirectory(at: dir_, withIntermediateDirectories: true)
-        let stamp = ISO8601DateFormatter().string(from: Date())
+        let stamp = Stamp.iso()
         let text = (lines.isEmpty ? ["\(stamp) 沒有可以自動處理的"] : lines.map { "\(stamp) \($0)" }).joined(separator: "\n") + "\n"
         let log = dir_.appendingPathComponent("fix.log")
         if let h = try? FileHandle(forWritingTo: log) { h.seekToEndOfFile(); h.write(Data(text.utf8)); try? h.close() }
@@ -701,15 +702,6 @@ final class SphereWebView: WKWebView {
     }
     // 浮動面板沒在前面時，第一下點擊也要算數（點球、按選項）
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { desk || super.acceptsFirstMouse(for: event) }
-}
-
-/// WKUserContentController 會強引用 handler：中間隔一層 weak，宿主才放得掉
-private final class SphereWeakHandler: NSObject, WKScriptMessageHandler {
-    weak var target: SphereWebHost?
-    init(_ t: SphereWebHost) { target = t }
-    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        MainActor.assumeIsolated { target?.userContentController(ucc, didReceive: message) }
-    }
 }
 
 struct SphereWebScene: NSViewRepresentable {

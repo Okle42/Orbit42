@@ -11,7 +11,7 @@ struct Orbit42PhoneApp: App {
     @ObservedObject private var look = Look.shared
     init() {
         // 11-24 深色白綠對調：導覽列標題（系統畫的）深色時用綠；淺色終端機頁維持系統黑字
-        let title = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1) : .label }
+        let title = UIColor { $0.userInterfaceStyle == .dark ? .okGreen : .label }
         UINavigationBar.appearance().titleTextAttributes = [.foregroundColor: title]
         UINavigationBar.appearance().largeTitleTextAttributes = [.foregroundColor: title]
     }
@@ -357,7 +357,7 @@ struct TailnetBox: View {
     @Environment(\.openURL) private var openURL
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).font(.title2).foregroundStyle(color).frame(width: 28)
+            Image(systemName: icon).font(.title2).foregroundStyle(color).frame(width: 28).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 Text("① Tailscale（App 內建，不用另外開 Tailscale App）").font(.subheadline.weight(.semibold))
                 switch tailnet.state {
@@ -377,18 +377,24 @@ struct TailnetBox: View {
     var color: Color { if case .running = tailnet.state { return .okAccent }; if case .failed = tailnet.state { return .red }; return .secondary }
 }
 
+/// 品牌色（Mac：Palette.swift；網頁：sphere.html --acc）
+extension UIColor {
+    static let okGreen = UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1)
+    static let okRed = UIColor(red: 0xd7 / 255, green: 0x26 / 255, blue: 0x1b / 255, alpha: 1)
+}
+
 /// 11-24 Okle42 深色綠白對調（跟 Mac 衛星終端機同一套）：一般字綠、強調白、次要字灰、黑底
 extension Color {
     private static func pick(_ dark: UIColor, _ light: UIColor) -> Color { Color(uiColor: UIColor { $0.userInterfaceStyle == .light ? light : dark }) }
     /// 會跟深淺色變的：字（深色綠／淺色黑）、強調（深色白／淺色紅）、底
-    static let okInk = pick(UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1), UIColor(white: 0.08, alpha: 1))
-    static let okAccent = pick(.white, UIColor(red: 0xd7 / 255, green: 0x26 / 255, blue: 0x1b / 255, alpha: 1))
+    static let okInk = pick(.okGreen, UIColor(white: 0.08, alpha: 1))
+    static let okAccent = pick(.white, .okRed)
     /// 麥克風鈕：深色綠、淺色紅
-    static let okMic = pick(UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1), UIColor(red: 0xd7 / 255, green: 0x26 / 255, blue: 0x1b / 255, alpha: 1))
+    static let okMic = pick(.okGreen, .okRed)
     static let okPaper = pick(.black, UIColor(red: 0xfb / 255, green: 0xfb / 255, blue: 0xf9 / 255, alpha: 1))
-    static let okGreen = Color(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255)
+    static let okGreen = Color(uiColor: .okGreen)
 }
 
 // 秘書：深色護眼綠 #4fc36a、淺色紅 #d7261b，跟 Mac 同款；綠底用深字
-let secretaryColor = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0x4f / 255, green: 0xc3 / 255, blue: 0x6a / 255, alpha: 1) : UIColor(red: 0.843, green: 0.149, blue: 0.106, alpha: 1) })
+let secretaryColor = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .okGreen : .okRed })
 let secretaryInk = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.05, alpha: 1) : .white })

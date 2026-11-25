@@ -122,7 +122,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         guard let root = dir ?? WorkWindow.webDir, FileManager.default.fileExists(atPath: root.appendingPathComponent("ask.html").path) else { return nil }
         self.store = store
         let cfg = WKWebViewConfiguration()
-        cfg.setURLSchemeHandler(OfficeWebSchemeHandler(root: root), forURLScheme: OfficeWebSchemeHandler.scheme)
+        cfg.setURLSchemeHandler(WebSchemeHandler(root: root), forURLScheme: WebSchemeHandler.scheme)
         webView = AskFloatWeb(frame: .zero, configuration: cfg)
         super.init()
         cfg.userContentController.add(WeakAsk(self), name: "ask")
@@ -156,7 +156,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     public func webView(_ w: WKWebView, didFinish n: WKNavigation!) { layout() }
 
     // MARK: 活著才接手：浮層說 ready 球體才不畫答案卡；載不起來、當掉、沒回應 ⇒ 球體照畫（不可漏答），這裡一直重試
-    public static let page = "\(OfficeWebSchemeHandler.scheme)://web/ask.html"
+    public static let page = "\(WebSchemeHandler.scheme)://web/ask.html"
     var loadAt = 0.0, fails = 0, pingAt = 0.0, pongAt = 0.0
     func load() { loadAt = now; pingAt = 0; pongAt = 0; webView.load(URLRequest(url: URL(string: Self.page)!)) }
     private var now: Double { ProcessInfo.processInfo.systemUptime }
@@ -195,7 +195,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     /// 訊息只收自己那一頁（主框架、自己的 scheme、自己的 web view、現在網址還是 ask.html）
     public func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
         let o = m.frameInfo.securityOrigin
-        guard m.webView === webView, m.frameInfo.isMainFrame, o.protocol == OfficeWebSchemeHandler.scheme, o.host == "web",
+        guard m.webView === webView, m.frameInfo.isMainFrame, o.protocol == WebSchemeHandler.scheme, o.host == "web",
               Self.allowed(webView.url, mainFrame: true), Self.allowed(m.frameInfo.request.url, mainFrame: true), let b = m.body as? [String: Any] else { return }
         handle(b)
     }

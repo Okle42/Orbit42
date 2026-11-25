@@ -291,14 +291,14 @@ public enum PushGuard {
         var o: [String: Any] = ["hookEventName": "PreToolUse"]
         if !blocked.isEmpty {
             o["permissionDecision"] = "deny"
-            o["permissionDecisionReason"] = "🛡️ 這次 push 被 1 樓保全擋下（不是 git 或網路壞了，不要重試同一個指令）。\n"
+            o["permissionDecisionReason"] = "🛡️ 這次 push 被保全擋下（不是 git 或網路壞了，不要重試同一個指令）。\n"
                 + "repo：\(blocked.map(\.repo).joined(separator: "、"))\n原因：\n"
                 + blocked.flatMap(\.reasons).map { "・" + $0 }.joined(separator: "\n")
                 + "\n該怎麼做：能處理的先處理（改寫那幾個 commit、移掉檔案或金鑰）再推；不要換個寫法繞過保全。"
-                + "如果你認為是誤擋，請找\(LocalConfig.current.ownerName)核可：他在戰情中心 1 樓保全面板按「放行一次」（認這次的 HEAD，30 分鐘內有效）後你再推一次，"
+                + "如果你認為是誤擋，請找\(LocalConfig.current.ownerName)核可：他在戰情中心工具列「保全」按「放行一次」（認這次的 HEAD，30 分鐘內有效）後你再推一次，"
                 + "或他自己在終端機打 `! git push …`。用 showork card --status blocked 回報被擋的原因。"
         } else if !warned.isEmpty {
-            o["additionalContext"] = "🛡️ 1 樓保全提醒（\(warned.map(\.repo).joined(separator: "、"))）：" + warned.flatMap(\.reasons).joined(separator: "；")
+            o["additionalContext"] = "🛡️ 保全提醒（\(warned.map(\.repo).joined(separator: "、"))）：" + warned.flatMap(\.reasons).joined(separator: "；")
                 + "。這個 repo 不是公開／公司 repo，所以沒擋；如果這些字不該出現，推完後跟使用者說一聲。"
         } else { return nil }
         let d = (try? JSONSerialization.data(withJSONObject: ["hookSpecificOutput": o])) ?? Data()
