@@ -31,7 +31,7 @@ public enum AskFloatLayout {
         if r.height + 2 * m <= root.height { r.origin.y = min(max(m, r.minY), root.height - r.height - m) }
         return r
     }
-    /// 縮成扇形：記住的位置（預設右下）沒擋到任何輸入框就放那裡，不然四個角挑一個不擋的；都擋就放右上
+    /// 縮成羅盤：記住的位置（預設右下）沒擋到任何輸入框就放那裡，不然四個角挑一個不擋的；都擋就放右上
     public static func strip(_ size: NSSize, root: NSSize, corner: NSPoint?, terminals: [NSRect]) -> NSRect {
         let zones = terminals.map { NSRect(x: $0.minX, y: $0.minY, width: $0.width, height: min(inputZone, $0.height)) }
         let m = margin, w = size.width, h = size.height, top = root.height - h - 44      // 44：視窗標題列＋球體工具列
@@ -46,7 +46,7 @@ final class AskFloatWeb: WKWebView {
     weak var back: NSResponder?            // 點進來之前的焦點（用滑鼠答完還給它）
     var onResign: (() -> Void)?
     var covers: ((NSPoint) -> Bool)?
-    override func hitTest(_ p: NSPoint) -> NSView? { covers?(p) == false ? nil : super.hitTest(p) }      // p＝父 view 座標；扇形透明處讓給底下
+    override func hitTest(_ p: NSPoint) -> NSView? { covers?(p) == false ? nil : super.hitTest(p) }      // p＝父 view 座標；羅盤透明處讓給底下
     private var isMouse: Bool {
         guard let e = NSApp?.currentEvent, e.type == .leftMouseDown, e.window === window else { return false }
         return bounds.contains(convert(e.locationInWindow, from: nil))
@@ -99,10 +99,10 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     private(set) var ready = false
     private var dragFrom: NSRect?, pendingData: Data?
     private let store: UserDefaults
-    private static let stripKey = "orbit.askFan"      // 11-25 改成扇形：舊的 orbit.askCorner／askStrip 不再用
+    private static let stripKey = "orbit.askFan"      // 11-25 改成羅盤：舊的 orbit.askCorner／askStrip 不再用
     private func point(_ k: String) -> NSPoint? { (store.array(forKey: k) as? [Double]).flatMap { $0.count == 2 ? NSPoint(x: $0[0], y: $0[1]) : nil } }
     private var spot: NSPoint?               // 展開期間自己拖到的位置；縮起就放掉，不存
-    private var shapes: [[NSPoint]] = []     // 縮起時看得見的形狀（網頁座標，左上原點）：扇形四張牌、數字、提示。之外是透明的，點得到底下
+    private var shapes: [[NSPoint]] = []     // 縮起時看得見的形狀（網頁座標，左上原點）：羅盤的圓、提示。之外是透明的，點得到底下
     // 打字中不展開：別處（終端機）最後一次按鍵
     var lastKey = -100.0, wantTimer: Timer?, keyWatch: Any?
     static let quiet = 2.0
@@ -263,7 +263,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     // 測試（只給離屏測試用）：假題目、跑一段網頁程式；真的資料不再進來
     public func testUpdate(_ f: URL) { SphereEmbed.askPayload = nil; if let d = try? Data(contentsOf: f) { update(d) } }
     public func testJS(_ s: String) { js(s) }
-    /// 這一點（父 view 座標）是不是真的在卡片／牌上（扇形的透明處不算）
+    /// 這一點（父 view 座標）是不是真的在卡片／牌上（羅盤的透明處不算）
     public func covers(_ p: NSPoint) -> Bool {
         guard !webView.isHidden, webView.frame.contains(p) else { return false }
         guard mode != "card", !shapes.isEmpty else { return true }
