@@ -39,7 +39,11 @@ def install(new, app):
     os.rename(new, s)
     if libc.renamex_np(s.encode(), app.encode(), 2):      # RENAME_SWAP：沒有一刻讀不到或讀到半套
         e = os.strerror(ctypes.get_errno()); os.rename(s, new); die("互換失敗，沒有動到已裝的：" + e)
-    verify(app); print("已換", app); print("舊包留在", s)
+    r = run("codesign", "--verify", "--deep", "--strict", app)
+    if r.returncode:
+        if libc.renamex_np(s.encode(), app.encode(), 2): die("換上後驗不過，也換不回來！舊包在 " + s)
+        die(f"換上後驗不過，已換回原本的；有問題的新包在 {s}\n{r.stderr.strip()}")
+    print("已換", app); print("舊包留在", s)
 
 
 def ask(page, app):

@@ -161,7 +161,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     private(set) var waiting: Data?, candidate: AskFloatWeb?
     private(set) var refused: Set<String> = []
     private var candidateSize: [String: Any]?, candidateTimer: Timer?, updates = 0, lastTry = -100.0, queued = false, watch: AskPageWatch?
-    var status: URL?
+    var status: URL?, loadLimit = 8.0, retryGap = 30.0, slow = 0      // 太久沒好可能只是忙：隔一下再試，最多 3 次；下次換包還可以再來
     /// 目前載入的版本寫成檔案，安裝後核對用
     private func note(_ t: String) {
         guard let status else { return }
@@ -189,7 +189,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         if h == pageHash { if waiting != nil { waiting = nil; dropCandidate() }; return }
         if refused.contains(h) { waiting = nil; dropCandidate(); return note("這一版載不起來過，留舊版") }
         if let w = waiting, w == d { return }
-        dropCandidate(); waiting = d; lastTry = -100; note("等縮起沒在用時換"); trySwap()
+        dropCandidate(); waiting = d; lastTry = -100; slow = 0; note("等縮起沒在用時換"); trySwap()
     }
     private func dropCandidate() {
         candidateTimer?.invalidate(); candidateTimer = nil; candidateSize = nil
@@ -203,6 +203,11 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     private func refuse(_ why: String) {
         guard let d = waiting else { return dropCandidate() }
         refused.insert(AskPage.hash(d)); waiting = nil; dropCandidate(); note("新版不用，留舊版：\(why)")
+    }
+    private func tooSlow() {
+        slow += 1; dropCandidate()
+        if slow >= 3 { waiting = nil; return note("新版 3 次都沒好，留舊版") }
+        lastTry = now + retryGap - 2; note("新版太久沒好，等一下再試")
     }
     /// 縮起或隱藏、沒拖、焦點不在這裡、沒有在等展開
     private var calm: Bool { (mode == "strip" || mode == "hidden") && dragFrom == nil && wantTimer == nil && !(webView.window.map { $0.firstResponder === webView } ?? false) }
@@ -233,7 +238,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         let c = AskFloatWeb(frame: NSRect(x: 0, y: 0, width: AskFloatLayout.maxSize(up.bounds.size).width, height: 200), configuration: Self.config(d))
         prepare(c); candidate = c
         up.addSubview(c, positioned: .below, relativeTo: webView)
-        candidateTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.refuse("8 秒沒好") } }
+        candidateTimer = Timer.scheduledTimer(withTimeInterval: loadLimit, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.tooSlow() } }
         c.load(URLRequest(url: URL(string: Self.page)!))
     }
     /// 新版說 ready：給它一樣的資料試跑（它的訊息除了大小一律不理），再搬草稿；舊頁全程沒變才換

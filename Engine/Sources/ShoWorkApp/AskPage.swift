@@ -22,7 +22,7 @@ final class AskPageHandler: NSObject, WKURLSchemeHandler {
 }
 
 enum AskPage {
-    enum Fail: Error, Equatable { case read, signature(OSStatus), binary, changed }
+    enum Fail: Error, Equatable { case read, signature(OSStatus), binary }
     static func hash(_ d: Data) -> String { SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined() }
     /// 整份讀進記憶體；只收一般檔案（不跟著捷徑走）
     static func read(_ u: URL) -> Data? {
@@ -54,16 +54,18 @@ enum AskPage {
         guard SecCodeCopySelf([], &c) == errSecSuccess, let c, SecCodeCopyStaticCode(c, [], &s) == errSecSuccess, let s, SecCodeCopyDesignatedRequirement(s, [], &r) == errSecSuccess else { return nil }
         return r
     }
-    /// 讀 → 驗整包簽章與身分 → 比執行檔 → 再讀一次要完全一樣（驗的時候沒被換掉）
+    /// 讀進記憶體 → 驗整包簽章與身分 → 拿記憶體那一份去對簽章裡封的雜湊 → 比執行檔。
+    /// 不可以靠「前後讀兩次一樣」：驗的那一瞬間可以換成好的、驗完再換回來（Dora 11-25 實測收得進沒簽的頁）
     static func fetch(bundle: URL, executable: String, requirement: SecRequirement, uuid want: UUID) -> Result<Data, Fail> {
         let page = bundle.appendingPathComponent("Contents/Resources/Web/ask.html")
         guard let d = read(page) else { return .failure(.read) }
         var s: SecStaticCode?
         var e = SecStaticCodeCreateWithPath(bundle as CFURL, [], &s)
         if e == errSecSuccess, let s { e = SecStaticCodeCheckValidity(s, SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures), requirement) }
-        guard e == errSecSuccess else { return .failure(.signature(e)) }
+        guard e == errSecSuccess, let s else { return .failure(.signature(e)) }
+        let r = SecCodeValidateFileResource(s, "Resources/Web/ask.html" as CFString, d as CFData, [])
+        guard r == errSecSuccess else { return .failure(.signature(r)) }
         guard uuid(file: bundle.appendingPathComponent("Contents/MacOS/\(executable)")) == want else { return .failure(.binary) }
-        guard read(page) == d else { return .failure(.changed) }
         return .success(d)
     }
 }

@@ -268,13 +268,39 @@ final class AskFloatTests: XCTestCase {
         let (w, r, f, term, _) = try make(); try await waitReady(f); w.makeFirstResponder(term); defer { _ = (w, r) }
         var got: [[String: Any]] = []; SphereEmbed.testAction = { got.append($0) }; defer { SphereEmbed.testAction = nil }
         let old = f.webView, h = f.pageHash
-        for (name, d) in [("不說 ready", variant(f, "post({ action: \"ready\" });", "")), ("資料一來就丟例外", variant(f, "window.askUpdate = askUpdate;", "window.askUpdate = () => { throw 1 };")), ("少功能", variant(f, "window.askGo =", "window.askGoX =")),
-                          ("草稿名字改了", variant(f, "drafts", "dr4fts")), ("載入就想作答", variant(f, "post({ action: \"ready\" });", "post({action:'answer',sessionId:'s',askId:'Q',free:'evil'});post({action:'permit',sessionId:'s',permitId:'P',decision:'allow'});"))] {
+        for (name, d) in [("資料一來就丟例外", variant(f, "window.askUpdate = askUpdate;", "window.askUpdate = () => { throw 1 };")), ("少功能", variant(f, "window.askGo =", "window.askGoX =")),
+                          ("草稿名字改了", variant(f, "drafts", "dr4fts"))] {
             f.update(teamData([])); f.offer(d); try await settle(12) { f.refused.contains(AskPage.hash(d)) }
             XCTAssertTrue(f.refused.contains(AskPage.hash(d)), name); XCTAssertTrue(f.webView === old, name); XCTAssertEqual(f.pageHash, h); XCTAssertTrue(f.ready); XCTAssertNil(f.candidate); XCTAssertTrue(SphereEmbed.askFloat)
             f.offer(d); XCTAssertNil(f.waiting)                                                                                // 同一版不再試
         }
+        // 太久沒好：試 3 次就停、留舊版，但不永久拒（下次換包可以再來）；載入就想作答也一樣收不到
+        f.loadLimit = 0.8; f.retryGap = 2.2
+        for d in [variant(f, "post({ action: \"ready\" });", ""), variant(f, "post({ action: \"ready\" });", "post({action:'answer',sessionId:'s',askId:'Q',free:'evil'});post({action:'permit',sessionId:'s',permitId:'P',decision:'allow'});")] {
+            f.offer(d); for _ in 0..<200 where f.waiting != nil { f.poke(); try await Task.sleep(for: .milliseconds(100)) }
+            XCTAssertEqual(f.slow, 3); XCTAssertNil(f.waiting); XCTAssertTrue(f.webView === old); XCTAssertFalse(f.refused.contains(AskPage.hash(d)))
+            f.offer(d); XCTAssertNotNil(f.waiting); f.offer(f.page); XCTAssertNil(f.waiting)
+        }
         XCTAssertEqual(got.count, 0)
+    }
+    /// Dora 的競態：驗的時候換成好的、驗完再換回壞的，一次都不能收
+    func testNoRaceBetweenReadAndVerify() throws {
+        let fm = FileManager.default, dir = fm.temporaryDirectory.appendingPathComponent("askr-\(UUID())"); defer { try? fm.removeItem(at: dir) }
+        let b = dir.appendingPathComponent("a.app"), c = b.appendingPathComponent("Contents"), page = c.appendingPathComponent("Resources/Web/ask.html")
+        for s in ["MacOS", "Resources/Web"] { try fm.createDirectory(at: c.appendingPathComponent(s), withIntermediateDirectories: true) }
+        try fm.copyItem(at: Bundle(for: AskFloatTests.self).executableURL!, to: c.appendingPathComponent("MacOS/X"))
+        try Data("<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>t.ask</string><key>CFBundleExecutable</key><string>X</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>".utf8).write(to: c.appendingPathComponent("Info.plist"))
+        try Data("good".utf8).write(to: page)
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign"); p.arguments = ["-f", "-s", "-", "--identifier", "t.ask", b.path]; p.standardError = Pipe(); try p.run(); p.waitUntilExit(); XCTAssertEqual(p.terminationStatus, 0)
+        var req: SecRequirement?; SecRequirementCreateWithString("identifier \"t.ask\"" as CFString, [], &req); let rq = try XCTUnwrap(req), u = try XCTUnwrap(AskPage.uuid(file: c.appendingPathComponent("MacOS/X")))
+        final class Flag: @unchecked Sendable { let l = NSLock(); var on = true; var v: Bool { l.withLock { on } }; func off() { l.withLock { on = false } } }
+        let go = Flag(), done = DispatchSemaphore(value: 0)
+        let g = dir.appendingPathComponent("g").path, e = dir.appendingPathComponent("e").path, at = page.path
+        Thread.detachNewThread { while go.v { for (t, x) in [(g, "good"), (e, "evil")] { try? Data(x.utf8).write(to: URL(fileURLWithPath: t)); rename(t, at); usleep(UInt32.random(in: 200...3000)) } }; done.signal() }
+        var good = 0, evil = 0
+        for _ in 0..<300 { if case .success(let d) = AskPage.fetch(bundle: b, executable: "X", requirement: rq, uuid: u) { if d == Data("good".utf8) { good += 1 } else { evil += 1 } } }
+        go.off(); done.wait()
+        XCTAssertEqual(evil, 0); XCTAssertGreaterThan(good, 0); print("race good=\(good) evil=\(evil)")
     }
     /// 只認同一簽章身分、驗過、執行檔相同的新包
     func testOnlyVerifiedBundle() throws {
