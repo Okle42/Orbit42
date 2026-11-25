@@ -137,6 +137,11 @@ struct BoardView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             SphereWebScene()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification).receive(on: RunLoop.main)) { _ in   // 設定窗改了，這裡跟著變
+            if reviewOn != Reviewer.shared.enabled { reviewOn = Reviewer.shared.enabled }
+            if autoWrap != CtxGuard.shared.autoWrapUp { autoWrap = CtxGuard.shared.autoWrapUp }
+            if ctxTokens != ContextGuard.tokenLimit { ctxTokens = ContextGuard.tokenLimit }
+        }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .bottom) {   // 提示浮在底部，不佔工具列寬度（不然一跳出來工具列就換排）

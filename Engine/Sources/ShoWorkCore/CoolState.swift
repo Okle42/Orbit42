@@ -1,5 +1,7 @@
 import Foundation
 
+public enum Stamp { public static func iso(_ d: Date = Date()) -> String { ISO8601DateFormatter().string(from: d) } }
+
 /// cool42 狀態
 public struct CoolState: Sendable, Equatable {
     public var temp: Double?

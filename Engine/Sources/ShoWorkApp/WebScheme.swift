@@ -45,3 +45,10 @@ final class WebSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {}
 }
+
+/// WKUserContentController 會強引用 handler：中間隔一層 weak，宿主才放得掉
+public final class WeakHandler: NSObject, WKScriptMessageHandler {
+    weak var target: (any WKScriptMessageHandler)?
+    public init(_ t: any WKScriptMessageHandler) { target = t }
+    public func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) { target?.userContentController(u, didReceive: m) }
+}

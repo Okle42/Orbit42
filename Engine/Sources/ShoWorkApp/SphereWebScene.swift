@@ -44,7 +44,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         wv.orbit = orbit
         web = wv
         super.init()
-        cfg.userContentController.add(SphereWeakHandler(self), name: "sphere")
+        cfg.userContentController.add(WeakHandler(self), name: "sphere")
         audio.onEvent = { [weak self] ev in self?.voice(ev) }
         audio.onWord = { [weak self] loc, len in self?.web.evaluateJavaScript("window.karaVoice && window.karaVoice('word', \(loc), \(len))") }
         // 聲波在混音器後面量：音量調小時把量到的值放大回來，球的跳動不會跟著變小
@@ -377,7 +377,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         o["auditBusy"] = SphereAudit.busy
         // v4 A：秘書最後一句（網頁判斷是不是回覆剛交辦的事）
         if let l = model.captainThread.last(where: { $0.role == .captain }) {
-            o["captain"] = ["id": l.id, "text": String(l.text.prefix(400)), "at": l.at.map { ISO8601DateFormatter().string(from: $0) } ?? ""]
+            o["captain"] = ["id": l.id, "text": String(l.text.prefix(400)), "at": l.at.map { Stamp.iso($0) } ?? ""]
         }
         guard let d = try? JSONSerialization.data(withJSONObject: o, options: .sortedKeys) else { return }
         let s = String(decoding: d, as: UTF8.self)
@@ -605,7 +605,7 @@ enum SphereAudit {
             }
         }
         try? fm.createDirectory(at: dir_, withIntermediateDirectories: true)
-        let stamp = ISO8601DateFormatter().string(from: Date())
+        let stamp = Stamp.iso()
         let text = (lines.isEmpty ? ["\(stamp) 沒有可以自動處理的"] : lines.map { "\(stamp) \($0)" }).joined(separator: "\n") + "\n"
         let log = dir_.appendingPathComponent("fix.log")
         if let h = try? FileHandle(forWritingTo: log) { h.seekToEndOfFile(); h.write(Data(text.utf8)); try? h.close() }
@@ -701,15 +701,6 @@ final class SphereWebView: WKWebView {
     }
     // 浮動面板沒在前面時，第一下點擊也要算數（點球、按選項）
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { desk || super.acceptsFirstMouse(for: event) }
-}
-
-/// WKUserContentController 會強引用 handler：中間隔一層 weak，宿主才放得掉
-private final class SphereWeakHandler: NSObject, WKScriptMessageHandler {
-    weak var target: SphereWebHost?
-    init(_ t: SphereWebHost) { target = t }
-    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        MainActor.assumeIsolated { target?.userContentController(ucc, didReceive: message) }
-    }
 }
 
 struct SphereWebScene: NSViewRepresentable {

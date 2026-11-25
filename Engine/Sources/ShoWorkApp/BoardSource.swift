@@ -687,7 +687,7 @@ final class BoardModel: ObservableObject {
     }
 
     func append(_ o: [String: String]) {
-        var o = o; o["at"] = ISO8601DateFormatter().string(from: Date())
+        var o = o; o["at"] = Stamp.iso()
         guard var d = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]) else { return }
         d.append(0x0A)
         try? FileManager.default.createDirectory(at: BoardPaths.dir, withIntermediateDirectories: true)

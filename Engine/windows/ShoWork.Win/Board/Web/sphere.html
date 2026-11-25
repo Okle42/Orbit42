@@ -501,6 +501,7 @@
     #banner .meta { font-size: 11px; letter-spacing: .12em; color: rgba(255,255,255,.8); }
     svg#links text { font: 600 12px ui-monospace, Menlo, monospace; letter-spacing: .04em; stroke-width: 4px; }
   }
+  button:focus-visible, textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -1768,8 +1769,8 @@ function teamShown() { return (data.team || []).map((c, i) => [c, i]).filter(([c
 function teamRowsHtml() {
   const team = data.team || [], shown = teamShown();
   return shown.map(([c, i]) => {
-    const col = ST_COL[c.status] || "var(--done)", changed = lastSt.has(c.sessionId) && lastSt.get(c.sessionId) !== c.status;
-    const sub = [esc(c.status === "卡住" && /等外部/.test(c.reason || "") ? "等待中" : c.status || ""), c.ctx != null ? `<span class="${c.ctx >= 80 ? "hi" : ""}">記憶 ${c.ctx}%</span>` : "", c.ago != null ? (c.ago < 1 ? "剛剛" : c.ago < 60 ? `${c.ago} 分鐘前` : `${Math.floor(c.ago / 60)} 小時前`) : ""].filter(Boolean).join(" · ");
+    const wait = c.status === "卡住" && /等外部/.test(c.reason || ""), col = wait ? "var(--gray)" : ST_COL[c.status] || "var(--done)", changed = lastSt.has(c.sessionId) && lastSt.get(c.sessionId) !== c.status;
+    const sub = [wait ? "等待中" : c.status === "卡住" ? `<b>▲ 卡住</b>` : esc(c.status || ""), c.ctx != null ? `<span class="${c.ctx >= 80 ? "hi" : ""}">記憶 ${c.ctx}%</span>` : "", c.ago != null ? (c.ago < 1 ? "剛剛" : c.ago < 60 ? `${c.ago} 分鐘前` : `${Math.floor(c.ago / 60)} 小時前`) : ""].filter(Boolean).join(" · ");
     return `<div class="row trow${c.status === "進行中" ? " live" : c.status === "卡住" ? " live wait" : ""}${c.sessionId ? " link" : ""}${changed ? " flash" : ""}${c.faded ? " faded" : ""}" data-i="${i}" data-sid="${esc(c.sessionId || "")}"${data.orderable && c.sessionId ? ` tabindex="0" role="button" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc((c.name || "") + " " + (c.doing || "") + " " + (c.status || ""))}"` : ""} title="${c.sessionId ? "點一下跳到這個 session" + (data.orderable ? "；拖動可以排順序" : "") : ""}">
       <span class="dot${c.status === "需要你" ? " pulse" : ""}" style="--c:${col}"></span>
       <span class="nm">${esc(c.name || "")}${c.doing ? `<small>${esc(c.doing)}</small>` : ""}</span><span>${c.progress != null ? c.progress + "%" : ""}</span>

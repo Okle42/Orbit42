@@ -99,7 +99,7 @@ final class SphereAudio {
 
     nonisolated private static func tapBlock(spectrum: SphereSpectrum, lock: NSLock, rate: Double,
                                              store: @escaping @Sendable ((bands: [Float], rms: Float)) -> Void) -> AVAudioNodeTapBlock {
-        nonisolated(unsafe) let spectrum = spectrum
+        let spectrum = spectrum
         return { buf, _ in
             guard let ch = buf.floatChannelData?[0] else { return }
             let r = spectrum.analyze(ch, count: Int(buf.frameLength), sampleRate: rate)

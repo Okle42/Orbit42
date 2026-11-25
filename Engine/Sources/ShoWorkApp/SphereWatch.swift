@@ -42,12 +42,12 @@ final class SphereWatch {
             let st = SphereWebHost.needsYou(c) ? "需要你" : c.column.title
             if last[c.sessionId] != st {
                 last[c.sessionId] = st
-                lines.append(["at": ISO8601DateFormatter().string(from: now), "sid": c.sessionId, "name": c.display, "status": st])
+                lines.append(["at": Stamp.iso(now), "sid": c.sessionId, "name": c.display, "status": st])
             }
         }
         for sid in last.keys where !seen.contains(sid) {
             last[sid] = nil
-            lines.append(["at": ISO8601DateFormatter().string(from: now), "sid": sid, "status": "離線"])
+            lines.append(["at": Stamp.iso(now), "sid": sid, "status": "離線"])
         }
         if !lines.isEmpty, !BoardWindow.testMode { append(lines) }
         notifyAsks(people)

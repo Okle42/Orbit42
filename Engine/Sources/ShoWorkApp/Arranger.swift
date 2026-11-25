@@ -417,7 +417,6 @@ final class Menu: NSObject, NSMenuDelegate {
         }
         let sz = menu.addItem(withTitle: "桌面智能體大小", action: nil, keyEquivalent: "")
         sz.submenu = sizes
-        let a = Arranger.shared
         menu.addItem(withTitle: "立即排版", action: #selector(arrangeNow), keyEquivalent: "l").keyEquivalentModifierMask = [.control, .option]
         menu.addItem(withTitle: "設定⋯", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(.separator())
