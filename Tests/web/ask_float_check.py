@@ -17,7 +17,7 @@ const press = t => { ev(t, "pointerdown"); ev(t, "mousedown"); }, release = t =>
 const tap = t => { press(t); release(t); };
 const key = (k, o = {}, t = document.body) => ev(t, "keydown", { key: k, ...o });
 const opt = k => document.querySelectorAll(".opt")[k];
-async function fresh(t, ...qs) { name = t; document.activeElement.blur(); up(); await wait(1700); ok(!S().ghost && !S().undo && !S().visible.length && !S().sent.length, "上一個測試沒清乾淨 " + JSON.stringify(S())); up(...qs); await wait(560); askPosted.length = 0; }
+async function fresh(t, ...qs) { name = t; document.activeElement.blur(); up(); await wait(1700); ok(!S().ghost && !S().undo && !S().visible.length && !S().sent.length, "上一個測試沒清乾淨 " + JSON.stringify(S())); seen.clear(); want = null; up(...qs); await wait(560); askPosted.length = 0; }
 async function checks() {
   await fresh("不搶鍵盤", Q("s1", "A")); ok(S().open && S().cur === "s1|a:A", "應該顯示"); ok(!S().armed, "跳出時不可收鍵盤");
   for (const k of ["1", "2", "Enter", "Escape"]) key(k); ok(!S().undo && S().open, "沒點過卡片，按鍵不可作答");
@@ -53,7 +53,7 @@ async function checks() {
   await fresh("送出後沒下文", Q("s1", "A")); tap(opt(0)); await wait(3100); up(Q("s1", "A")); ok(!S().visible.length, "先不顯示"); up(Q("s1", "A", { askState: "unsure" })); ok(S().visible.length === 1, "變成沒確認到就放回來");
 
   await fresh("點標題", Q("s1", "A"), Q("s2", "B")); tap(el(".top .nm")); ok(posted("focus").length === 1 && posted("focus")[0].sessionId === "s1" && !S().open && !S().undo, "只跳、縮成一條"); ok(el("#strip").textContent.includes("需要你 · 測試 s1"), "條上寫誰 " + el("#strip").textContent); key("1"); key("Enter"); ok(!S().undo, "縮著時按鍵不算"); ok(document.body.classList.contains("mini"), "不消失");
-  up(Q("s1", "A"), Q("s2", "B"), Q("s3", "C")); ok(!S().open && el("#strip").textContent.includes("共 3 題"), "新題不自己展開，只加題數"); tap(el("#strip")); ok(S().open && S().locked && !S().armed, "點條展開、鎖住、不收鍵盤"); tap(opt(0)); ok(!S().undo, "連點展開那一下不算");
+  up(Q("s1", "A"), Q("s2", "B"), Q("s3", "C")); ok(!S().open && el("#strip").textContent.includes("共 3 題"), "原生端說好之前先不展開，加題數"); tap(el("#strip")); ok(S().open && S().locked && !S().armed, "點條展開、鎖住、不收鍵盤"); tap(opt(0)); ok(!S().undo, "連點展開那一下不算");
   await fresh("點問題", Q("s1", "A")); if (!S().open) tap(el("#strip")); await wait(560); askPosted.length = 0; tap(el(".q")); ok(posted("focus").length === 1 && !S().undo, "點問題＝跳"); tap(el("#strip")); await wait(560);
   askPosted.length = 0; press(el("textarea")); release(el("textarea")); ok(!posted("focus").length && S().open, "點補充框不跳"); tap(el("[data-later]")); ok(!S().open && document.body.classList.contains("mini"), "稍後再答＝縮成一條"); askShow("s1"); ok(S().open && S().locked, "戰情列叫出");
   await fresh("拖動", Q("s1", "A")); ev(el(".top .nm"), "pointerdown", { screenX: 10, screenY: 10 }); ev(document, "pointermove", { screenX: 40, screenY: 30 }); ev(el(".top .nm"), "pointerup"); ev(el(".top .nm"), "click"); ok(posted("askDrag").map(x => x.phase).join() === "start,move,end" && !posted("focus").length, "拖動不算點"); ok(posted("askDrag")[1].dx === 30, "位移");
@@ -63,7 +63,24 @@ async function checks() {
   for (const w of [440, 240]) { askMax(w, 900); await wait(60); const c = el("#card"); ok(c.scrollWidth <= c.clientWidth, w + " 寬不可橫向裁字"); for (const x of c.querySelectorAll(".q,.opt,.sum,.nm")) ok(x.scrollWidth <= x.clientWidth + 1 || getComputedStyle(x).display === "inline", w + " 裁字 " + x.className); ok(JSON.parse(sized).h >= Math.min(c.scrollHeight, 900) - 2, "回報高度夠"); }
   askMax(440, 260); await wait(60); ok(el("#card").getBoundingClientRect().height <= 261 && el("#card").scrollHeight > 261 && getComputedStyle(el("#card")).overflowY === "auto", "矮視窗可以捲到全部");
   const bg = getComputedStyle(el("#wrap")).backgroundColor; ok(!/rgba/.test(bg), "不透明底 " + bg); up(); await wait(1700); ok(JSON.parse(sized).mode === "hidden" || S().undo, "沒題就收");
-  await reviews(); await stacks();
+  await reviews(); await stacks(); await opens();
+}
+/* T1125120137 縮起時新題自動展開 */
+async function opens() {
+  askMax(440, 900);
+  askRestore(true); await fresh("新題展開", Q("s1", "A")); await wait(560); tap(el("[data-later]")); ok(!S().open, "縮起"); const w0 = posted("askWant").length;
+  up(Q("s1", "A", { ago: 9 })); up(Q("s1", "A", { options: ["x", "y"] })); ok(posted("askWant").length === w0 && !S().open, "同題更新不展開"); askGo(); ok(!S().open, "沒有新題時 askGo 不展開");
+  const inp = document.createElement("input"); document.body.append(inp); inp.focus(); up(Q("s2", "B"), Q("s1", "A")); ok(posted("askWant").length === w0 + 1 && !S().open && el("#strip").classList.contains("flash"), "先閃、先問原生端"); key("1"); key("Enter"); ok(!S().undo, "閃的時候按鍵不作答");
+  up(Q("s2", "B"), Q("s1", "A"), Q("s3", "C")); up(Q("s3", "C"), Q("s2", "B"), Q("s1", "A")); ok(posted("askWant").length === w0 + 1, "連續進來只問一次、換順序不算");
+  askGo(); ok(S().open && S().cur === "s3|a:C" && S().locked && !S().armed, "展開最新那題、鎖住、不收鍵盤"); ok(document.activeElement === inp, "不搶焦點"); key("1"); key("Enter"); key("1", { isComposing: true }); ok(!S().undo, "展開後沒點過，按鍵不作答"); tap(opt(0)); ok(!S().undo, "展開瞬間的點擊不算"); inp.remove();
+  const c0 = S().cur; up(Q("s3", "C"), Q("s2", "B"), Q("s1", "A"), Q("s4", "D")); ok(S().cur === c0, "展開中新題不換掉"); await wait(560); tap(el("[data-later]")); const w1 = posted("askWant").length;
+  up(Q("s4", "D"), Q("s3", "C"), Q("s2", "B"), Q("s1", "A")); up(Q("s3", "C"), Q("s1", "A")); up(Q("s3", "C"), Q("s1", "A"), Q("s2", "B")); askGo(); ok(posted("askWant").length === w1 && !S().open, "稍後再答的不再彈（消失又回來也是）");
+  up(Q("s3", "C"), Q("s1", "A2"), PM("P7")); ok(posted("askWant").length === w1 + 1, "同一個 session 的新 askId、新權限框都算新題"); up(Q("s3", "C")); askGo(); ok(!S().open, "等的時候被答掉就不展開");
+  up(Q("s3", "C"), PM("P8")); askGo(); ok(S().open && S().cur === "pP8|p:P8", "權限框展開"); await wait(560); tap(el(".top .nm")); ok(!S().open && posted("focus").at(-1).sessionId === "pP8", "點標題跳走縮起"); up(Q("s3", "C"), PM("P8"), Q("s5", "E")); askGo(); ok(S().open && S().cur === "s5|a:E", "跳走後新題仍展開");
+  await fresh("縮條", Q("s1", "A", { ask: "最新一題的內容很長很長很長很長" }), Q("s2", "B", { ask: "第二題問的是這個很長的內容喔喔喔" })); if (!S().open) tap(el("#strip")); await wait(560); tap(el("[data-later]")); await wait(60); const st = el("#strip"), r = st.getBoundingClientRect();
+  ok(JSON.parse(sized).w === Math.ceil(r.width) && JSON.parse(sized).w < 441, "回報的寬＝條的寬 " + sized + " " + r.width); ok(st.textContent.includes("共 2 題") && st.textContent.includes("第二題問的"), "題數＋最新一題前幾字 " + st.textContent); ok(st.scrollWidth <= st.clientWidth + 1, "不裁到題數");
+  await fresh("短條", Q("s1", "A", { name: "甲", ask: "好嗎" })); if (S().open) tap(el("[data-later]")); await wait(60); ok(JSON.parse(sized).w === Math.ceil(el("#strip").getBoundingClientRect().width) && JSON.parse(sized).w < 300, "短的條不可有透明區 " + sized);
+  up(Q("s1", "A", { name: "甲", ask: "好嗎" })); want = null; askRestore(false, ["s1|a:A"]); askGo(); ok(!S().open, "重新載入：看過的不彈"); askRestore(false, []); ok(posted("askWant").length > 0, "重新載入期間來的新題要彈"); askGo(); ok(S().open, "展開");
 }
 /* 蓋住檢查：提示那格跟每一顆會作答的按鈕都不重疊；每顆按鈕的四角與中心點到的就是它自己（看得到的部分） */
 function uncovered(nm) {

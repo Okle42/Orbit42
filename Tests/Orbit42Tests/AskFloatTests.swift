@@ -89,6 +89,30 @@ final class AskFloatTests: XCTestCase {
         f.corner = NSPoint(x: 314, y: 214); r.setFrameSize(NSSize(width: 500, height: 400)); f.layout(); XCTAssertTrue(inside(f.view.frame, NSSize(width: 500, height: 400)))
         r.setFrameSize(root); f.layout(); XCTAssertEqual(f.view.frame, f1)
     }
+    /// T1125120137：打字中先不展開、停 2 秒才展開、不搶焦點；位置拉回；展開閃開輸入框；拖條不改卡片
+    func testAutoExpandWaitsForTyping() async throws {
+        let (w, _, f, term, ud) = try make(); try await waitReady(f); w.makeFirstResponder(term)
+        func js(_ s: String) async -> String { (try? await f.webView.evaluateJavaScript(s)).map { "\($0)" } ?? "" }
+        func until(_ m: String) async throws { for _ in 0..<60 where f.mode != m { try await Task.sleep(for: .milliseconds(50)) } }
+        func q(_ ids: [String]) -> Data { Data(("{\"team\":[" + ids.map { "{\"status\":\"需要你\",\"sessionId\":\"s\($0)\",\"askId\":\"\($0)\",\"name\":\"甲\",\"ask\":\"要嗎\",\"options\":[\"好\",\"不要\"]}" }.joined(separator: ",") + "]}").utf8) }
+        f.update(q(["A"])); try await until("card"); _ = await js("collapse(false),0"); try await until("strip"); XCTAssertEqual(f.mode, "strip")
+        XCTAssertFalse(f.mayExpand(now: f.lastKey + 1.9)); XCTAssertTrue(f.mayExpand(now: f.lastKey + 2))
+        f.composing = { true }; XCTAssertFalse(f.mayExpand(now: f.lastKey + 99)); f.composing = { false }
+        f.lastKey = ProcessInfo.processInfo.systemUptime; let t0 = f.lastKey
+        f.update(q(["A", "B"])); try await Task.sleep(for: .milliseconds(1200)); XCTAssertEqual(f.mode, "strip"); XCTAssertNotNil(f.wantTimer)      // 正在打字：不展開
+        try await until("card"); XCTAssertEqual(f.mode, "card"); XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - t0, 2)
+        XCTAssertTrue(w.firstResponder === term); let cur = await js("askState().cur"); XCTAssertEqual(cur, "sB|a:B"); let armed = await js("askState().armed"); XCTAssertEqual(armed, "0")
+        _ = await js("collapse(false),0"); try await until("strip"); f.lastKey = -100
+        f.update(q(["B", "A"])); try await Task.sleep(for: .milliseconds(400)); XCTAssertEqual(f.mode, "strip")                                       // 看過的不再彈
+        f.focusInput = { NSRect(x: 800, y: 0, width: 640, height: 96) }
+        f.update(q(["A", "B", "C"])); try await until("card"); XCTAssertEqual(f.mode, "card"); try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(f.view.frame.intersects(NSRect(x: 800, y: 0, width: 640, height: 96))); XCTAssertNil(ud.array(forKey: "orbit.askCorner"))        // 閃開輸入框，不改記住的位置
+        _ = await js("collapse(false),0"); try await until("strip")
+        f.handle(["action": "askDrag", "phase": "start"]); f.handle(["action": "askDrag", "phase": "move", "dx": -100, "dy": -100]); f.handle(["action": "askDrag", "phase": "end"])
+        XCTAssertNil(ud.array(forKey: "orbit.askCorner")); XCTAssertNotNil(ud.array(forKey: "orbit.askStrip"))
+        let sw = Double(await js("document.getElementById('strip').getBoundingClientRect().width")) ?? 0; XCTAssertEqual(f.view.frame.width, sw.rounded(.up), accuracy: 1)      // 沒有透明區擋點擊
+        XCTAssertEqual(AskFloatLayout.card(card, root: root, corner: NSPoint(x: 1480, y: 0)).origin, NSPoint(x: 8, y: 8))                                // 記住的位置貼死角落 ⇒ 拉回
+    }
     func waitReady(_ f: AskFloat, _ s: Double = 8) async throws {
         for _ in 0..<Int(s * 20) { if f.ready { return }; try await Task.sleep(for: .milliseconds(50)) }
         XCTFail("浮層沒有 ready")
@@ -109,7 +133,7 @@ final class AskFloatTests: XCTestCase {
     }
     /// 活著才接手；沒 ready、當掉、沒回應 ⇒ 球體照畫並重試；重新載入後尺寸、位置、縮成一條都在
     func testFallbackAndRestore() async throws {
-        let (w, r, f, _, _) = try make()
+        SphereEmbed.setAskFloat(false); let (w, r, f, _, _) = try make()
         XCTAssertFalse(SphereEmbed.askFloat)                                        // 還沒 ready：球體自己畫
         try await waitReady(f); XCTAssertTrue(SphereEmbed.askFloat)
         let q = #"{"team":[{"status":"需要你","sessionId":"s1","askId":"A","name":"甲","ask":"要嗎","options":["好","不要"]}]}"#

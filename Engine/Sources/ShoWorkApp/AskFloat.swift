@@ -22,14 +22,27 @@ public enum AskFloatLayout {
     /// corner＝右下角離視窗右緣、下緣多遠（nil＝預設右下）
     public static func card(_ size: NSSize, root: NSSize, corner: NSPoint?) -> NSRect {
         let c = corner ?? NSPoint(x: margin, y: margin)
-        return clamp(NSRect(x: root.width - c.x - size.width, y: c.y, width: size.width, height: size.height), in: root)
+        return visible(NSRect(x: root.width - c.x - size.width, y: c.y, width: size.width, height: size.height), in: root)
+    }
+    /// 記住的位置出界、貼死在邊上 ⇒ 拉回離邊 8pt 的可見處（放不下就照 clamp）
+    static func visible(_ f: NSRect, in root: NSSize) -> NSRect {
+        var r = clamp(f, in: root); let m: CGFloat = 8
+        if r.width + 2 * m <= root.width { r.origin.x = min(max(m, r.minX), root.width - r.width - m) }
+        if r.height + 2 * m <= root.height { r.origin.y = min(max(m, r.minY), root.height - r.height - m) }
+        return r
+    }
+    /// 自動展開：不蓋到正在用的終端機輸入框；原位不行就挑四個角，都蓋到就原位
+    public static func expand(_ size: NSSize, root: NSSize, corner: NSPoint?, input: NSRect?) -> NSPoint? {
+        guard let z = input, card(size, root: root, corner: corner).intersects(z) else { return corner }
+        let m = margin, l = root.width - size.width - m, t = root.height - size.height - 44
+        return [NSPoint(x: m, y: m), NSPoint(x: m, y: t), NSPoint(x: l, y: t), NSPoint(x: l, y: m)].first { !card(size, root: root, corner: $0).intersects(z) } ?? corner
     }
     /// 縮成一條：原位沒擋到任何輸入框就放原位，不然四個角挑一個不擋的；都擋就放右上
     public static func strip(_ size: NSSize, root: NSSize, corner: NSPoint?, terminals: [NSRect]) -> NSRect {
         let zones = terminals.map { NSRect(x: $0.minX, y: $0.minY, width: $0.width, height: min(inputZone, $0.height)) }
         let m = margin, w = size.width, h = size.height, top = root.height - h - 44      // 44：視窗標題列＋球體工具列
         let spots = [card(size, root: root, corner: corner), NSRect(x: root.width - w - m, y: m, width: w, height: h), NSRect(x: root.width - w - m, y: top, width: w, height: h),
-                     NSRect(x: m, y: top, width: w, height: h), NSRect(x: m, y: m, width: w, height: h)].map { clamp($0, in: root) }
+                     NSRect(x: m, y: top, width: w, height: h), NSRect(x: m, y: m, width: w, height: h)].map { visible($0, in: root) }
         return spots.first { s in !zones.contains { $0.intersects(s) } } ?? clamp(spots[2], in: root)
     }
 }
@@ -82,15 +95,33 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     public var view: NSView { webView }
     /// 開著的衛星（主視窗座標）：縮成一條時不擋它們的輸入框
     public var terminals: () -> [NSRect] = { [] }
+    /// 正在用的終端機的輸入框（主視窗座標）、是不是在組字：自動展開要等、要閃開
+    public var focusInput: () -> NSRect? = { nil }
+    public var composing: () -> Bool = { false }
     /// 暫時藏起來（登入畫面開著）
     public var suppressed = false { didSet { layout() } }
     private(set) var mode = "hidden", size = NSSize.zero
     private(set) var ready = false
     private var dragFrom: NSRect?, pendingData: Data?
     private let store: UserDefaults
-    private static let key = "orbit.askCorner"
+    private static let key = "orbit.askCorner", stripKey = "orbit.askStrip"
+    private func point(_ k: String) -> NSPoint? { (store.array(forKey: k) as? [Double]).flatMap { $0.count == 2 ? NSPoint(x: $0[0], y: $0[1]) : nil } }
+    private var spot: NSPoint??              // 自動展開時為了不擋輸入框挪的位置；縮起、拖動就放掉，不存
+    // 打字中不展開：別處（終端機）最後一次按鍵
+    var lastKey = -100.0, wantTimer: Timer?, keyWatch: Any?
+    static let quiet = 2.0
+    func mayExpand(now t: Double) -> Bool { !composing() && t - lastKey >= Self.quiet }
+    func tryExpand(now t: Double? = nil) {
+        wantTimer?.invalidate(); wantTimer = nil
+        guard ready, !open else { return }
+        guard mayExpand(now: t ?? now) else {
+            wantTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.tryExpand() } }; return
+        }
+        auto = true; js("window.askGo && window.askGo()")
+    }
+    private var auto = false, seen: [String] = []
     var corner: NSPoint? {
-        get { (store.array(forKey: Self.key) as? [Double]).flatMap { $0.count == 2 ? NSPoint(x: $0[0], y: $0[1]) : nil } }
+        get { point(Self.key) }
         set { if let p = newValue { store.set([Double(p.x), Double(p.y)], forKey: Self.key) } else { store.removeObject(forKey: Self.key) } }
     }
     private var tick: Timer?
@@ -115,6 +146,10 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         SphereEmbed.askPayload = { [weak self] d in self?.update(d) }
         SphereEmbed.askResult = { [weak self] sid, ask, text in self?.call("window.askResult", [sid, ask, text]) }
         SphereEmbed.askShow = { [weak self] sid in self?.call("window.askShow", [sid]) }
+        keyWatch = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            MainActor.assumeIsolated { if let self, let w = self.webView.window, e.window === w, w.firstResponder !== self.webView { self.lastKey = self.now } }
+            return e
+        }
         // 衛星會被拖動、開關：縮成一條時每秒看一次有沒有擋到（沒動就不做事）
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { if self?.mode == "strip" { self?.layout() }; self?.heartbeat() } }
     }
@@ -177,11 +212,16 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         switch b["action"] as? String {
         case "ready":
             ready = true; lost = false; fails = 0; pingAt = now; pongAt = now; told = .zero
-            setTheme(theme); layout(); call("window.askRestore", [open])
+            setTheme(theme); layout(); call("window.askRestore", [open, seen])
             SphereEmbed.setAskFloat(true)
             if let d = pendingData ?? SphereEmbed.latestSphere { update(d) }
         case "askSize": mode = b["mode"] as? String ?? "hidden"; size = NSSize(width: num("w"), height: num("h")); layout()
-        case "askOpen": open = b["open"] as? Bool ?? true
+        case "askOpen":
+            open = b["open"] as? Bool ?? true
+            if open { if auto { spot = .some(nil) } else { spot = nil } } else { spot = nil; auto = false }      // .some(nil)＝等拿到大小再挑位置
+            auto = false
+        case "askSeen": seen = b["keys"] as? [String] ?? seen
+        case "askWant": tryExpand()
         case "askDrag": drag(b["phase"] as? String ?? "", NSPoint(x: num("dx"), y: num("dy")))
         case "askFocusBack": focusBack()
         case "askTyping": SphereEmbed.askTyping(b["on"] as? Bool ?? false)
@@ -202,7 +242,8 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         case "end":
             guard dragFrom != nil else { return }
             dragFrom = nil
-            corner = NSPoint(x: root.width - webView.frame.maxX, y: webView.frame.minY)
+            let p = NSPoint(x: root.width - webView.frame.maxX, y: webView.frame.minY); spot = nil
+            if mode == "strip" { store.set([Double(p.x), Double(p.y)], forKey: Self.stripKey) } else { corner = p }      // 拖條不改卡片的位置
             layout()
         default: break
         }
@@ -222,12 +263,18 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         // 藏著也給一個量得到大小的框（寬度不夠會量錯）
         guard show else { if webView.frame.width < most.width { webView.frame = NSRect(x: 0, y: 0, width: most.width, height: 200) }; return }
         guard dragFrom == nil else { return }
-        let f = mode == "strip" ? AskFloatLayout.strip(size, root: root, corner: corner, terminals: terminals()) : AskFloatLayout.card(size, root: root, corner: corner)
+        let f = mode == "strip" ? AskFloatLayout.strip(size, root: root, corner: point(Self.stripKey) ?? corner, terminals: terminals()) : AskFloatLayout.card(size, root: root, corner: cardCorner(root))
         if webView.frame != f { webView.frame = f; if ready { js("window.askMoved && window.askMoved()") } }
     }
     // 測試（只給離屏測試用）：假題目、跑一段網頁程式；真的資料不再進來
     public func testUpdate(_ f: URL) { SphereEmbed.askPayload = nil; if let d = try? Data(contentsOf: f) { update(d) } }
     public func testJS(_ s: String) { js(s) }
+    private func cardCorner(_ root: NSSize) -> NSPoint? {
+        guard mode == "card", let s = spot else { return corner }
+        if let p = s { return p }
+        guard let p = AskFloatLayout.expand(size, root: root, corner: corner, input: focusInput()), p != corner else { spot = nil; return corner }
+        spot = .some(p); return p
+    }
     private func js(_ s: String) { webView.evaluateJavaScript(s, completionHandler: nil) }
     private func call(_ fn: String, _ args: [Any]) {
         guard let d = try? JSONSerialization.data(withJSONObject: args) else { return }

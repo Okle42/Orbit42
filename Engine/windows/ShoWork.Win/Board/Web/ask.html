@@ -6,8 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>答案卡</title>
 <!-- 11-25 Keng：答案卡浮在 Orbit42 最上層（只有 Mac 的 Orbit42 用；原生端 AskFloat.swift 放在所有衛星上面）。失敗點清單：docs/ask-float.md
-     原生 → 網頁：askRestore(是否展開)、askMoved()、askUpdate(球體那份資料)、askTheme("dark"|"light")、askMax(最大寬, 最大高)、askResult(sessionId, 一句話)、askShow(sessionId)、askBlur()
-     網頁 → 原生：ready／askSize {mode,w,h}／askDrag {phase,dx,dy}／askOpen {open}／askFocusBack／askTyping {on}，以及跟球體同一套的 focus／answer／permit／stopSpeaking
+     原生 → 網頁：askGo()、askRestore(是否展開, 看過的題)、askMoved()、askUpdate(球體那份資料)、askTheme("dark"|"light")、askMax(最大寬, 最大高)、askResult(sessionId, 一句話)、askShow(sessionId)、askBlur()
+     網頁 → 原生：ready／askSize {mode,w,h}／askDrag {phase,dx,dy}／askOpen {open}／askSeen {keys}／askWant／askFocusBack／askTyping {on}，以及跟球體同一套的 focus／answer／permit／stopSpeaking
      原則：答案會變成使用者本人的輸入，有疑問一律不送。 -->
 <style>
   :root { color-scheme: dark; --ink: #4fc36a; --ink-dim: rgba(242,242,242,.62); --panel: #111112; --line: rgba(255,255,255,.14); --soft: rgba(255,255,255,.05);
@@ -30,11 +30,16 @@
   #over .t { flex: 1; min-width: 150px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   @media (max-width: 340px) { #over .t { flex-basis: 100%; -webkit-line-clamp: 4; } }
   #over .st { color: var(--acc); }
+  body:not(.open) #over:empty { display: none; }      /* 空的不佔寬：縮成一條時右邊不可有看不見、會擋點擊的區域 */
   body.mini #over:not(:empty) { margin-top: 8px; }
   body.open #card { display: block; } body.mini #strip { display: flex; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); flex: none; }
   #strip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #strip .n { color: var(--ink-dim); white-space: nowrap; }
+  #strip .n { color: var(--acc); font-weight: 600; white-space: nowrap; }
+  #strip .q1 { color: var(--ink-dim); flex: 0 1 auto; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #strip { border: 2px solid var(--acc); box-shadow: inset 0 0 0 100px var(--rec); }
+  #strip.flash { animation: sflash .5s ease-in-out 3; } @keyframes sflash { 50% { box-shadow: inset 0 0 0 100px var(--acc-dim); } }
+  @media (prefers-reduced-motion: reduce) { #strip.flash { animation: none; } }
   .top { min-height: 30px; display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: grab; flex-wrap: wrap; }
   .top .tag { color: var(--acc); letter-spacing: .12em; }
   .top .nm { overflow-wrap: anywhere; max-width: 100%; } .top .nm:hover, .q:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -90,6 +95,10 @@ function askUpdate(data) {
   const next = new Map();
   for (const c of data.team || []) if (c.status === "需要你" && c.sessionId && (c.askId || c.permit?.id)) next.set(keyOf(c), c);
   live = next;
+  const fresh = [...live.keys()].filter(k => !seen.has(k)), first = !booted; booted = true;
+  for (const k of fresh) seen.add(k);
+  while (seen.size > 300) seen.delete(seen.values().next().value);
+  if (fresh.length) post({ action: "askSeen", keys: [...seen] });
   order = order.filter(k => live.has(k)); for (const k of live.keys()) if (!order.includes(k)) order.push(k);      // 新題排最後，不換掉正在看的
   for (const [k, s] of sent) {
     if (!live.has(k)) sent.delete(k);                                           // 題目真的拿掉了＝送到了
@@ -97,8 +106,19 @@ function askUpdate(data) {
   }
   for (const u of [...undos.values()]) if (!live.has(u.key)) dropUndo(u, "那題已經在別處答掉或收回，沒有送出");
   while (drafts.size > 60) drafts.delete(drafts.keys().next().value);            // 草稿照題目 id 留著：題目短暫消失再回來還在
+  // 縮起時來了沒看過的題（新的 askId／權限單號）⇒ 展開那題。看過的（稍後再答、跳走時在場的）、同題更新、換順序都不彈；展開中照舊不換題
+  if (!open && fresh.length && !(first && restored === null)) wantOpen(fresh.at(-1));
   render();
 }
+let seen = new Set(), booted = false, restored = null, want = null;
+/* 要不要現在展開由原生端決定：他正在終端機打字（含組字）就先閃，停 2 秒再 askGo。多題連著來只有一個等著的，展開一次、顯示最新那題 */
+function wantOpen(k) { const asked = want !== null; want = k; const s = $("strip"); s.classList.remove("flash"); void s.offsetWidth; s.classList.add("flash"); if (!asked) post({ action: "askWant" }); }
+window.askGo = () => {
+  const k = want; want = null; if (open || !k) return;
+  const l = visible(), t = l.includes(k) ? k : null; if (!t) return;                  // 等的時候被答掉了
+  if (ghost) { clearTimeout(ghost.t); ghost = null; }
+  cur = t; disarm(); expand(); $("strip").classList.remove("flash");
+};
 function render() {
   const list = visible();
   if (cur && !list.includes(cur) && !sent.has(cur) && !ghost && $("card").dataset.key === cur && document.body.classList.contains("open")) {      // 看到一半被答掉／收回
@@ -115,7 +135,7 @@ function render() {
 function endGhost() { if (!ghost) return; if (typing()) { ghost.held = true; patch(visible()); return; } ghost = null; cur = null; lock(); render(); }
 function drawStrip(list) {
   const c = live.get(cur); if (!c) return;
-  $("strip").innerHTML = `<span class="dot"></span><span class="nm">需要你 · ${esc(titleOf(c))}</span>${list.length > 1 ? `<span class="n">共 ${list.length} 題</span>` : ""}`;
+  $("strip").innerHTML = `<span class="dot"></span><span class="n">${list.length > 1 ? `共 ${list.length} 題` : "1 題等你"}</span><span class="nm">需要你 · ${esc(titleOf(c))}</span><span class="q1">${esc(clip(live.get(list.at(-1))?.ask || "", 14))}</span>`;
 }
 /* 整張重畫只在換題時；同一題只補有變的地方，輸入框永遠不換（聽寫、注音不會斷） */
 function drawCard(list) {
@@ -213,7 +233,7 @@ function sendLater(c, msg, label, byMouse) {
   if (byMouse) post({ action: "askFocusBack" });                                  // 用滑鼠答的：焦點還給原本的終端機；用鍵盤答的不還（多按的鍵不可以掉進終端機）
 }
 function collapse(byMouse) { open = false; post({ action: "askOpen", open }); disarm(); document.activeElement?.blur?.(); if (ghost) { clearTimeout(ghost.t); ghost = null; cur = null; } render(); if (byMouse) post({ action: "askFocusBack" }); }
-function expand() { open = true; post({ action: "askOpen", open }); lock(); $("card").dataset.key = ""; render(); }
+function expand() { open = true; want = null; post({ action: "askOpen", open }); lock(); $("card").dataset.key = ""; render(); }
 function jump() { const c = live.get(cur); if (!c) return; post({ action: "focus", sessionId: c.sessionId }); collapse(false); }
 
 /* ---- 滑鼠：按下和放開要在同一題、同一顆按鈕，按下那刻也要過了 0.5 秒 ---- */
@@ -276,7 +296,7 @@ window.askTheme = n => { document.documentElement.dataset.theme = n; };
 window.askMax = (w, h) => { shifted(); document.documentElement.style.setProperty("--w", Math.min(440, w) + "px"); document.documentElement.style.setProperty("--maxh", Math.max(120, h) + "px"); size(); };
 window.askBlur = disarm;
 window.askMoved = shifted;                                                          // 原生端把整張卡移了位置（視窗縮放、拖動）
-window.askRestore = o => { open = o !== false; render(); };                          // 重新載入後：縮成一條的狀態
+window.askRestore = (o, ks) => { open = o !== false; restored = ks || []; for (const k of restored) seen.add(k); if (!open && booted) { const f = [...live.keys()].filter(k => ks && !ks.includes(k)); if (f.length) wantOpen(f.at(-1)); } render(); };                          // 重新載入後：縮成一條的狀態
 window.askShow = sid => { const k = visible().find(k => live.get(k).sessionId === sid) ?? visible()[0]; if (!k) return; if (ghost) { clearTimeout(ghost.t); ghost = null; } cur = k; expand(); };
 window.askResult = (sid, askId, text) => {                                           // 原生端的結果：沒送出／沒確認到 ⇒ 題目放回來並明講
   const k = sid + "|a:" + askId; if (!/沒有送出|先留著|打不開|不在了/.test(text)) return;
