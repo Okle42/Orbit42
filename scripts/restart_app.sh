@@ -27,7 +27,11 @@ say "重開：${1:-（沒寫原因）}"
 old=($(pids))
 alive=0
 if (( ${#old} )); then
-  osascript -e 'tell application id "ai.okle42.orbit42" to quit' || say "osascript 結束失敗"
+  # 對準程序編號請它結束：換過包的程式位置變了、或有別支同 id 的程式時，用 id 會送錯（11-25 送到測試程式過）
+  for p in $old; do
+    r=$(osascript -l JavaScript -e "ObjC.import('AppKit'); const a=\$.NSRunningApplication.runningApplicationWithProcessIdentifier($p); a.isNil() ? 'nil' : String(a.terminate)" 2>&1)
+    [[ "$r" == true ]] || say "請程序 $p 結束失敗：$r"
+  done
   for i in {1..40}; do
     alive=0; for p in $old; do kill -0 $p 2>/dev/null && alive=1; done
     (( alive )) || break; sleep 1
@@ -42,4 +46,4 @@ cur=($(pids))
 if (( ${#cur} )); then say "已經有人先打開了（程序 $cur），不重複開"; exit 0; fi
 open "$APP"; sleep 3
 new=($(pids))
-if (( ${#new} )); then say "已重開（程序 $new）"; else say "打開失敗：找不到新的 Orbit42 程序"; exit 1; fi
+if (( ${#new} )); then say "已重開（程序 $new）"; /usr/bin/python3 -I "${0:A:h}/swap_app.py" clean; else say "打開失敗：找不到新的 Orbit42 程序"; exit 1; fi
