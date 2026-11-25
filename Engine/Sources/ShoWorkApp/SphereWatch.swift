@@ -77,10 +77,7 @@ final class SphereWatch {
     }
 
     static func notify(title: String, body: String) {
-        func q(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: " ") }
-        DispatchQueue.global().async {
-            Tools.run("/usr/bin/osascript", ["-e", "display notification \"\(q(body))\" with title \"AI工作戰情中心\" subtitle \"\(q(title))\""], timeout: 10)
-        }
+        Notify.send(title, body)
     }
 
     // MARK: E 時間軸

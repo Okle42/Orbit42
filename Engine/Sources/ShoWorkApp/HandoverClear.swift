@@ -102,13 +102,13 @@ final class HandoverClear {
         guard let tid = GhosttyProbe.resolve(tty: tty, ghosttyPID: g.processIdentifier)?.terminalID ?? Self.uniqueTerminal(named: r.name) else {
             return .failure(CardError("Ghostty 找不到 \(tty) 對應的分頁" + (Script.lastError.map { "（AppleScript：\($0)）" } ?? "")))
         }
-        let id = Self.q(tid)
+        let id = Notify.quote(tid)
         let title = Script.string("tell application id \"com.mitchellh.ghostty\" to get name of (first terminal whose id is \"\(id)\")") ?? ""
         guard Handover.titleMatches(title, name: r.name) else {
             return .failure(CardError("Ghostty 分頁標題「\(title)」對不上 \(r.name)，不送"))
         }
         // 10-27：input text＝「貼上」，Claude Code 把貼上的 /clear 當一般訊息（Sam 收到「 /clear」）；斜線指令改用 Ghostty 的 text: 動作直接打進去
-        let input = text.hasPrefix("/") ? "perform action \"text:\(Self.q(text))\" on t" : "input text \"\(Self.q(text))\" to t"
+        let input = text.hasPrefix("/") ? "perform action \"text:\(Notify.quote(text))\" on t" : "input text \"\(Notify.quote(text))\" to t"
         let ok = Script.run("""
             tell application id "com.mitchellh.ghostty"
               set t to first terminal whose id is "\(id)"
@@ -182,11 +182,8 @@ final class HandoverClear {
         guard dev != UInt32(bitPattern: -1), dev != 0, let n = devname(dev_t(dev), S_IFCHR) else { return nil }
         return "/dev/" + String(cString: n)
     }
-    static func q(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
     static func clock(_ d: Date) -> String { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d) }
     private func notify(_ title: String, _ body: String) {
-        DispatchQueue.global().async {
-            Tools.run("/usr/bin/osascript", ["-e", "display notification \"\(Self.q(body))\" with title \"AI工作戰情中心\" subtitle \"\(Self.q(title))\""], timeout: 10)
-        }
+        Notify.send(title, body)
     }
 }

@@ -497,10 +497,7 @@ final class CtxGuard {
 
     /// agent 不是 .app，用 osascript 發系統通知
     private func notify(_ title: String, _ body: String) {
-        func q(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
-        DispatchQueue.global().async {
-            Tools.run("/usr/bin/osascript", ["-e", "display notification \"\(q(body))\" with title \"AI工作戰情中心\" subtitle \"\(q(title))\""], timeout: 10)
-        }
+        Notify.send(title, body)
     }
 }
 
@@ -573,9 +570,7 @@ final class TaskRouter {
     }
 
     nonisolated static func systemNotice(_ t: CaptainTask) {
-        func q(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
-        let body = q(t.summary ?? t.text)
-        Tools.run("/usr/bin/osascript", ["-e", "display notification \"\(body)\" with title \"AI工作戰情中心\" subtitle \"\(q("派工 \(t.id)：\(t.to) \(t.state.title)"))\""], timeout: 10)
+        Notify.sendNow("派工 \(t.id)：\(t.to) \(t.state.title)", t.summary ?? t.text)
     }
 }
 

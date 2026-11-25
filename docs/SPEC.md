@@ -20,7 +20,7 @@ Orbit42（這個 App）
 │   ChatGPT → codex（OpenAI Codex CLI）
 │   Gemini → Antigravity CLI `agy`（Google；2026-05 起取代 Gemini CLI，本機已裝）
 │   Grok → xAI（待定：CLI 或 API）
-└ 共用核心：ShoWork42 的 ShoWorkCore（session 狀態、卡片、額度、自檢）
+└ 共用核心：Engine/ 的 ShoWorkCore（session 狀態、卡片、額度、自檢）
 ```
 
 系統本身不當大腦：登入直接用各家自己的帳號（訂閱），工具、權限、更新都由各家維護；Orbit42 只做外殼、總覽和守門。
@@ -44,3 +44,5 @@ Orbit42（這個 App）
 
 - 2026-11-23：Orbit42 取代 ShoWorkAgent（同一顆引擎 `ShoWorkAgentMain.run`，Orbit42 加主視窗：完整球體＋右側衛星終端機）；ShoWork42 拆出函式庫 ShoWorkApp
 - 2026-11-23：Claude Code 的對話框（okle42 樣式）改黑白灰紅、終端機色票分深淺兩套，跟系統外觀切換
+
+- 2026-11-25：拆掉從 ShoWork42 帶進來的 3D 辦公室、大樓、村莊、地下室、城市、天氣與收件匣面板；戰情中心視窗只留智能體和工具列
