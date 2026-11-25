@@ -689,8 +689,6 @@ final class BoardModel: ObservableObject {
             scheduleDemotion(now: now)
         }
         decorChanged()
-        TowerDecor.shared.consider(cards: cards, tower: plan)
-        GraphSource.shared.consider(tower: plan, cards: cards)          // 地下室神經網路（10-22）：自己節流，10 分鐘內同一組專案不重排
         replanWander(now: now)
     }
 
