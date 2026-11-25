@@ -240,6 +240,7 @@ window.orbitTheme = name => {
   for (const t of terms.values()) t.doll?.setColor(dollColor());
   for (const t of terms.values()) { t.term.options.theme = THEME; t.term.options.minimumContrastRatio = themeName === "dark" ? (LOWDPI ? 3 : 1) : 4.5; }
   for (const t of terms.values()) t.paintYou?.();
+  if (was !== themeName) for (const [id, t] of terms) recolor(id, t, themeName === "dark");
   if (was !== themeName) for (const id of t2031) post({ action: "input", id, data: `\x1b[?997;${themeName === "dark" ? 1 : 2}n` });
 };
 sysDark.addEventListener("change", () => { if (!new URLSearchParams(location.search).get("theme")) window.orbitTheme(); });
@@ -562,6 +563,58 @@ const okRGB = (r, g, b, bg) => {
   const x = L.toString(16).padStart(2, "0");
   return "#" + x + x + x;
 };
+// 11-25 Keng「切深色後 bypass permissions 還是紅字」：okRGB 在寫入當下就把顏色定死，Claude Code 又不會重送沒變的行
+// ⇒ 切深淺時把已經畫上去的格子（含捲動紀錄）換成另一套。只認 okRGB 自己會產生的顏色，其他不動；色票色由 xterm 自己換
+// 灰階是壓縮過的（淺色字 60 階、底 17 階），換回來會差幾階，程式重送那行就準了。null＝回預設字色
+const hexN = h => parseInt(h.slice(1, 7), 16);
+const RED_FG = { dark: hexN(THEMES.dark.red), light: hexN(THEMES.light.red) }, RED_BG = { dark: 0x2e2e30, light: 0xf6d4d1 };
+const HINT = 0x96969b, GREEN = 0x4fc36a;
+function swapRGB(v, bg, toDark, plainBg) {
+  const [from, to] = toDark ? ["light", "dark"] : ["dark", "light"], red = bg ? RED_BG : RED_FG;
+  if (v === red[from]) return red[to];
+  if (!bg && !toDark && v === HINT) return null;
+  let L = v & 255;
+  if (!bg && !toDark && v === GREEN) L = 255; else if (v !== L * 0x10101) return v;
+  const [lo, hi] = bg ? [0xe4, 0xf4] : [0x1a, 0x55];
+  if (!toDark) L = Math.round(lo + L / 255 * (hi - lo));
+  else {
+    if (L < lo || L > hi) return v;
+    L = Math.round((L - lo) / (hi - lo) * 255);
+    if (!bg && (L >= 230 || (plainBg && L < 0x40))) return GREEN;      // 亮字＝綠；淺色模式的黑字落在深底上會看不見，當內文
+  }
+  return L * 0x10101;
+}
+const isRGB = v => (v & 0x3000000) === 0x3000000, DIM = 0x8000000;
+function swapPair(fg, bg, toDark, cell) {        // xterm 的一格：低 26 位＝顏色種類＋顏色，高 6 位＝粗體、淡化等旗標
+  const plain = (bg & 0x3000000) === 0;
+  if (isRGB(fg)) {
+    const c = swapRGB(fg & 0xffffff, false, toDark, plain);
+    if (c === null) fg &= 0xfc000000;
+    else { fg = (fg & 0xff000000) | c; if (!toDark) bg &= ~DIM; }      // 淺色不用「顏色＋淡化」（跟 okSGR 一致）
+  } else if (cell && toDark && (bg & DIM) && (fg & 0x3000000) === 0) fg = (fg & 0xfc000000) | 0x3000000 | HINT;      // 提示字
+  if (isRGB(bg)) bg = (bg & 0xff000000) | swapRGB(bg & 0xffffff, true, toDark);
+  return [fg, bg];
+}
+function recolor(id, t, toDark) {
+  const st = sgrState.get(id), m = st && /^38;2;(\d+);(\d+);(\d+)$/.exec(st.fg);
+  if (m) { const c = swapRGB(+m[1] << 16 | +m[2] << 8 | +m[3], false, toDark, true); st.fg = c === null ? "39" : `38;2;${c >> 16};${c >> 8 & 255};${c & 255}`; }
+  if (st && !toDark) st.hint = false;
+  t.term.write("", () => {               // 排在已送進去、還沒畫完的輸出後面：那些也是舊的那一套
+    const core = t.term._core, bufs = core.buffers, seen = new Set();
+    for (const b of [bufs.normal, bufs.alt]) {
+      for (let y = 0; y < b.lines.length; y++) {
+        const d = b.lines.get(y)?._data; if (!d) continue;
+        for (let i = 1; i < d.length; i += 3) {
+          const f = d[i], g = d[i + 1]; if (!isRGB(f) && !isRGB(g) && !(g & DIM)) continue;
+          const [nf, ng] = swapPair(f, g, toDark, true); d[i] = nf; d[i + 1] = ng;
+        }
+      }
+    }
+    for (const a of [core._inputHandler?._curAttrData, bufs.normal.savedCurAttrData, bufs.alt.savedCurAttrData])
+      if (a && !seen.has(a)) { seen.add(a); [a.fg, a.bg] = swapPair(a.fg, a.bg, toDark, false); }
+    t.paintYou?.(); t.term.refresh(0, t.term.rows - 1);
+  });
+}
 const C256 = n => {                     // 256 色 → RGB（16 色以下交給色票，不在這裡處理）
   if (n >= 232) { const v = 8 + (n - 232) * 10; return [v, v, v]; }
   n -= 16; const c = v => v ? 55 + v * 40 : 0; return [c(Math.floor(n / 36)), c(Math.floor(n / 6) % 6), c(n % 6)];
