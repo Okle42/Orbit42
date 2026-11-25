@@ -595,6 +595,9 @@ const DESK = new URLSearchParams(location.search).has("desk");
 const ORBIT = new URLSearchParams(location.search).has("orbit");     // 11-23：嵌在 Orbit42 裡（SphereEmbed.swift）     // 球體桌面版（11-22，SphereMini.swift）
 if (ORBIT) document.documentElement.classList.add("orbit");      // 11-24 Orbit42 深色綠白對調（CSS :root.orbit）
 const PHONE = new URLSearchParams(location.search).has("phone");      // iPhone App 裡的球體
+// 11-25 Keng「打字跟語音輸入有東西在干擾」：網頁的 focus() 會讓 WebKit 把整個視窗的鍵盤焦點從終端機搶過來，聽寫就被系統暫停。
+// Mac 的 Orbit42 裡，鍵盤焦點不在球體時，程式一律不准搶（使用者自己點球體才算）
+if (ORBIT && !PHONE) { const focus0 = HTMLElement.prototype.focus; HTMLElement.prototype.focus = function (o) { if (document.hasFocus()) focus0.call(this, o); }; }
 if (DESK) document.body.classList.add("desk");
 
 /* ---------- 狀態定義：每個狀態的轉速、亮度、標籤 ---------- */

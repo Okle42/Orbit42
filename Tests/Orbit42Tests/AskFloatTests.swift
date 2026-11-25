@@ -110,7 +110,7 @@ final class AskFloatTests: XCTestCase {
         f.update(q(["B", "A"])); try await Task.sleep(for: .milliseconds(400)); XCTAssertEqual(f.mode, "strip")                                       // 看過的不再彈
         f.update(q(["A", "B", "C"])); try await until("card"); XCTAssertEqual(f.mode, "card"); try await Task.sleep(for: .milliseconds(300))
         XCTAssertEqual(f.view.frame.midX, root.width / 2, accuracy: 1); XCTAssertEqual(f.view.frame.midY, root.height / 2, accuracy: 1)                  // 自動展開也在正中央
-        _ = await js("collapse(false),0"); try await until("strip"); XCTAssertEqual(f.view.frame.size, NSSize(width: 152, height: 152))
+        _ = await js("collapse(false),0"); try await until("strip"); XCTAssertEqual(f.view.frame.size, NSSize(width: 114, height: 114))
         let o = f.view.frame; XCTAssertTrue(f.covers(NSPoint(x: o.midX, y: o.midY))); XCTAssertTrue(f.covers(NSPoint(x: o.midX, y: o.maxY - 4)))                                                              // 羅盤上點得到
         for p in [NSPoint(x: o.minX + 2, y: o.maxY - 2), NSPoint(x: o.minX + 2, y: o.minY + 2), NSPoint(x: o.maxX - 2, y: o.minY + 2), NSPoint(x: o.maxX - 8, y: o.maxY - 8)] {
             XCTAssertFalse(f.covers(p)); XCTAssertNil(f.view.hitTest(p))                                                                               // 圓外的透明處不擋點擊
@@ -122,7 +122,7 @@ final class AskFloatTests: XCTestCase {
             XCTAssertEqual(f.view.frame.width, min(560, s.width - 28) + 2, accuracy: 3); XCTAssertEqual(f.view.frame.midX, s.width / 2, accuracy: 1); XCTAssertTrue(inside(f.view.frame, s))
             let clip = await js("[...document.querySelectorAll('.opt,.q,.free,#over')].every(x=>x.getBoundingClientRect().right<=innerWidth+0.5&&x.getBoundingClientRect().left>=0)?'ok':'cut'"); XCTAssertEqual(clip, "ok", "\(s)")
             let slot = await js("getComputedStyle(document.documentElement).getPropertyValue('--slot').trim()"); XCTAssertEqual(slot, s.width - 28 <= 340 ? "118px" : "58px")
-            _ = await js("collapse(false),0"); try await until("strip"); try await Task.sleep(for: .milliseconds(200)); XCTAssertEqual(f.view.frame.width, 152)
+            _ = await js("collapse(false),0"); try await until("strip"); try await Task.sleep(for: .milliseconds(200)); XCTAssertEqual(f.view.frame.width, 114)
         }
         f.handle(["action": "askDrag", "phase": "start"]); f.handle(["action": "askDrag", "phase": "move", "dx": -100, "dy": -100]); f.handle(["action": "askDrag", "phase": "end"])
         XCTAssertNil(ud.array(forKey: "orbit.askCorner")); XCTAssertNotNil(ud.array(forKey: "orbit.askFan"))
