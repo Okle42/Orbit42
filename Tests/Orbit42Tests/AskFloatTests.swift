@@ -217,4 +217,99 @@ final class AskFloatTests: XCTestCase {
         XCTAssertEqual(state { $0.sendingAt = Date(timeIntervalSinceNow: -90) }, "unsure")                   // App 中途當掉
         XCTAssertEqual(state { $0.unsureAt = Date() }, "unsure")
     }
+    // MARK: 網頁免重開（T1125194238）
+    func variant(_ f: AskFloat, _ from: String = "<title>答案卡</title>", _ to: String = "<title>答案卡</title><!-- v2 -->") -> Data {
+        let t = String(decoding: f.page, as: UTF8.self); XCTAssertTrue(t.contains(from)); return Data(t.replacingOccurrences(of: from, with: to).utf8)
+    }
+    func teamData(_ ids: [String], state: String = "") -> Data { Data(("{\"team\":[" + ids.map { "{\"status\":\"需要你\",\"sessionId\":\"s\($0)\",\"askId\":\"\($0)\",\"name\":\"甲\",\"ask\":\"要嗎\",\"options\":[\"好\",\"不要\"]\(state)}" }.joined(separator: ",") + "]}").utf8) }
+    func settle(_ s: Double, _ c: @escaping () -> Bool = { false }) async throws { for _ in 0..<Int(s * 20) where !c() { try await Task.sleep(for: .milliseconds(50)) } }
+    func testPageSwapKeepsEverything() async throws {
+        let (w, r, f, term, _) = try make(); try await waitReady(f); w.makeFirstResponder(term); f.lastKey = -100
+        var got: [[String: Any]] = []; SphereEmbed.testAction = { got.append($0) }; defer { SphereEmbed.testAction = nil }
+        func js(_ s: String) async -> String { (try? await f.webView.evaluateJavaScript(s)).map { "\($0)" } ?? "" }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("ask-\(UUID()).json"); f.status = tmp; defer { try? FileManager.default.removeItem(at: tmp) }
+        f.update(teamData(["A", "B"])); try await settle(4) { f.mode == "card" }; XCTAssertEqual(f.mode, "card")
+        _ = await js("drafts.set('sB|a:B','草稿「一」\\n二'),drafts.set('sZ|a:Z','別題'),note.set('sA|a:A',true),cur='sB|a:B',render(),0")
+        let old = f.webView, v2 = variant(f), h0 = f.pageHash
+        f.offer(v2); try await settle(1.5); XCTAssertTrue(f.webView === old); XCTAssertNil(f.candidate)                     // 展開著：不換
+        _ = await js("collapse(false),0"); try await settle(8) { f.webView !== old }
+        XCTAssertFalse(f.webView === old); XCTAssertNotEqual(f.pageHash, h0); XCTAssertEqual(f.pageHash, AskPage.hash(v2)); XCTAssertNil(f.waiting)
+        try await settle(1)
+        XCTAssertTrue(r.float === f.webView); XCTAssertNil(old.superview); XCTAssertEqual(f.mode, "strip"); XCTAssertFalse(f.view.isHidden); XCTAssertTrue(SphereEmbed.askFloat); XCTAssertTrue(w.firstResponder === term)
+        XCTAssertEqual(f.view.frame.size, NSSize(width: 120, height: 120))
+        let v = await js("JSON.stringify([askState().visible,[...drafts],[...note],cur,open])")
+        XCTAssertEqual(v, #"[["sA|a:A","sB|a:B"],[["sB|a:B","草稿「一」\n二"],["sZ|a:Z","別題"]],[["sA|a:A",true]],"sB|a:B",false]"#)
+        XCTAssertEqual(got.count, 0)                                                                                          // 沒有送出任何東西
+        XCTAssertTrue(((try? String(contentsOf: tmp, encoding: .utf8)) ?? "").contains(AskPage.hash(v2)))
+        f.update(teamData(["A", "B"])); try await settle(0.6); XCTAssertEqual(f.mode, "strip")                                // 看過的不再彈
+        f.update(teamData(["A", "B", "C"])); try await settle(4) { f.mode == "card" }; XCTAssertEqual(f.mode, "card")        // 新題照彈
+        f.webViewWebContentProcessDidTerminate(old); XCTAssertTrue(f.ready)                                                   // 舊的晚到的通知不理
+        f.webViewWebContentProcessDidTerminate(f.webView); f.heartbeat(now: f.loadAt + 1.1); try await waitReady(f)          // 當掉重載還是新版
+        let t = await js("document.documentElement.outerHTML.includes('<!-- v2 -->')?'v2':'v1'"); XCTAssertEqual(t, "v2")
+    }
+    func testPageSwapWaits() async throws {
+        let (w, r, f, term, _) = try make(); try await waitReady(f); w.makeFirstResponder(term); f.lastKey = -100; defer { _ = r }
+        var got: [[String: Any]] = []; SphereEmbed.testAction = { got.append($0) }; defer { SphereEmbed.testAction = nil }
+        func js(_ s: String) async -> String { (try? await f.webView.evaluateJavaScript(s)).map { "\($0)" } ?? "" }
+        f.update(teamData(["A", "B"])); try await settle(4) { f.mode == "card" }; _ = await js("collapse(false),0"); try await settle(4) { f.mode == "strip" }
+        for (on, off) in [("undos.set('x',{key:'x',t:0,name:'',label:''})", "undos.clear()"), ("sent.set('sA|a:A',{})", "sent.clear()"), ("drag={x:0,y:0}", "drag=null"), ("armed=true", "armed=false"), ("want='sA|a:A'", "want=null"), ("barText='提示'", "barText=''"),
+                          ("document.body.classList.add('open')", "document.body.classList.remove('open')"), ("(()=>{const t=document.createElement('textarea');t.id='tt';document.body.append(t);t.focus()})()", "document.getElementById('tt').remove()")] {
+            _ = await js("\(on),0"); let st = try? await f.webView.evaluateJavaScript(AskFloat.stateJS); XCTAssertFalse(st is String, on); _ = await js("\(off),0")
+            let back = try? await f.webView.evaluateJavaScript(AskFloat.stateJS); XCTAssertTrue(back is String, off)
+        }
+        // 復原倒數中不換；送出那一次只送一次，之後才換
+        let old = f.webView; _ = await js("undos.set('x',{key:'x',t:0,name:'',label:''}),0"); f.offer(variant(f)); try await settle(3); XCTAssertTrue(f.webView === old); XCTAssertNil(f.candidate)
+        _ = await js("undos.clear(),0"); f.handle(["action": "askTyping", "on": false]); try await settle(8) { f.webView !== old }; XCTAssertFalse(f.webView === old); XCTAssertEqual(got.filter { $0["action"] as? String != "stopSpeaking" }.count, 0)
+        // 送出中（題目狀態）不換
+        let cur = f.webView; f.update(teamData(["A"], state: ",\"askState\":\"sending\"")); try await settle(0.5); f.offer(variant(f, "<!-- v2 -->", "<!-- v3 -->")); try await settle(2.5); XCTAssertTrue(f.webView === cur)
+        f.update(teamData([])); try await settle(8) { f.webView !== cur }; XCTAssertFalse(f.webView === cur)
+    }
+    func testBadPageKeepsOld() async throws {
+        let (w, r, f, term, _) = try make(); try await waitReady(f); w.makeFirstResponder(term); defer { _ = (w, r) }
+        var got: [[String: Any]] = []; SphereEmbed.testAction = { got.append($0) }; defer { SphereEmbed.testAction = nil }
+        let old = f.webView, h = f.pageHash
+        for (name, d) in [("不說 ready", variant(f, "post({ action: \"ready\" });", "")), ("資料一來就丟例外", variant(f, "window.askUpdate = askUpdate;", "window.askUpdate = () => { throw 1 };")), ("少功能", variant(f, "window.askGo =", "window.askGoX =")),
+                          ("草稿名字改了", variant(f, "drafts", "dr4fts")), ("載入就想作答", variant(f, "post({ action: \"ready\" });", "post({action:'answer',sessionId:'s',askId:'Q',free:'evil'});post({action:'permit',sessionId:'s',permitId:'P',decision:'allow'});"))] {
+            f.update(teamData([])); f.offer(d); try await settle(12) { f.refused.contains(AskPage.hash(d)) }
+            XCTAssertTrue(f.refused.contains(AskPage.hash(d)), name); XCTAssertTrue(f.webView === old, name); XCTAssertEqual(f.pageHash, h); XCTAssertTrue(f.ready); XCTAssertNil(f.candidate); XCTAssertTrue(SphereEmbed.askFloat)
+            f.offer(d); XCTAssertNil(f.waiting)                                                                                // 同一版不再試
+        }
+        XCTAssertEqual(got.count, 0)
+    }
+    /// 只認同一簽章身分、驗過、執行檔相同的新包
+    func testOnlyVerifiedBundle() throws {
+        let fm = FileManager.default, dir = fm.temporaryDirectory.appendingPathComponent("askb-\(UUID())"); defer { try? fm.removeItem(at: dir) }
+        @MainActor func run(_ a: [String]) -> Int32 { let p = Process(); p.executableURL = URL(fileURLWithPath: a[0]); p.arguments = Array(a.dropFirst()); p.standardError = Pipe(); try? p.run(); p.waitUntilExit(); return p.terminationStatus }
+        func bundle(_ n: String, id: String = "t.ask") throws -> URL {
+            let b = dir.appendingPathComponent(n), c = b.appendingPathComponent("Contents")
+            for s in ["MacOS", "Resources/Web"] { try fm.createDirectory(at: c.appendingPathComponent(s), withIntermediateDirectories: true) }
+            let src = Bundle(for: AskFloatTests.self).executableURL!; try fm.copyItem(at: src, to: c.appendingPathComponent("MacOS/X"))
+            try Data("<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>\(id)</string><key>CFBundleExecutable</key><string>X</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>".utf8).write(to: c.appendingPathComponent("Info.plist"))
+            try Data("page".utf8).write(to: c.appendingPathComponent("Resources/Web/ask.html"))
+            let rc = run(["/usr/bin/codesign", "-f", "-s", "-", "--identifier", id, b.path]); XCTAssertEqual(rc, 0); return b
+        }
+        var req: SecRequirement?; SecRequirementCreateWithString("identifier \"t.ask\"" as CFString, [], &req); let rq = try XCTUnwrap(req)
+        let a = try bundle("a.app"), u = try XCTUnwrap(AskPage.uuid(file: a.appendingPathComponent("Contents/MacOS/X"))), page = a.appendingPathComponent("Contents/Resources/Web/ask.html")
+        XCTAssertNotNil(AskPage.runningUUID)
+        XCTAssertEqual(try AskPage.fetch(bundle: a, executable: "X", requirement: rq, uuid: u).get(), Data("page".utf8))
+        XCTAssertEqual(AskPage.fetch(bundle: a, executable: "X", requirement: rq, uuid: UUID()), .failure(.binary))
+        guard case .failure(.signature) = AskPage.fetch(bundle: try bundle("b.app", id: "t.evil"), executable: "X", requirement: rq, uuid: u) else { return XCTFail("別的身分也收") }
+        try Data("evil".utf8).write(to: page)
+        guard case .failure(.signature) = AskPage.fetch(bundle: a, executable: "X", requirement: rq, uuid: u) else { return XCTFail("改過沒重簽也收") }
+        try fm.removeItem(at: page); try fm.createSymbolicLink(at: page, withDestinationURL: URL(fileURLWithPath: "/etc/hosts"))
+        XCTAssertEqual(AskPage.fetch(bundle: a, executable: "X", requirement: rq, uuid: u), .failure(.read))
+        XCTAssertEqual(AskPage.fetch(bundle: dir.appendingPathComponent("none.app"), executable: "X", requirement: rq, uuid: u), .failure(.read))
+    }
+    /// 資料夾一換就知道（系統通知），不用問
+    func testWatchSeesAtomicSwap() async throws {
+        let fm = FileManager.default, dir = fm.temporaryDirectory.appendingPathComponent("askw-\(UUID())"); defer { try? fm.removeItem(at: dir) }
+        let apps = dir.appendingPathComponent("Applications"), a = apps.appendingPathComponent("A.app"), b = dir.appendingPathComponent("B.old")
+        for x in [a, b] { try fm.createDirectory(at: x, withIntermediateDirectories: true) }
+        var req: SecRequirement?; SecRequirementCreateWithString("identifier \"t.ask\"" as CFString, [], &req)
+        var n = 0; let w = try XCTUnwrap(AskPageWatch(bundle: a, executable: "X", requirement: req, uuid: UUID()) { _ in n += 1 })
+        try await Task.sleep(for: .milliseconds(1500)); XCTAssertEqual(n, 0)
+        XCTAssertEqual(renamex_np(b.path, a.path, UInt32(RENAME_SWAP)), 0); for _ in 0..<60 where n == 0 { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(n, 1); w.stop()
+        XCTAssertNil(AskPageWatch(bundle: a, executable: "X", requirement: nil, uuid: UUID()) { _ in })
+    }
 }

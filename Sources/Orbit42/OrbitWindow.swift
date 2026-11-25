@@ -107,6 +107,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             f.terminals = { [weak self] in self?.satWins.values.filter { !$0.isHidden && $0.wantShown }.map(\.frame) ?? [] }
             f.composing = { [weak self] in self.map { s in s.host.composing.contains { s.satWins[$0]?.isHidden == false } } ?? false }
             root.addSubview(f.view); root.float = f.view; askFloat = f
+            f.watchBundle(status: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Orbit42/ask-page.json"))      // 答案卡網頁免重開
             f.suppressed = !login.web.isHidden
             loginWatch = login.web.observe(\.isHidden) { [weak f] w, _ in MainActor.assumeIsolated { f?.suppressed = !w.isHidden } }
         }

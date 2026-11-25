@@ -87,7 +87,7 @@ public final class AskFloatRoot: NSView {
 
 @MainActor
 public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
-    let webView: AskFloatWeb
+    private(set) var webView: AskFloatWeb
     public var view: NSView { webView }
     /// 開著的衛星（主視窗座標）：縮成一條時不擋它們的輸入框
     public var terminals: () -> [NSRect] = { [] }
@@ -98,7 +98,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     private(set) var mode = "hidden", size = NSSize.zero
     private(set) var ready = false
     private var dragFrom: NSRect?, pendingData: Data?
-    private let store: UserDefaults
+    private let store: UserDefaults, root: URL?
     private static let stripKey = "orbit.askFan"      // 11-25 改成羅盤：舊的 orbit.askCorner／askStrip 不再用
     private func point(_ k: String) -> NSPoint? { (store.array(forKey: k) as? [Double]).flatMap { $0.count == 2 ? NSPoint(x: $0[0], y: $0[1]) : nil } }
     private var spot: NSPoint?               // 展開期間自己拖到的位置；縮起就放掉，不存
@@ -119,22 +119,13 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     private var tick: Timer?
 
     public init?(dir: URL? = nil, store: UserDefaults = .standard) {
-        guard let root = dir ?? WorkWindow.webDir, FileManager.default.fileExists(atPath: root.appendingPathComponent("ask.html").path) else { return nil }
-        self.store = store
-        let cfg = WKWebViewConfiguration()
-        cfg.setURLSchemeHandler(WebSchemeHandler(root: root), forURLScheme: WebSchemeHandler.scheme)
-        webView = AskFloatWeb(frame: .zero, configuration: cfg)
+        guard let root = dir ?? WorkWindow.webDir else { return nil }
+        self.store = store; self.root = root
+        guard let d = AskPage.read(root.appendingPathComponent("ask.html")) else { return nil }
+        page = d; pageHash = AskPage.hash(d)
+        webView = AskFloatWeb(frame: .zero, configuration: Self.config(d))
         super.init()
-        cfg.userContentController.add(WeakAsk(self), name: "ask")
-        webView.setValue(false, forKey: "drawsBackground")
-        webView.navigationDelegate = self
-        webView.wantsLayer = true; webView.layer?.zPosition = 1_000_000          // 衛星的 zPosition 從 10 一直往上加
-        webView.isHidden = true
-        webView.covers = { [weak self] p in self?.covers(p) ?? true }
-        webView.onResign = { [weak self] in self?.js("window.askBlur && window.askBlur()") }
-        webView.uiDelegate = self
-        webView.unregisterDraggedTypes()
-        cfg.preferences.javaScriptCanOpenWindowsAutomatically = false
+        prepare(webView)
         load()
         SphereEmbed.askPayload = { [weak self] d in self?.update(d) }
         SphereEmbed.askResult = { [weak self] sid, ask, text in self?.call("window.askResult", [sid, ask, text]) }
@@ -147,13 +138,150 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { if self?.mode == "strip" { self?.layout() }; self?.heartbeat() } }
     }
 
+    private static func config(_ d: Data) -> WKWebViewConfiguration {
+        let cfg = WKWebViewConfiguration()
+        cfg.setURLSchemeHandler(AskPageHandler(d), forURLScheme: WebSchemeHandler.scheme)
+        cfg.preferences.javaScriptCanOpenWindowsAutomatically = false
+        return cfg
+    }
+    private func prepare(_ v: AskFloatWeb) {
+        v.configuration.userContentController.add(WeakAsk(self), name: "ask")
+        v.setValue(false, forKey: "drawsBackground")
+        v.navigationDelegate = self
+        v.wantsLayer = true; v.layer?.zPosition = 1_000_000          // 衛星的 zPosition 從 10 一直往上加
+        v.isHidden = true
+        v.covers = { [weak self] p in self?.covers(p) ?? true }
+        v.onResign = { [weak self] in self?.js("window.askBlur && window.askBlur()") }
+        v.uiDelegate = self
+        v.unregisterDraggedTypes()
+    }
+
+    // MARK: 網頁免重開（T1125194238）：驗過的新版先在看不見的 web view 載好，縮起／隱藏、沒有任何作答動作時才換過去
+    private(set) var page: Data, pageHash: String
+    private(set) var waiting: Data?, candidate: AskFloatWeb?
+    private(set) var refused: Set<String> = []
+    private var candidateSize: [String: Any]?, candidateTimer: Timer?, updates = 0, lastTry = -100.0, queued = false, watch: AskPageWatch?
+    var status: URL?
+    /// 目前載入的版本寫成檔案，安裝後核對用
+    private func note(_ t: String) {
+        guard let status else { return }
+        let o: [String: Any] = ["hash": pageHash, "waiting": waiting.map(AskPage.hash) ?? "", "note": t, "pid": Int(ProcessInfo.processInfo.processIdentifier), "at": ISO8601DateFormatter().string(from: Date())]
+        NSLog("ask page %@ %@", String(pageHash.prefix(12)), t)
+        try? FileManager.default.createDirectory(at: status.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let d = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys, .prettyPrinted]) { try? d.write(to: status, options: .atomic) }
+    }
+    /// 只有網頁真的是從執行中這個 App 包裡讀的才看（開發用的資料夾不看）
+    public func watchBundle(status s: URL) {
+        status = s; note("載入")
+        let b = Bundle.main.bundleURL
+        guard let root, root.standardizedFileURL == b.appendingPathComponent("Contents/Resources/Web").standardizedFileURL, let x = Bundle.main.executableURL?.lastPathComponent else { return }
+        watch = AskPageWatch(bundle: b, executable: x, requirement: AskPage.ownRequirement, uuid: AskPage.runningUUID) { [weak self] in self?.found($0) }
+        if watch == nil { note("不看更新（沒有簽章身分）") }
+    }
+    private func found(_ r: Result<Data, AskPage.Fail>) {
+        switch r {
+        case .success(let d): offer(d)
+        case .failure(let f): waiting = nil; dropCandidate(); note("新包不用，留舊版：\(f)")
+        }
+    }
+    func offer(_ d: Data) {
+        let h = AskPage.hash(d)
+        if h == pageHash { if waiting != nil { waiting = nil; dropCandidate() }; return }
+        if refused.contains(h) { waiting = nil; dropCandidate(); return note("這一版載不起來過，留舊版") }
+        if let w = waiting, w == d { return }
+        dropCandidate(); waiting = d; lastTry = -100; note("等縮起沒在用時換"); trySwap()
+    }
+    private func dropCandidate() {
+        candidateTimer?.invalidate(); candidateTimer = nil; candidateSize = nil
+        guard let c = candidate else { return }
+        candidate = nil; retire(c)
+    }
+    private func retire(_ v: AskFloatWeb) {
+        v.stopLoading(); v.navigationDelegate = nil; v.uiDelegate = nil; v.onResign = nil; v.covers = nil
+        v.configuration.userContentController.removeScriptMessageHandler(forName: "ask"); v.removeFromSuperview()
+    }
+    private func refuse(_ why: String) {
+        guard let d = waiting else { return dropCandidate() }
+        refused.insert(AskPage.hash(d)); waiting = nil; dropCandidate(); note("新版不用，留舊版：\(why)")
+    }
+    /// 縮起或隱藏、沒拖、焦點不在這裡、沒有在等展開
+    private var calm: Bool { (mode == "strip" || mode == "hidden") && dragFrom == nil && wantTimer == nil && !(webView.window.map { $0.firstResponder === webView } ?? false) }
+    /// 舊頁的狀態；正在打字、組字、拖、復原倒數、送出中、有提示、有題目等著展開 ⇒ null（名字對不上也是 null）
+    static let stateJS = """
+    (()=>{try{if(undos.size||sent.size||drag||dragged||armed||ghost||want!==null||typing()||barText||document.body.classList.contains("open")||[...live.values()].some(c=>c.askState==="sending"))return null;
+    return JSON.stringify({d:[...drafts],n:[...note],o:order,c:cur,v:[...visible()].sort()})}catch{return null}})()
+    """
+    static func applyJS(_ st: String) -> String { """
+    (S=>{for(const[k,v]of S.d)drafts.set(k,v);for(const[k,v]of S.n)note.set(k,v);order=[...S.o.filter(k=>live.has(k)),...order.filter(k=>!S.o.includes(k))];if(visible().includes(S.c))cur=S.c;render();
+    return JSON.stringify([...drafts])===JSON.stringify(S.d)&&JSON.stringify([...visible()].sort())===JSON.stringify(S.v)&&(!S.c||cur===S.c)?"ok":"差"})(\(st))
+    """ }
+    func poke() {          // 有動靜才問一次，不另開輪詢
+        guard waiting != nil, !queued else { return }
+        queued = true
+        DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.queued = false; self?.trySwap() } }
+    }
+    func trySwap() {
+        guard waiting != nil, candidate == nil, now - lastTry > 2 else { return }
+        if !ready { if lost { startCandidate() }; return }
+        guard calm else { return }
+        lastTry = now
+        webView.evaluateJavaScript(Self.stateJS) { [weak self] r, _ in MainActor.assumeIsolated { if let self, r is String, self.calm, self.candidate == nil { self.startCandidate() } } }
+    }
+    private func startCandidate() {
+        guard let d = waiting, let up = webView.superview else { return }
+        lastTry = now
+        let c = AskFloatWeb(frame: NSRect(x: 0, y: 0, width: AskFloatLayout.maxSize(up.bounds.size).width, height: 200), configuration: Self.config(d))
+        prepare(c); candidate = c
+        up.addSubview(c, positioned: .below, relativeTo: webView)
+        candidateTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.refuse("8 秒沒好") } }
+        c.load(URLRequest(url: URL(string: Self.page)!))
+    }
+    /// 新版說 ready：給它一樣的資料試跑（它的訊息除了大小一律不理），再搬草稿；舊頁全程沒變才換
+    private func candidateReady(_ c: AskFloatWeb) {
+        let data = pendingData ?? SphereEmbed.latestSphere, at = updates, root = c.superview?.bounds.size ?? .zero, m = AskFloatLayout.maxSize(root)
+        func arr(_ a: [Any]) -> String { (try? JSONSerialization.data(withJSONObject: a)).map { String(decoding: $0, as: UTF8.self) } ?? "[]" }
+        let boot = "window.askTheme(...\(arr([theme])));window.askMax(\(Double(m.width)),\(Double(m.height)));window.askRestore(...\(arr([open, seen])));" + (data.map { "window.askUpdate(\(String(decoding: $0, as: UTF8.self)));" } ?? "") + "['askGo','askUpdate','askRestore','askMax','askTheme','askBlur','askMoved','askShow','askResult','askState'].every(n=>typeof window[n]==='function')&&typeof window.askState().cur!=='undefined'?'ok':'缺'"
+        c.evaluateJavaScript(boot) { [weak self, weak c] r, e in MainActor.assumeIsolated {
+            guard let self, let c, self.candidate === c else { return }
+            guard r as? String == "ok" else { return self.refuse("試跑失敗 \(e.map { "\($0.localizedDescription)" } ?? "")") }
+            guard self.ready else { return self.lost ? self.promote(c) : self.dropCandidate() }
+            self.webView.evaluateJavaScript(Self.stateJS) { r, _ in MainActor.assumeIsolated {
+                guard self.candidate === c else { return }
+                guard let st = r as? String, self.calm, self.updates == at else { return self.dropCandidate() }
+                c.evaluateJavaScript(Self.applyJS(st)) { r, _ in MainActor.assumeIsolated {
+                    guard self.candidate === c else { return }
+                    guard self.updates == at else { return self.dropCandidate() }
+                    guard r as? String == "ok" else { return self.refuse("草稿或題目搬不過去") }
+                    self.webView.evaluateJavaScript(Self.stateJS) { r, _ in MainActor.assumeIsolated {
+                        guard self.candidate === c else { return }
+                        guard r as? String == st, self.calm, self.updates == at, self.ready else { return self.dropCandidate() }
+                        self.promote(c)
+                    } }
+                } }
+            } }
+        } }
+    }
+    private func promote(_ c: AskFloatWeb) {
+        guard let d = waiting, let up = webView.superview else { return dropCandidate() }
+        let old = webView, sized = candidateSize
+        candidateTimer?.invalidate(); candidateTimer = nil; candidate = nil; candidateSize = nil; waiting = nil
+        page = d; pageHash = AskPage.hash(d)
+        c.back = old.back; c.frame = old.frame; c.isHidden = old.isHidden
+        up.addSubview(c, positioned: .above, relativeTo: old); webView = c
+        if let r = up as? AskFloatRoot, r.float === old { r.float = c }
+        retire(old)
+        handle(["action": "ready"])
+        if let sized { handle(sized) }
+        note("已換新版")
+    }
+
     public func setTheme(_ name: String) { call("window.askTheme", [name]) }
     func update(_ d: Data) {
-        pendingData = d
+        pendingData = d; updates += 1; defer { poke() }
         guard ready else { return }
         js("window.askUpdate(\(String(decoding: d, as: UTF8.self)))")
     }
-    public func webView(_ w: WKWebView, didFinish n: WKNavigation!) { layout() }
+    public func webView(_ w: WKWebView, didFinish n: WKNavigation!) { if w === webView { layout() } }
 
     // MARK: 活著才接手：浮層說 ready 球體才不畫答案卡；載不起來、當掉、沒回應 ⇒ 球體照畫（不可漏答），這裡一直重試
     public static let page = "\(WebSchemeHandler.scheme)://web/ask.html"
@@ -172,18 +300,18 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     func heartbeat(now t: Double? = nil) {
         let t = t ?? now
         if !ready {
-            if lost { if t - loadAt >= Self.backoff(fails) { lost = false; loadAt = t; load() } }
+            if lost { if waiting != nil { trySwap() }; if t - loadAt >= Self.backoff(fails) { lost = false; loadAt = t; load() } }
             else if t - loadAt > 8 { loadAt = t; down() }                                    // 8 秒沒說 ready
             return
         }
         if pingAt > 0, pongAt < pingAt { if t - pingAt > 4 { loadAt = t; down() }; return }  // 4 秒沒回應
         guard t - pingAt > 5 else { return }
         pingAt = t
-        webView.evaluateJavaScript("typeof askUpdate") { [weak self] r, _ in MainActor.assumeIsolated { if let self, r as? String == "function" { self.pongAt = self.now; if self.pongAt < self.pingAt { self.pongAt = self.pingAt } } } }
+        webView.evaluateJavaScript("typeof askUpdate") { [weak self] r, _ in MainActor.assumeIsolated { if let self, r as? String == "function" { self.pongAt = self.now; if self.pongAt < self.pingAt { self.pongAt = self.pingAt }; self.poke() } } }
     }
-    public func webViewWebContentProcessDidTerminate(_ w: WKWebView) { loadAt = now; down() }
-    public func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { if !ready { loadAt = now; down() } }
-    public func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { if !ready { loadAt = now; down() } }
+    public func webViewWebContentProcessDidTerminate(_ w: WKWebView) { if w === candidate { return refuse("網頁程序當掉") }; guard w === webView else { return }; loadAt = now; down() }
+    public func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { if w === candidate { return refuse("載不起來") }; if w === webView, !ready { loadAt = now; down() } }
+    public func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { if w === candidate { return refuse("載不起來") }; if w === webView, !ready { loadAt = now; down() } }
     /// 只准開自己那一頁、主框架；不開新視窗
     static func allowed(_ url: URL?, mainFrame: Bool) -> Bool { mainFrame && url?.absoluteString == page }
     public func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
@@ -195,13 +323,18 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     /// 訊息只收自己那一頁（主框架、自己的 scheme、自己的 web view、現在網址還是 ask.html）
     public func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
         let o = m.frameInfo.securityOrigin
-        guard m.webView === webView, m.frameInfo.isMainFrame, o.protocol == WebSchemeHandler.scheme, o.host == "web",
-              Self.allowed(webView.url, mainFrame: true), Self.allowed(m.frameInfo.request.url, mainFrame: true), let b = m.body as? [String: Any] else { return }
+        guard let from = m.webView as? AskFloatWeb, from === webView || from === candidate, m.frameInfo.isMainFrame, o.protocol == WebSchemeHandler.scheme, o.host == "web",
+              Self.allowed(from.url, mainFrame: true), Self.allowed(m.frameInfo.request.url, mainFrame: true), let b = m.body as? [String: Any] else { return }
+        if from === candidate {          // 還沒換上的新版：只聽「好了」和大小，作答、放行、跳轉一律不理
+            switch b["action"] as? String { case "ready": candidateReady(from); case "askSize": candidateSize = b; default: break }
+            return
+        }
         handle(b)
     }
     private var open = true          // 縮成一條的狀態：重新載入後還在
     func handle(_ b: [String: Any]) {
         let num = { (k: String) in CGFloat((b[k] as? NSNumber)?.doubleValue ?? 0) }
+        defer { poke() }
         switch b["action"] as? String {
         case "ready":
             ready = true; lost = false; fails = 0; pingAt = now; pongAt = now; told = .zero

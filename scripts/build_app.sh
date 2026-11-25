@@ -21,7 +21,7 @@ mkdir -p "$TMP/Contents/Resources/convert"; cp Support/convert/*.py "$TMP/Conten
 cp "$SW/scripts/flow_audit.py" "$TMP/Contents/Resources/flow_audit.py"
 ID=$(security find-identity -v -p codesigning | awk '/Developer ID Application|Apple Development/ {print $2; exit}')
 codesign -f -s "${ID:--}" --identifier ai.okle42.orbit42 "$TMP" >/dev/null
-rm -rf "$APP"; mv "$TMP" "$APP"
+/usr/bin/python3 -I scripts/swap_app.py install "$TMP" --app "$APP"      # 原子互換；舊包留到下次重開才清（刪掉執行中的舊包，系統會認不得它）
 # Desktop shortcut (Finder alias, so the icon shows and double-click opens the app)
 osascript -e 'tell application "Finder" to if not (exists alias file "Orbit42" of desktop) then make alias file to (POSIX file "'"$APP"'") at desktop with properties {name:"Orbit42"}' >/dev/null
 echo "$APP"
