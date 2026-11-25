@@ -95,7 +95,7 @@ final class AskFloatTests: XCTestCase {
     }
     /// T1125120137：打字中先不展開、停 2 秒才展開、不搶焦點；位置拉回；展開閃開輸入框；拖條不改卡片
     func testAutoExpandWaitsForTyping() async throws {
-        let (w, _, f, term, ud) = try make(); try await waitReady(f); w.makeFirstResponder(term)
+        let (w, r, f, term, ud) = try make(); try await waitReady(f); w.makeFirstResponder(term)
         func js(_ s: String) async -> String { (try? await f.webView.evaluateJavaScript(s)).map { "\($0)" } ?? "" }
         func until(_ m: String) async throws { for _ in 0..<60 where f.mode != m { try await Task.sleep(for: .milliseconds(50)) } }
         func q(_ ids: [String]) -> Data { Data(("{\"team\":[" + ids.map { "{\"status\":\"需要你\",\"sessionId\":\"s\($0)\",\"askId\":\"\($0)\",\"name\":\"甲\",\"ask\":\"要嗎\",\"options\":[\"好\",\"不要\"]}" }.joined(separator: ",") + "]}").utf8) }
@@ -114,6 +114,15 @@ final class AskFloatTests: XCTestCase {
         let o = f.view.frame; XCTAssertTrue(f.covers(NSPoint(x: o.midX, y: o.maxY - 50)))                                                              // 牌上點得到
         for p in [NSPoint(x: o.minX + 2, y: o.maxY - 2), NSPoint(x: o.minX + 2, y: o.minY + 2), NSPoint(x: o.maxX - 2, y: o.minY + 2), NSPoint(x: o.midX, y: o.minY + 3)] {
             XCTAssertFalse(f.covers(p)); XCTAssertNil(f.view.hitTest(p))                                                                               // 扇形外的透明處不擋點擊
+        }
+        // 縮起再展開：寬度要回到該有的寬，不可停在扇形的寬；視窗大小變了也一樣
+        for s in [root, NSSize(width: 620, height: 460), NSSize(width: 360, height: 420), root] {
+            r.setFrameSize(s); f.layout(); try await Task.sleep(for: .milliseconds(300))
+            _ = await js("expand(),0"); try await until("card"); try await Task.sleep(for: .milliseconds(700))
+            XCTAssertEqual(f.view.frame.width, min(560, s.width - 28) + 2, accuracy: 3); XCTAssertEqual(f.view.frame.midX, s.width / 2, accuracy: 1); XCTAssertTrue(inside(f.view.frame, s))
+            let clip = await js("[...document.querySelectorAll('.opt,.q,.free,#over')].every(x=>x.getBoundingClientRect().right<=innerWidth+0.5&&x.getBoundingClientRect().left>=0)?'ok':'cut'"); XCTAssertEqual(clip, "ok", "\(s)")
+            let slot = await js("getComputedStyle(document.documentElement).getPropertyValue('--slot').trim()"); XCTAssertEqual(slot, s.width - 28 <= 340 ? "118px" : "58px")
+            _ = await js("collapse(false),0"); try await until("strip"); try await Task.sleep(for: .milliseconds(200)); XCTAssertEqual(f.view.frame.width, 188)
         }
         f.handle(["action": "askDrag", "phase": "start"]); f.handle(["action": "askDrag", "phase": "move", "dx": -100, "dy": -100]); f.handle(["action": "askDrag", "phase": "end"])
         XCTAssertNil(ud.array(forKey: "orbit.askCorner")); XCTAssertNotNil(ud.array(forKey: "orbit.askFan"))
