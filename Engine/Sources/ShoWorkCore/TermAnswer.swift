@@ -94,6 +94,11 @@ public enum TermAnswer {
         return got == squash(text) || got.range(of: #"^\[Pastedtext#\d+(\+\d+lines)?\]$"#, options: .regularExpression) != nil
     }
 
+    /// 打進去的指令：框裡剛好就是它，多一個字都不算
+    public static func typed(_ s: Screen, name: String, text: String) -> Bool {
+        box(s, name: name).map { $0.lines.joined().trimmingCharacters(in: .whitespaces) == text } ?? false
+    }
+
     /// 對話紀錄新增的部分有沒有「使用者打了這句」（跨 session 訊息是包起來的，不會剛好等於）
     public static func confirmed(_ added: Data, text: String) -> Bool {
         for l in added.split(separator: 0x0A) {
@@ -143,7 +148,8 @@ public enum TermAnswer {
     }
 
     @MainActor
-    public static func send(_ text: String, to sid: String, io: IO) async -> Outcome {
+    /// command：斜線指令（/clear）。不能用貼的（Claude Code 會當一般訊息）⇒ 直接打；確認方式＝同一個程序的 sessionId 換了
+    public static func send(_ text: String, to sid: String, command: Bool = false, io: IO) async -> Outcome {
         func wrong(_ name: String? = nil) -> String? {
             guard let t = io.target(), t.sid == sid, name == nil || t.name == name else { return "對不上這個 session" }
             if !t.unique { return "有兩個同名的 session" }
@@ -161,29 +167,36 @@ public enum TermAnswer {
         }
         if let w = wrong(name) { return .notStarted(w) }
         if io.typing() { return .notStarted("你正在打字") }
-        guard io.mark() else { return .notStarted("題目已經不在了，或寫不了記號") }
-        io.write(Data("\u{1B}[200~\(text)\u{1B}[201~".utf8))
+        guard io.mark() else { return .notStarted(command ? "情況變了，先不送" : "題目已經不在了，或寫不了記號") }
+        io.write(Data((command ? text : "\u{1B}[200~\(text)\u{1B}[201~").utf8))
         var ok = false
-        for _ in 0..<15 {
+        for _ in 0..<(command ? 50 : 15) {       // 收起來的視窗，網頁計時器會變慢
             await io.wait(0.1)
-            if let s = await io.screen(), holds(s, name: name, text: text) { ok = true; break }
+            if let s = await io.screen(), command ? typed(s, name: name, text: text) : holds(s, name: name, text: text) { ok = true; break }
         }
         if !ok || wrong(name) != nil {
             // 不按 Enter，盡量不留字（貼之前框是空的、你的按鍵扣著 ⇒ 框裡只有剛貼的）。寫過字就一律當沒確認到，不改走訊息
             if let s = await io.screen(), box(s, name: name) != nil {
                 io.write(Data([0x15]))          // Ctrl+U
-                for _ in 0..<10 {
+                for _ in 0..<(command ? 30 : 10) {
                     await io.wait(0.1)
-                    if let s = await io.screen(), blocked(s, name: name) == nil { break }      // 看起來空了也可能晚點才冒出來
+                    if let s = await io.screen(), blocked(s, name: name) == nil {
+                        if command, ok { return .notStarted("情況變了，已清掉") }      // 字出現過也清乾淨了、沒按 Enter ⇒ 可以再試
+                        break
+                    }      // 看起來空了也可能晚點才冒出來
                 }
             }
             return .unsure("沒有按 Enter，輸入框裡可能有字（也可能晚一點才出現）")
         }
         io.write(Data("\r".utf8))
-        for _ in 0..<50 {
+        for _ in 0..<(command ? 150 : 50) {      // /clear 會先跑 SessionEnd hook，等久一點
             await io.wait(0.2)
+            if command {
+                if let t = io.target(), t.sid != sid { return .sent }
+                continue
+            }
             if let d = io.added(), confirmed(d, text: text) { return .sent }
         }
-        return .unsure("按了 Enter，但對話裡沒看到這句")
+        return .unsure(command ? "按了 Enter，但 session 沒換" : "按了 Enter，但對話裡沒看到這句")
     }
 }

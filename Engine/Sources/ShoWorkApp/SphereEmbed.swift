@@ -48,6 +48,9 @@ public enum SphereEmbed {
     /// 11-25 答案卡打進衛星終端機（TermAnswer）：回 false＝沒有開著這個 session 的衛星（什麼都沒做）。Orbit42 設定
     public static var typeAnswer: ((_ sid: String, _ text: String, _ still: @escaping @MainActor () -> Bool, _ done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool)?
 
+    /// 11-25 背景 session 自動 /clear：在它的衛星終端機打 /clear（沒開衛星就悄悄接上，這次先回 notStarted）。回 false＝這個 session 接不上
+    public static var typeClear: ((_ sid: String, _ still: @escaping @MainActor () -> Bool, _ done: @escaping @MainActor (TermAnswer.Outcome) -> Void) -> Bool)?
+
     // 11-25 答案卡浮層（AskFloat.swift，只有 Orbit42 Mac 開）：球體不畫答案卡，只在戰情列留「● 等你答」
     public private(set) static var askFloat = false        // 浮層活著（說過 ready）才是 true；不行了球體自己畫，不可漏答
     static func setAskFloat(_ on: Bool) { askFloat = on; for h in hosts where h.orbit { h.pushAskFloat() } }

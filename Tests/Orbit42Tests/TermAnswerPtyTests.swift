@@ -24,6 +24,9 @@ while True:
     if not d: break
     open(log + ".raw", "ab").write(d)
     data += d
+    if mode.startswith("cmd") and b"\\x1b[200~" not in data and not data.endswith(b"\\r") and b"\\x15" not in data:
+        buf += data.decode() + ("x" if mode == "cmdextra" else ""); data = b""; draw()
+    if mode == "cmd" and data.endswith(b"\\r") and buf == "/clear": open(log + ".new", "w").close()
     if mode == "slow" and first: first = False; import time; time.sleep(3)
     while b"\\x1b[200~" in data and b"\\x1b[201~" in data:
         a, rest = data.split(b"\\x1b[200~", 1); t, data = rest.split(b"\\x1b[201~", 1)
@@ -42,7 +45,7 @@ while True:
 """#.replacingOccurrences(of: "\\\\", with: "\\")
 
     func run(_ mode: String, text: String = "好，推上去（完整一句，超過四十個字也不能被剪掉，一路到句尾都要在，最後一個字是完）", sid: String = "s1",
-             live: String = "s1", idle: Bool = true, unique: Bool = true, typing: Bool = false, markOK: Bool = true, busyAfterPaste: Bool = false, held: String = "") async throws -> (TermAnswer.Outcome, log: String, raw: Data) {
+             live: String = "s1", command: Bool = false, idle: Bool = true, unique: Bool = true, typing: Bool = false, markOK: Bool = true, busyAfterPaste: Bool = false, held: String = "") async throws -> (TermAnswer.Outcome, log: String, raw: Data) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ta-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -61,9 +64,9 @@ while True:
         for _ in 0..<100 where screen() == nil { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertNotNil(screen())
         var wrote = false
-        let io = TermAnswer.IO(target: { .init(sid: live, name: "Fake1", idle: idle && !(busyAfterPaste && wrote), unique: unique) }, screen: { screen() }, mark: { markOK }, write: { wrote = true; pty.write($0) },
+        let io = TermAnswer.IO(target: { .init(sid: command && FileManager.default.fileExists(atPath: log.path + ".new") ? "s2" : live, name: "Fake1", idle: idle && !(busyAfterPaste && wrote), unique: unique) }, screen: { screen() }, mark: { markOK }, write: { wrote = true; pty.write($0) },
                                typing: { typing }, added: { try? Data(contentsOf: log) }, wait: { try? await Task.sleep(for: .seconds($0 / 4)) })
-        let (r, replay) = TermAnswer.settle(await TermAnswer.send(text, to: sid, io: io), held: Data(held.utf8), safe: screen().map { TermAnswer.plain($0, name: "Fake1") } ?? false)
+        let (r, replay) = TermAnswer.settle(await TermAnswer.send(text, to: sid, command: command, io: io), held: Data(held.utf8), safe: screen().map { TermAnswer.plain($0, name: "Fake1") } ?? false)
         if !replay.isEmpty { pty.write(replay) }
         try await Task.sleep(for: .milliseconds(200))
         let l = try String(contentsOf: log, encoding: .utf8), raw = (try? Data(contentsOf: URL(fileURLWithPath: log.path + ".raw"))) ?? Data()
@@ -117,5 +120,37 @@ while True:
         let (r, _, raw) = try await run("lost")
         guard case .unsure = r else { return XCTFail("\(r)") }
         XCTAssertEqual(raw.filter { $0 == 0x0D }.count, 1)
+    }
+    /// 自動 /clear：直接打（不是貼上）、Enter 一次、換了 session 才算；框裡多一個字就不按 Enter；草稿／忙／正在打字一個字都不寫
+    func testClearCommand() async throws {
+        let (r, _, raw) = try await run("cmd", text: "/clear", command: true)
+        XCTAssertEqual(r, .sent)
+        XCTAssertEqual(String(decoding: raw, as: UTF8.self), "/clear\r")
+        let (x, _, rawX) = try await run("cmdextra", text: "/clear", command: true)
+        if case .sent = x { XCTFail("多字不能送") }
+        XCTAssertFalse(rawX.contains(0x0D))
+        let (n, _, _) = try await run("cmdstuck", text: "/clear", command: true)
+        guard case .unsure = n else { return XCTFail("\(n)") }
+        for (m, idle, typing) in [("draft", true, false), ("menu", true, false), ("cmd", false, false), ("cmd", true, true)] {
+            let (r, _, raw) = try await run(m, text: "/clear", command: true, idle: idle, typing: typing)
+            guard case .notStarted = r else { XCTFail("\(m) \(r)"); continue }
+            XCTAssertTrue(raw.isEmpty, m)
+        }
+    }
+    /// 真的 claude --bg（拋棄式）：沒開衛星也要能悄悄接上並 /clear。平常略過：ORBIT_E2E_SID=<sid>
+    func testRealBackgroundClear() async throws {
+        guard let sid = ProcessInfo.processInfo.environment["ORBIT_E2E_SID"] else { throw XCTSkip("要給 ORBIT_E2E_SID") }
+        let h = Orbit42.Host(); h.startTimers()
+        var last: TermAnswer.Outcome?
+        for _ in 0..<8 {
+            last = nil
+            XCTAssertTrue(h.typeClear(sid, still: { true }) { last = $0 })
+            for _ in 0..<400 where last == nil { try await Task.sleep(for: .milliseconds(100)) }
+            print("e2e", last as Any)
+            if last != .sent, let id = h.views.keys.first, let j = try? await h.views[id]?.evaluateJavaScript("window.orbitScreen(\"\(id)\")") as? String { print("e2e-screen", j) }
+            if last == .sent { return }
+            try await Task.sleep(for: .seconds(6))
+        }
+        XCTFail("\(String(describing: last))")
     }
 }
