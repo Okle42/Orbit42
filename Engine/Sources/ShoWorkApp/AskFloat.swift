@@ -161,6 +161,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     private(set) var waiting: Data?, candidate: AskFloatWeb?
     private(set) var refused: Set<String> = []
     private var candidateSize: [String: Any]?, candidateTimer: Timer?, updates = 0, lastTry = -100.0, queued = false, watch: AskPageWatch?
+    var onSwap: ((String) -> Void)?          // 換過頁要讓 Keng 看得到；拒絕只記檔
     var status: URL?, loadLimit = 8.0, retryGap = 30.0, slow = 0      // 太久沒好可能只是忙：隔一下再試，最多 3 次；下次換包還可以再來
     /// 目前載入的版本寫成檔案，安裝後核對用
     private func note(_ t: String) {
@@ -172,7 +173,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     }
     /// 只有網頁真的是從執行中這個 App 包裡讀的才看（開發用的資料夾不看）
     public func watchBundle(status s: URL) {
-        status = s; note("載入")
+        status = s; note("載入"); onSwap = { Notify.send("答案卡網頁已換新版", $0) }
         let b = Bundle.main.bundleURL
         guard let root, root.standardizedFileURL == b.appendingPathComponent("Contents/Resources/Web").standardizedFileURL, let x = Bundle.main.executableURL?.lastPathComponent else { return }
         watch = AskPageWatch(bundle: b, executable: x, requirement: AskPage.ownRequirement, uuid: AskPage.runningUUID) { [weak self] in self?.found($0) }
@@ -277,7 +278,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         retire(old)
         handle(["action": "ready"])
         if let sized { handle(sized) }
-        note("已換新版")
+        note("已換新版"); onSwap?(String(pageHash.prefix(8)))
     }
 
     public func setTheme(_ name: String) { call("window.askTheme", [name]) }
