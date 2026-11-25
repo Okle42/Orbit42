@@ -230,12 +230,12 @@ final class AskFloatTests: XCTestCase {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("ask-\(UUID()).json"); f.status = tmp; defer { try? FileManager.default.removeItem(at: tmp) }
         f.update(teamData(["A", "B"])); try await settle(4) { f.mode == "card" }; XCTAssertEqual(f.mode, "card")
         _ = await js("drafts.set('sB|a:B','草稿「一」\\n二'),drafts.set('sZ|a:Z','別題'),note.set('sA|a:A',true),cur='sB|a:B',render(),0")
-        let old = f.webView, v2 = variant(f), h0 = f.pageHash
+        let old = f.webView, v2 = variant(f), h0 = f.pageHash; var told: [String] = []; f.onSwap = { told.append($0) }
         f.offer(v2); try await settle(1.5); XCTAssertTrue(f.webView === old); XCTAssertNil(f.candidate)                     // 展開著：不換
         _ = await js("collapse(false),0"); try await settle(4) { f.mode == "strip" }; let at = f.view.frame; try await settle(8) { f.webView !== old }
         XCTAssertFalse(f.webView === old); XCTAssertNotEqual(f.pageHash, h0); XCTAssertEqual(f.pageHash, AskPage.hash(v2)); XCTAssertNil(f.waiting)
         try await settle(1)
-        XCTAssertTrue(r.float === f.webView); XCTAssertNil(old.superview); XCTAssertEqual(f.mode, "strip"); XCTAssertFalse(f.view.isHidden); XCTAssertTrue(SphereEmbed.askFloat); XCTAssertTrue(w.firstResponder === term)
+        XCTAssertEqual(told, [String(AskPage.hash(v2).prefix(8))]); XCTAssertTrue(r.float === f.webView); XCTAssertNil(old.superview); XCTAssertEqual(f.mode, "strip"); XCTAssertFalse(f.view.isHidden); XCTAssertTrue(SphereEmbed.askFloat); XCTAssertTrue(w.firstResponder === term)
         XCTAssertEqual(f.view.frame, at)
         let v = await js("JSON.stringify([askState().visible,[...drafts],[...note],cur,open])")
         XCTAssertEqual(v, #"[["sA|a:A","sB|a:B"],[["sB|a:B","草稿「一」\n二"],["sZ|a:Z","別題"]],[["sA|a:A",true]],"sB|a:B",false]"#)
@@ -274,6 +274,7 @@ final class AskFloatTests: XCTestCase {
             XCTAssertTrue(f.refused.contains(AskPage.hash(d)), name); XCTAssertTrue(f.webView === old, name); XCTAssertEqual(f.pageHash, h); XCTAssertTrue(f.ready); XCTAssertNil(f.candidate); XCTAssertTrue(SphereEmbed.askFloat)
             f.offer(d); XCTAssertNil(f.waiting)                                                                                // 同一版不再試
         }
+        var told = 0; f.onSwap = { _ in told += 1 }; defer { XCTAssertEqual(told, 0) }
         // 太久沒好：試 3 次就停、留舊版，但不永久拒（下次換包可以再來）；載入就想作答也一樣收不到
         f.loadLimit = 0.8; f.retryGap = 2.2
         for d in [variant(f, "post({ action: \"ready\" });", ""), variant(f, "post({ action: \"ready\" });", "post({action:'answer',sessionId:'s',askId:'Q',free:'evil'});post({action:'permit',sessionId:'s',permitId:'P',decision:'allow'});")] {
