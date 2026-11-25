@@ -110,7 +110,7 @@ final class AskFloatTests: XCTestCase {
         f.update(q(["B", "A"])); try await Task.sleep(for: .milliseconds(400)); XCTAssertEqual(f.mode, "strip")                                       // 看過的不再彈
         f.update(q(["A", "B", "C"])); try await until("card"); XCTAssertEqual(f.mode, "card"); try await Task.sleep(for: .milliseconds(300))
         XCTAssertEqual(f.view.frame.midX, root.width / 2, accuracy: 1); XCTAssertEqual(f.view.frame.midY, root.height / 2, accuracy: 1)                  // 自動展開也在正中央
-        _ = await js("collapse(false),0"); try await until("strip"); XCTAssertEqual(f.view.frame.size, NSSize(width: 172, height: 98))
+        _ = await js("collapse(false),0"); try await until("strip"); XCTAssertEqual(f.view.frame.size, NSSize(width: 188, height: 100))
         let o = f.view.frame; XCTAssertTrue(f.covers(NSPoint(x: o.midX, y: o.maxY - 50)))                                                              // 牌上點得到
         for p in [NSPoint(x: o.minX + 2, y: o.maxY - 2), NSPoint(x: o.minX + 2, y: o.minY + 2), NSPoint(x: o.maxX - 2, y: o.minY + 2), NSPoint(x: o.midX, y: o.minY + 3)] {
             XCTAssertFalse(f.covers(p)); XCTAssertNil(f.view.hitTest(p))                                                                               // 扇形外的透明處不擋點擊

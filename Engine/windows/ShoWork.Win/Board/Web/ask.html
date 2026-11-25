@@ -21,11 +21,11 @@
   #card { display: none; width: var(--w, 560px); max-height: calc(var(--maxh, 100000px) - var(--slot) - 2px); overflow-y: auto; padding: 10px 14px 6px; }
   /* 縮起＝四張牌的扇形（11-25 Keng）：深色綠、淺色紅，牌中間寫 A。位置用 FAN 算，看得見的形狀回報給原生端，透明處不擋點擊 */
   :root { --pk: #4fc36a; } :root[data-theme="light"] { --pk: #d7261b; }
-  #strip { display: none; position: relative; width: 172px; height: 98px; cursor: pointer; }
-  #strip .pk { position: absolute; box-sizing: border-box; width: 46px; height: 64px; left: 63px; top: 9px; transform-origin: 50% 128px; border: 1.5px solid var(--pk); border-radius: 6px; background: var(--panel);
-    color: var(--pk); display: flex; align-items: center; justify-content: center; font: 700 25px/1 "New York", Georgia, "Times New Roman", serif; font-style: normal; }
+  #strip { display: none; position: relative; width: 188px; height: 100px; cursor: pointer; }
+  #strip .pk { position: absolute; box-sizing: border-box; width: 46px; height: 64px; left: 71px; top: 9px; transform-origin: 50% 150px; border: 1.5px solid var(--pk); border-radius: 6px; background: var(--panel);
+    color: var(--pk); display: flex; align-items: center; justify-content: center; font: 700 21px/1 "New York", Georgia, "Times New Roman", serif; font-style: normal; }
   #strip:hover .pk { background: linear-gradient(var(--soft), var(--soft)), var(--panel); }
-  #strip .n { position: absolute; left: 142px; top: 8px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--pk); color: var(--panel); font: 700 12px/20px -apple-system, sans-serif; text-align: center; }
+  #strip .n { position: absolute; left: 160px; top: 8px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--pk); color: var(--panel); font: 700 12px/20px -apple-system, sans-serif; text-align: center; }
   /* 卡片最下面一格，高度固定、不在捲動區裡：平常放說明字和連結，有提示（狀態、復原）就換成提示，一次一條。
      不佔版、不疊在任何東西上面 ⇒ 出現、收掉、多題、窄框、捲動都不會蓋到或推動選項、權限鈕、送出（Gavin5 T1125050619） */
   :root { --slot: 58px; }
@@ -136,7 +136,7 @@ function render() {
   drawOver(); size();
 }
 function endGhost() { if (!ghost) return; if (typing()) { ghost.held = true; patch(visible()); return; } ghost = null; cur = null; lock(); render(); }
-const FAN = { deg: [-27, -9, 9, 27], w: 46, h: 64, x: 86, y: 137, r: 128 };        // 牌寬高、轉軸在 #strip 裡的位置、轉軸到牌頂的距離
+const FAN = { deg: [-26, -8.7, 8.7, 26], w: 46, h: 64, x: 94, y: 159, r: 150 };        // 牌寬高、轉軸在 #strip 裡的位置、轉軸到牌頂的距離
 /* 縮起時看得見的形狀（相對 #wrap 左上角）：四張牌＋數字＋提示 */
 function shapes() {
   const o = $("wrap").getBoundingClientRect(), box = e => { const r = e.getBoundingClientRect(), x = r.left - o.left, y = r.top - o.top; return [[x, y], [x + r.width, y], [x + r.width, y + r.height], [x, y + r.height]]; };
