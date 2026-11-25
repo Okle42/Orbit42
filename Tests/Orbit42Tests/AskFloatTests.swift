@@ -232,11 +232,11 @@ final class AskFloatTests: XCTestCase {
         _ = await js("drafts.set('sB|a:B','草稿「一」\\n二'),drafts.set('sZ|a:Z','別題'),note.set('sA|a:A',true),cur='sB|a:B',render(),0")
         let old = f.webView, v2 = variant(f), h0 = f.pageHash
         f.offer(v2); try await settle(1.5); XCTAssertTrue(f.webView === old); XCTAssertNil(f.candidate)                     // 展開著：不換
-        _ = await js("collapse(false),0"); try await settle(8) { f.webView !== old }
+        _ = await js("collapse(false),0"); try await settle(4) { f.mode == "strip" }; let at = f.view.frame; try await settle(8) { f.webView !== old }
         XCTAssertFalse(f.webView === old); XCTAssertNotEqual(f.pageHash, h0); XCTAssertEqual(f.pageHash, AskPage.hash(v2)); XCTAssertNil(f.waiting)
         try await settle(1)
         XCTAssertTrue(r.float === f.webView); XCTAssertNil(old.superview); XCTAssertEqual(f.mode, "strip"); XCTAssertFalse(f.view.isHidden); XCTAssertTrue(SphereEmbed.askFloat); XCTAssertTrue(w.firstResponder === term)
-        XCTAssertEqual(f.view.frame.size, NSSize(width: 120, height: 120))
+        XCTAssertEqual(f.view.frame, at)
         let v = await js("JSON.stringify([askState().visible,[...drafts],[...note],cur,open])")
         XCTAssertEqual(v, #"[["sA|a:A","sB|a:B"],[["sB|a:B","草稿「一」\n二"],["sZ|a:Z","別題"]],[["sA|a:A",true]],"sB|a:B",false]"#)
         XCTAssertEqual(got.count, 0)                                                                                          // 沒有送出任何東西

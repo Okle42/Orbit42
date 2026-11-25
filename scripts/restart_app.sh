@@ -27,7 +27,11 @@ say "重開：${1:-（沒寫原因）}"
 old=($(pids))
 alive=0
 if (( ${#old} )); then
-  osascript -e 'tell application id "ai.okle42.orbit42" to quit' || say "osascript 結束失敗"
+  # 對準程序編號請它結束：換過包的程式位置變了、或有別支同 id 的程式時，用 id 會送錯（11-25 送到測試程式過）
+  for p in $old; do
+    r=$(osascript -l JavaScript -e "ObjC.import('AppKit'); const a=\$.NSRunningApplication.runningApplicationWithProcessIdentifier($p); a.isNil() ? 'nil' : String(a.terminate)" 2>&1)
+    [[ "$r" == true ]] || say "請程序 $p 結束失敗：$r"
+  done
   for i in {1..40}; do
     alive=0; for p in $old; do kill -0 $p 2>/dev/null && alive=1; done
     (( alive )) || break; sleep 1
