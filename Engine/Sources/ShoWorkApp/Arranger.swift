@@ -313,7 +313,7 @@ final class Menu: NSObject, NSMenuDelegate {
 
     func install() {
         let i = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        i.button?.image = NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "ShoWork42")
+        i.button?.image = NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "Orbit42")
         i.button?.image?.isTemplate = true
         i.menu = menu
         menu.delegate = self
@@ -343,7 +343,7 @@ final class Menu: NSObject, NSMenuDelegate {
     }
 
     private static var icon: NSImage? {
-        let im = NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "ShoWork42")
+        let im = NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "Orbit42")
         im?.isTemplate = true
         return im
     }
@@ -377,7 +377,7 @@ final class Menu: NSObject, NSMenuDelegate {
             return true
         }
         im.isTemplate = false
-        im.accessibilityDescription = "ShoWork42：" + groups.map { "\($0.1)" }.joined(separator: "、")
+        im.accessibilityDescription = "Orbit42：" + groups.map { "\($0.1)" }.joined(separator: "、")
         return im
     }
 
@@ -421,7 +421,7 @@ final class Menu: NSObject, NSMenuDelegate {
         menu.addItem(withTitle: "立即排版", action: #selector(arrangeNow), keyEquivalent: "l").keyEquivalentModifierMask = [.control, .option]
         menu.addItem(withTitle: "設定⋯", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "結束 ShoWork42", action: #selector(quit), keyEquivalent: "")
+        menu.addItem(withTitle: "結束Orbit42", action: #selector(quit), keyEquivalent: "")
         menu.items.forEach { if $0.action != nil && $0.target == nil { $0.target = self } }
     }
 
@@ -442,5 +442,5 @@ final class Menu: NSObject, NSMenuDelegate {
         if !SphereMini.shared.enabled { SphereMini.shared.enabled = true }
         SphereMini.shared.setPreset(id)
     }
-    @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func quit() { MenuTarget.shared.quit() }
 }

@@ -226,6 +226,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// 這個背景工作（job 編號）是哪一顆衛星
     func sat(job: String) -> String? { job.count < 6 ? nil : sats.values.first { $0.attachedJob.map { $0.hasPrefix(job) || job.hasPrefix($0) } ?? false }?.id }
     func has(_ id: String) -> Bool { sats[id] != nil }
+    var runningForeground: Int { sats.values.filter { $0.pty != nil && $0.attachedJob == nil }.count }
     func isAttached(_ id: String) -> Bool { sats[id]?.attachedJob != nil }
     var satCount: Int { sats.count }
     func pid(_ id: String) -> Int32? { sats[id]?.pty?.pid }
@@ -661,6 +662,18 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private var sphereView: NSView?
     private(set) var askFloat: AskFloat?
     private var askTimer: Timer?
+    private var panelRects: [NSRect] = [], panelTurn = 0      // 球體資訊卡的位置：答案卡要挪開時盡量不蓋
+    private func readPanels(_ web: WKWebView) {
+        panelTurn += 1
+        guard panelTurn % 4 == 1 else { return }              // 0.3 秒的計時器，約每 1.2 秒讀一次
+        web.evaluateJavaScript("JSON.stringify([...document.querySelectorAll('.card')].filter(e=>e.id!=='askCard'&&e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})).map(e=>{const b=e.getBoundingClientRect();return [b.left,b.top,b.width,b.height]}))") { [weak self] r, _ in
+            MainActor.assumeIsolated {
+                guard let self, let H = self.window.contentView?.bounds.height, let d = (r as? String)?.data(using: .utf8),
+                      let a = try? JSONSerialization.jsonObject(with: d) as? [[Double]] else { return }
+                self.panelRects = a.filter { $0.count == 4 && $0[2] > 0 && $0[3] > 0 }.map { NSRect(x: $0[0], y: H - $0[1] - $0[3], width: $0[2], height: $0[3]) }
+            }
+        }
+    }
     private var loginWatch: NSKeyValueObservation?
     private var webWatch: Timer?
     /// 11-23 Keng「Orbit42 改檔自動重新載入，免重開」：每秒看球體頁（Web/sphere.html，SHOWORK_WEB_DIR 優先）的修改時間，
@@ -699,6 +712,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 guard let self, let web = self.sphereView as? WKWebView, !web.isHidden else { return }
                 if SphereEmbed.askFloat {          // 浮層活著：球體不畫答案卡，不用讓位（剛剛讓位的放回來）
                     for x in self.satWins.values where x.yieldingToAsk { x.yieldingToAsk = false; x.alphaValue = 1 }
+                    if !(self.askFloat?.view.isHidden ?? true) { self.readPanels(web) }
                     return
                 }
                 web.evaluateJavaScript(js) { [weak self] r, _ in
@@ -753,7 +767,8 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         login.web.wantsLayer = true; login.web.layer?.zPosition = 1               // 小視窗從 10 起跳，點到的再往上（raise）
         if let f = AskFloat() {                // 11-25 Keng：答案卡浮在最上層；建得起來、說過 ready 球體才不畫
             f.terminals = { [weak self] in self?.satWins.values.filter { !$0.isHidden && $0.wantShown }.map(\.frame) ?? [] }
-            f.focusInput = { [weak self] in self?.typingSat.flatMap { self?.satWins[$0]?.frame }.map { NSRect(x: $0.minX, y: $0.minY, width: $0.width, height: min(AskFloatLayout.inputZone, $0.height)) } }
+            f.panels = { [weak self] in self?.panelRects ?? [] }
+            f.focusInput = { [weak self] in (self?.typingSat.flatMap { self?.satWins[$0]?.frame } ?? self?.frontSat?.frame).map { NSRect(x: $0.minX, y: $0.minY, width: $0.width, height: min(AskFloatLayout.inputZone, $0.height)) } }
             f.composing = { [weak self] in self.map { s in s.host.composing.contains { s.satWins[$0]?.isHidden == false } } ?? false }
             root.addSubview(f.view); root.float = f.view; askFloat = f
             f.suppressed = !login.web.isHidden
@@ -783,6 +798,8 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         }
         SphereEmbed.command = { [weak self] cmd in
             if cmd == "fullscreen" { self?.window.toggleFullScreen(nil) }
+            if cmd == "quit" { self?.confirmQuit() }
+            if cmd == "closeSat", let self, let w = self.frontSat, let id = self.id(of: w) { self.host.onHide(id) }
             if cmd.hasPrefix("moon:") { self?.moonCommand(cmd) }
             if cmd == "hideSats" { self?.hideAllSats() }      // 11-24 點球體空白處：衛星終端機全部收下去、露出智能體
             if cmd.hasPrefix("theme:") { self?.applyTheme(String(cmd.dropFirst(6))) }
@@ -1511,6 +1528,17 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         }
     }
 
+    /// ⌘Q／選單結束：背景 session 的衛星重開會接回來，直接結束；其他的會被關掉，先問
+    private func confirmQuit() {
+        let n = host.runningForeground
+        guard n > 0 else { return NSApp.terminate(nil) }
+        let a = NSAlert()
+        a.messageText = "結束Orbit42？"
+        a.informativeText = "有 \(n) 顆衛星不在背景執行，結束後會關掉。其他衛星下次打開會接回來。"
+        a.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        a.addButton(withTitle: "結束")
+        a.beginSheetModal(for: window) { if $0 == .alertSecondButtonReturn { NSApp.terminate(nil) } }
+    }
     /// 11-23 Keng「增加新視窗的時候要自動幫我全部排下去」：開／關／收起衛星後，自動排版開著就重排（範圍跟開關都問球體）
     func autoArrange() {
         (sphereView as? WKWebView)?.evaluateJavaScript("window.karaSatArea ? JSON.stringify(window.karaSatArea()) : 'null'") { [weak self] r, _ in

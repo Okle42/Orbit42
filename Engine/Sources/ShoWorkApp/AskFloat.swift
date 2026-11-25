@@ -31,11 +31,16 @@ public enum AskFloatLayout {
         if r.height + 2 * m <= root.height { r.origin.y = min(max(m, r.minY), root.height - r.height - m) }
         return r
     }
-    /// 自動展開：不蓋到正在用的終端機輸入框；原位不行就挑四個角，都蓋到就原位
-    public static func expand(_ size: NSSize, root: NSSize, corner: NSPoint?, input: NSRect?) -> NSPoint? {
+    /// 不蓋到正在用的終端機輸入框；原位不行就在四個角裡挑不蓋輸入框、蓋到資訊卡最少的；都蓋到就原位
+    public static func expand(_ size: NSSize, root: NSSize, corner: NSPoint?, input: NSRect?, avoid: [NSRect] = []) -> NSPoint? {
         guard let z = input, card(size, root: root, corner: corner).intersects(z) else { return corner }
         let m = margin, l = root.width - size.width - m, t = root.height - size.height - 44
-        return [NSPoint(x: m, y: m), NSPoint(x: m, y: t), NSPoint(x: l, y: t), NSPoint(x: l, y: m)].first { !card(size, root: root, corner: $0).intersects(z) } ?? corner
+        func covered(_ p: NSPoint) -> CGFloat {
+            let c = card(size, root: root, corner: p)
+            return avoid.reduce(0) { let i = $1.intersection(c); return $0 + (i.isNull ? 0 : i.width * i.height) }
+        }
+        return [NSPoint(x: m, y: m), NSPoint(x: m, y: t), NSPoint(x: l, y: t), NSPoint(x: l, y: m)]
+            .filter { !card(size, root: root, corner: $0).intersects(z) }.min { covered($0) < covered($1) } ?? corner
     }
     /// 縮成一條：原位沒擋到任何輸入框就放原位，不然四個角挑一個不擋的；都擋就放右上
     public static func strip(_ size: NSSize, root: NSSize, corner: NSPoint?, terminals: [NSRect]) -> NSRect {
@@ -98,6 +103,9 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     /// 正在用的終端機的輸入框（主視窗座標）、是不是在組字：自動展開要等、要閃開
     public var focusInput: () -> NSRect? = { nil }
     public var composing: () -> Bool = { false }
+    /// 球體的資訊卡（主視窗座標）：要挪位置時盡量不蓋
+    public var panels: () -> [NSRect] = { [] }
+    private var kept: NSRect?                // 拖到某顆輸入框上放開＝那是他要的，同一顆就不再挪
     /// 暫時藏起來（登入畫面開著）
     public var suppressed = false { didSet { layout() } }
     private(set) var mode = "hidden", size = NSSize.zero
@@ -106,7 +114,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     private let store: UserDefaults
     private static let key = "orbit.askCorner", stripKey = "orbit.askStrip"
     private func point(_ k: String) -> NSPoint? { (store.array(forKey: k) as? [Double]).flatMap { $0.count == 2 ? NSPoint(x: $0[0], y: $0[1]) : nil } }
-    private var spot: NSPoint??              // 自動展開時為了不擋輸入框挪的位置；縮起、拖動就放掉，不存
+    private var spot: NSPoint??              // 為了不擋輸入框挪的位置；縮起、拖動就放掉，不存
     // 打字中不展開：別處（終端機）最後一次按鍵
     var lastKey = -100.0, wantTimer: Timer?, keyWatch: Any?
     static let quiet = 2.0
@@ -151,7 +159,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
             return e
         }
         // 衛星會被拖動、開關：縮成一條時每秒看一次有沒有擋到（沒動就不做事）
-        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { if self?.mode == "strip" { self?.layout() }; self?.heartbeat() } }
+        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { if self?.mode == "strip" { self?.layout() } else { self?.dodge() }; self?.heartbeat() } }
     }
 
     public func setTheme(_ name: String) { call("window.askTheme", [name]) }
@@ -218,8 +226,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         case "askSize": mode = b["mode"] as? String ?? "hidden"; size = NSSize(width: num("w"), height: num("h")); layout()
         case "askOpen":
             open = b["open"] as? Bool ?? true
-            if open { if auto { spot = .some(nil) } else { spot = nil } } else { spot = nil; auto = false }      // .some(nil)＝等拿到大小再挑位置
-            auto = false
+            spot = open ? .some(nil) : nil; kept = nil; auto = false      // .some(nil)＝等拿到大小再挑位置
         case "askSeen": seen = b["keys"] as? [String] ?? seen
         case "askWant": tryExpand()
         case "askDrag": drag(b["phase"] as? String ?? "", NSPoint(x: num("dx"), y: num("dy")))
@@ -241,7 +248,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         case "move": if let f = dragFrom { webView.frame = AskFloatLayout.clamp(f.offsetBy(dx: d.x, dy: -d.y), in: root) }
         case "end":
             guard dragFrom != nil else { return }
-            dragFrom = nil
+            dragFrom = nil; kept = focusInput()
             let p = NSPoint(x: root.width - webView.frame.maxX, y: webView.frame.minY); spot = nil
             if mode == "strip" { store.set([Double(p.x), Double(p.y)], forKey: Self.stripKey) } else { corner = p }      // 拖條不改卡片的位置
             layout()
@@ -269,10 +276,17 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     // 測試（只給離屏測試用）：假題目、跑一段網頁程式；真的資料不再進來
     public func testUpdate(_ f: URL) { SphereEmbed.askPayload = nil; if let d = try? Data(contentsOf: f) { update(d) } }
     public func testJS(_ s: String) { js(s) }
+    /// 卡片開著時換到別顆終端機打字、被卡片蓋住 ⇒ 重挑位置。正在拖、滑鼠在卡片上、正在卡片裡打字、他自己拖來的都不動
+    func dodge(mouse: NSPoint? = nil) {
+        guard mode == "card", !webView.isHidden, dragFrom == nil, let w = webView.window, w.firstResponder !== webView,
+              let z = focusInput(), z != kept, webView.frame.intersects(z),
+              !webView.frame.contains(webView.superview?.convert(mouse ?? w.mouseLocationOutsideOfEventStream, from: nil) ?? .zero) else { return }
+        spot = .some(nil); layout()
+    }
     private func cardCorner(_ root: NSSize) -> NSPoint? {
         guard mode == "card", let s = spot else { return corner }
         if let p = s { return p }
-        guard let p = AskFloatLayout.expand(size, root: root, corner: corner, input: focusInput()), p != corner else { spot = nil; return corner }
+        guard let p = AskFloatLayout.expand(size, root: root, corner: corner, input: focusInput() == kept ? nil : focusInput(), avoid: panels()), p != corner else { spot = nil; return corner }
         spot = .some(p); return p
     }
     private func js(_ s: String) { webView.evaluateJavaScript(s, completionHandler: nil) }
