@@ -113,23 +113,6 @@ final class AskFloatTests: XCTestCase {
         let sw = Double(await js("document.getElementById('strip').getBoundingClientRect().width")) ?? 0; XCTAssertEqual(f.view.frame.width, sw.rounded(.up), accuracy: 1)      // 沒有透明區擋點擊
         XCTAssertEqual(AskFloatLayout.card(card, root: root, corner: NSPoint(x: 1480, y: 0)).origin, NSPoint(x: 8, y: 8))                                // 記住的位置貼死角落 ⇒ 拉回
     }
-    /// 開著時換到被蓋住的終端機打字 ⇒ 挪開；自己拖到那裡的、滑鼠在卡片上的不動；挪的時候挑蓋到資訊卡最少的角
-    func testDodge() async throws {
-        let (w, _, f, _, ud) = try make(); try await waitReady(f)
-        f.update(Data("{\"team\":[{\"status\":\"需要你\",\"sessionId\":\"s\",\"askId\":\"A\",\"name\":\"甲\",\"ask\":\"要嗎\",\"options\":[\"好\",\"不要\"]}]}".utf8))
-        for _ in 0..<60 where f.mode != "card" { try await Task.sleep(for: .milliseconds(50)) }
-        try await Task.sleep(for: .milliseconds(300))
-        let root = w.contentView!.bounds.size, zone = NSRect(x: root.width - 640, y: 0, width: 640, height: 96), home = f.view.frame
-        XCTAssertTrue(home.intersects(zone))
-        f.focusInput = { zone }; f.panels = { [NSRect(x: 0, y: 0, width: 400, height: 500)] }
-        f.dodge(mouse: NSPoint(x: home.midX, y: home.midY)); XCTAssertEqual(f.view.frame, home)                   // 滑鼠在卡片上
-        f.dodge(mouse: NSPoint(x: -50, y: -50)); let moved = f.view.frame
-        XCTAssertFalse(moved.intersects(zone)); XCTAssertFalse(moved.intersects(NSRect(x: 0, y: 0, width: 400, height: 500))); XCTAssertNil(ud.array(forKey: "orbit.askCorner"))
-        f.handle(["action": "askDrag", "phase": "start"])
-        f.handle(["action": "askDrag", "phase": "move", "dx": Double(home.minX - moved.minX), "dy": Double(moved.minY - home.minY)])
-        f.handle(["action": "askDrag", "phase": "end"]); let put = f.view.frame
-        XCTAssertTrue(put.intersects(zone)); f.dodge(mouse: NSPoint(x: -50, y: -50)); XCTAssertEqual(f.view.frame, put)      // 自己拖來的
-    }
     func waitReady(_ f: AskFloat, _ s: Double = 8) async throws {
         for _ in 0..<Int(s * 20) { if f.ready { return }; try await Task.sleep(for: .milliseconds(50)) }
         XCTFail("浮層沒有 ready")

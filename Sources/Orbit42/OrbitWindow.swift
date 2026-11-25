@@ -13,18 +13,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     var sphereView: NSView?
     private(set) var askFloat: AskFloat?
     private var askTimer: Timer?
-    private var panelRects: [NSRect] = [], panelTurn = 0      // 球體資訊卡的位置：答案卡要挪開時盡量不蓋
-    private func readPanels(_ web: WKWebView) {
-        panelTurn += 1
-        guard panelTurn % 4 == 1 else { return }              // 0.3 秒的計時器，約每 1.2 秒讀一次
-        web.evaluateJavaScript("JSON.stringify([...document.querySelectorAll('.card')].filter(e=>e.id!=='askCard'&&e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})).map(e=>{const b=e.getBoundingClientRect();return [b.left,b.top,b.width,b.height]}))") { [weak self] r, _ in
-            MainActor.assumeIsolated {
-                guard let self, let H = self.window.contentView?.bounds.height, let d = (r as? String)?.data(using: .utf8),
-                      let a = try? JSONSerialization.jsonObject(with: d) as? [[Double]] else { return }
-                self.panelRects = a.filter { $0.count == 4 && $0[2] > 0 && $0[3] > 0 }.map { NSRect(x: $0[0], y: H - $0[1] - $0[3], width: $0[2], height: $0[3]) }
-            }
-        }
-    }
     private var loginWatch: NSKeyValueObservation?
     private var webWatch: Timer?
     /// 11-23 Keng「Orbit42 改檔自動重新載入，免重開」：每秒看球體頁（Web/sphere.html，SHOWORK_WEB_DIR 優先）的修改時間，
@@ -63,7 +51,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 guard let self, let web = self.sphereView as? WKWebView, !web.isHidden else { return }
                 if SphereEmbed.askFloat {          // 浮層活著：球體不畫答案卡，不用讓位（剛剛讓位的放回來）
                     for x in self.satWins.values where x.yieldingToAsk { x.yieldingToAsk = false; x.alphaValue = 1 }
-                    if !(self.askFloat?.view.isHidden ?? true) { self.readPanels(web) }
                     return
                 }
                 web.evaluateJavaScript(js) { [weak self] r, _ in
@@ -118,8 +105,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         login.web.wantsLayer = true; login.web.layer?.zPosition = 1               // 小視窗從 10 起跳，點到的再往上（raise）
         if let f = AskFloat() {                // 11-25 Keng：答案卡浮在最上層；建得起來、說過 ready 球體才不畫
             f.terminals = { [weak self] in self?.satWins.values.filter { !$0.isHidden && $0.wantShown }.map(\.frame) ?? [] }
-            f.panels = { [weak self] in self?.panelRects ?? [] }
-            f.focusInput = { [weak self] in (self?.typingSat.flatMap { self?.satWins[$0]?.frame } ?? self?.frontSat?.frame).map { NSRect(x: $0.minX, y: $0.minY, width: $0.width, height: min(AskFloatLayout.inputZone, $0.height)) } }
+            f.focusInput = { [weak self] in self?.typingSat.flatMap { self?.satWins[$0]?.frame }.map { NSRect(x: $0.minX, y: $0.minY, width: $0.width, height: min(AskFloatLayout.inputZone, $0.height)) } }
             f.composing = { [weak self] in self.map { s in s.host.composing.contains { s.satWins[$0]?.isHidden == false } } ?? false }
             root.addSubview(f.view); root.float = f.view; askFloat = f
             f.suppressed = !login.web.isHidden
