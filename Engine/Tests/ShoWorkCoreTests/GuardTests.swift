@@ -169,3 +169,26 @@ struct MoodTests {
         #expect(Mood.of(fresh) == .asleep)
     }
 }
+
+// 熱就停動畫（Heat.swift）：11-25 跟著 TowerTests 誤刪，原樣放回
+@Suite("Heat")
+struct HeatTests {
+    @Test("cool42 warm 以上或系統 serious 以上算熱") func hot() {
+        #expect(!HeatPolicy.hot(level: .ok, thermal: 1))
+        #expect(HeatPolicy.hot(level: .warm, thermal: 0))
+        #expect(HeatPolicy.hot(level: nil, thermal: 2))
+        #expect(!HeatPolicy.hot(level: nil, thermal: 0))
+    }
+    @Test("退燒要穩定 60 秒才恢復") func debounce() {
+        let t0 = Date(timeIntervalSince1970: 1000)
+        #expect(HeatPolicy.paused(hotNow: true, wasPaused: false, coolSince: nil, now: t0))
+        #expect(HeatPolicy.paused(hotNow: false, wasPaused: true, coolSince: t0, now: t0.addingTimeInterval(30)))
+        #expect(!HeatPolicy.paused(hotNow: false, wasPaused: true, coolSince: t0, now: t0.addingTimeInterval(61)))
+        #expect(!HeatPolicy.paused(hotNow: false, wasPaused: false, coolSince: nil, now: t0))
+    }
+    @Test("解析 cool42 state.json") func parse() {
+        #expect(HeatPolicy.parseLevel(#"{"level":"hot","cpuAvg":70}"#.data(using: .utf8)) == .hot)
+        #expect(HeatPolicy.parseLevel(Data("x".utf8)) == nil)
+        #expect(HeatPolicy.parseLevel(nil) == nil)
+    }
+}

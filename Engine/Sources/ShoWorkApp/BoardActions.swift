@@ -71,7 +71,7 @@ enum Tools {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)
         p.arguments = args
-        if let qos { p.qualityOfService = qos }                         // 地下室圖譜用 .utility（10-22）
+        if let qos { p.qualityOfService = qos }                         // 背景工作用 .utility
         if let cwd { p.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         var e = ProcessInfo.processInfo.environment
         e["PATH"] = "\(BoardPaths.home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -80,9 +80,15 @@ enum Tools {
         let o = Pipe(), er = Pipe(), i = Pipe()
         p.standardOutput = o; p.standardError = er; p.standardInput = stdin == nil ? FileHandle.nullDevice : i
         do { try p.run() } catch { return (-1, "", "\(error)") }
-        if let stdin { i.fileHandleForWriting.write(Data(stdin.utf8)); try? i.fileHandleForWriting.close() }
-        let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }
+        let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }      // 先排好再寫：對方不讀，寫入也不會卡到逾時之外
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
+        var short = false                       // 對方沒讀完就結束：不可以 SIGPIPE／例外讓整個 App 結束，也不可以把它的輸出當成讀過全文的結論
+        if let stdin {
+            let w = i.fileHandleForWriting
+            _ = fcntl(w.fileDescriptor, F_SETNOSIGPIPE, 1)
+            do { try w.write(contentsOf: Data(stdin.utf8)) } catch { short = true }
+            try? w.close()
+        }
         // stderr 另開執行緒同時讀（10-22：graphify 的 WARNING 灌滿 stderr 管道 64KB ⇒ 子行程卡住、這邊卡在讀 stdout ⇒ 互等到逾時）
         final class Buf: @unchecked Sendable { var d = Data() }      // 只有背景那條寫、等 semaphore 之後才讀
         let eb = Buf(), errDone = DispatchSemaphore(value: 0)
@@ -92,6 +98,7 @@ enum Tools {
         errDone.wait()
         let ed = eb.d
         p.waitUntilExit(); killer.cancel()
+        if short { return (p.terminationStatus == 0 ? -2 : p.terminationStatus, "", "輸入沒送完對方就結束：" + String(decoding: ed, as: UTF8.self)) }
         return (p.terminationStatus, String(decoding: od, as: UTF8.self), String(decoding: ed, as: UTF8.self))
     }
 }
