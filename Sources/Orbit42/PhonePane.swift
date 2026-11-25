@@ -77,8 +77,15 @@ enum PhoneMesh {
 }
 
 extension OrbitWindow {
+    /// 手機操作網頁（/api/input，id＝"pw-<衛星>"，內容是 JSON 動作陣列）。還沒開網頁時，只有「去某網址」會開一頁（不搶 Mac 的視窗）
+    func phoneWeb(_ id: String, _ data: Data) -> Bool {
+        guard host.has(id), let ops = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return false }
+        if let v = moonViews(id)["web"] as? WebPane { v.web.phoneInput(ops); return true }
+        guard let u = ops.first(where: { $0["k"] as? String == "nav" })?["u"] as? String, let url = WebPane.parse(u), !url.isFileURL else { return false }
+        openWebQuiet(url, sat: id); return true
+    }
     /// 手機問面板：回 nil＝沒有
-    func phonePane(_ spec: String, from: Int) -> [String: Any]? {
+    func phonePane(_ spec: String, from: Int, size: (cols: Int, rows: Int)? = nil) -> [String: Any]? {
         let p = spec.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard p.count == 3, p[0] == "pane" else { return nil }
         let m = moonViews(p[1])
@@ -90,6 +97,14 @@ extension OrbitWindow {
             }
             if let v = m["web"] as? WebPane { out.append(["kind": "web", "title": v.titleText, "url": v.currentURL]) }
             return ["panes": out]
+        }
+        // 網頁：這頁 Chrome 的畫面（大小借 cols／rows 帶手機的點數）
+        if p[2] == "web" {
+            guard host.has(p[1]) else { return nil }
+            guard let v = m["web"] as? WebPane else { return ["open": false] }
+            var o = size.map { v.web.phoneFrame(have: from, width: $0.cols, height: $0.rows) } ?? [:]
+            o["open"] = true; o["url"] = v.currentURL; o["title"] = v.titleText; o["msg"] = v.messageText
+            return o
         }
         guard p[2] == "3d", let v = m["3d"] as? ModelView, let d = v.phoneData, from >= 0, from <= d.count else { return nil }
         return ["total": d.count, "from": from, "ver": v.phoneVer, "data": d.subdata(in: from..<min(d.count, from + 384 * 1024)).base64EncodedString()]

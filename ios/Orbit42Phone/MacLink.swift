@@ -148,6 +148,22 @@ struct OrbitAPI: Sendable {
         let o = try JSONSerialization.jsonObject(with: d) as? [String: Any] ?? [:]
         return (o["ver"] as? Int ?? -1, Data(base64Encoded: o["data"] as? String ?? "") ?? Data())
     }
+    /// 11-24 這顆衛星在 Mac 上那頁 Chrome 的畫面（have＝手上那張的編號）；cols／rows 借來帶手機的大小（點）
+    func webFrame(_ spec: String, have: Int, size: CGSize) async throws -> [String: Any] {
+        let d = try await request("api/sat", query: [URLQueryItem(name: "id", value: spec), URLQueryItem(name: "from", value: String(have)),
+                                                     URLQueryItem(name: "cols", value: String(Int(size.width))), URLQueryItem(name: "rows", value: String(Int(size.height)))])
+        return try JSONSerialization.jsonObject(with: d) as? [String: Any] ?? [:]
+    }
+    /// 11-24 Mac 上開著的視窗
+    func macWindows() async throws -> (wins: [MacWin], msg: String) {
+        let o = try JSONSerialization.jsonObject(with: try await request("api/sat", query: [URLQueryItem(name: "id", value: "mac|list")])) as? [String: Any] ?? [:]
+        return ((o["wins"] as? [[String: Any]] ?? []).compactMap { w in (w["id"] as? Int).map { MacWin(id: $0, app: w["app"] as? String ?? "", title: w["title"] as? String ?? "", on: w["on"] as? Bool ?? true) } },
+                o["wins"] == nil ? "Mac 的 Orbit42 還不支援，要更新" : (o["msg"] as? String ?? "").isEmpty && o["control"] as? Bool == false ? "看得到，但 Mac 還沒給 Orbit42「輔助使用」權限，不能操作" : o["msg"] as? String ?? "")
+    }
+    func webInput(_ target: String, _ ops: [[String: Any]]) async throws {
+        let d = try JSONSerialization.data(withJSONObject: ops)
+        _ = try await request("api/input", body: ["id": target, "data": d.base64EncodedString()])
+    }
     /// 11-24 衛星終端機輸入（鍵盤、滑鼠點擊／滾輪的跳脫序列）→ Mac 寫進那顆衛星的終端機
     func input(_ id: String, _ data: Data) async throws {
         _ = try await request("api/input", body: ["id": id, "data": data.base64EncodedString()])
@@ -164,6 +180,9 @@ struct OrbitAPI: Sendable {
         return (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["message"] as? String ?? "已送出"
     }
 }
+
+/// Mac 上的一個視窗
+struct MacWin: Identifiable, Equatable, Sendable { let id: Int; let app, title: String; let on: Bool }
 
 /// 一顆衛星（Mac Satellites.swift 的 json）
 struct Sat: Identifiable, Hashable, Sendable {
