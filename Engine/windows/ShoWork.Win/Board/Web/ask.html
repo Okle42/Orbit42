@@ -21,10 +21,10 @@
   #card { display: none; width: var(--w, 560px); max-height: calc(var(--maxh, 100000px) - var(--slot) - 2px); overflow-y: auto; padding: 10px 14px 6px; }
   /* 縮起＝32 方位羅盤（11-25 Keng）：深色綠、淺色紅，中間空心圓放題數。只轉 transform（各自一層，不重畫）；點得到的範圍是固定的圓 */
   :root { --pk: #4fc36a; } :root[data-theme="light"] { --pk: #d7261b; }
-  #strip { display: none; position: relative; width: 120px; height: 120px; cursor: pointer; color: var(--pk); }
-  #strip > div { position: absolute; inset: 0; will-change: transform; } #strip svg { display: block; width: 120px; height: 120px; overflow: visible; }
-  #strip .dir { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px; will-change: transform; color: var(--panel); font: 700 11px/14px -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; text-align: center; }
-  #strip > .n { position: absolute; inset: 41px; border-radius: 50%; background: var(--panel); color: var(--pk); font: 700 18px/38px -apple-system, sans-serif; text-align: center; will-change: transform; }
+  #strip { display: none; position: relative; width: 152px; height: 152px; cursor: pointer; color: var(--pk); }
+  #strip > div { position: absolute; inset: 0; will-change: transform; } #strip svg { display: block; width: 152px; height: 152px; }
+  #strip .dir { position: absolute; width: 16px; height: 16px; margin: -8px; will-change: transform; color: var(--panel); font: 700 13px/16px "Avenir Next", "Helvetica Neue", sans-serif; text-align: center; }
+  #strip > .n { position: absolute; inset: 49px; border-radius: 50%; background: var(--panel); color: var(--pk); font: 600 20px/54px "Avenir Next", "Helvetica Neue", sans-serif; text-align: center; will-change: transform; }
   /* 卡片最下面一格，高度固定、不在捲動區裡：平常放說明字和連結，有提示（狀態、復原）就換成提示，一次一條。
      不佔版、不疊在任何東西上面 ⇒ 出現、收掉、多題、窄框、捲動都不會蓋到或推動選項、權限鈕、送出（Gavin5 T1125050619） */
   :root { --slot: 58px; }
@@ -135,18 +135,26 @@ function render() {
   drawOver(); size(); motion();
 }
 function endGhost() { if (!ghost) return; if (typing()) { ghost.held = true; patch(visible()); return; } ghost = null; cur = null; lock(); render(); }
-/* 羅盤：外圈刻度一層、尖刺一層（東南西北的字在刺上、自己轉回正）、題數不動 */
-const ROSE = { size: 120, r: 59 };
+/* 羅盤：外圈刻度一層、尖刺一層（N E S W 在刺上、自己轉回正）、題數不動 */
+const ROSE = { size: 152, c: 76, r: 75 };
 function roseHTML() {
-  const pt = (a, r) => `${(60 + r * Math.sin(a)).toFixed(2)} ${(60 - r * Math.cos(a)).toFixed(2)}`, T = Math.PI * 2, ticks = [], thin = [], long = [];
-  for (let i = 0; i < 128; i++) ticks.push(`M${pt(i / 128 * T, i % 4 ? 51.5 : 49.5)}L${pt(i / 128 * T, 55)}`);
+  const C = ROSE.c, pt = (a, r) => `${(C + r * Math.sin(a)).toFixed(2)} ${(C - r * Math.cos(a)).toFixed(2)}`, T = Math.PI * 2;
+  let hair = "", mark = "", lit = "", dark = "", mainLit = "", mainDark = "", rim = "";
+  for (let i = 0; i < 96; i++) { const a = i / 96 * T; if (i % 3) hair += `M${pt(a, 51.5)}L${pt(a, 64)}`; else mark += `M${pt(a, 51.5)}L${pt(a, 66.5)}`; }      // 參考圖那一圈細放射線
+  // 一支刺：底窄、腰寬、尖長，左右兩面一明一暗
+  const blade = (a, r0, w0, r1, w1, r2) => [`M${pt(a, r0)}L${pt(a - w0 / r0, r0)}L${pt(a - w1 / r1, r1)}L${pt(a, r2)}Z`, `M${pt(a, r0)}L${pt(a + w0 / r0, r0)}L${pt(a + w1 / r1, r1)}L${pt(a, r2)}Z`];
   for (let i = 0; i < 32; i++) {
-    const a = i / 32 * T, main = i % 8 === 0, half = i % 4 === 0, tip = main ? 59 : half ? 48 : i % 2 ? 41 : 45, mid = main ? 38 : 33, w = main ? 0.2 : 0.066, b = main ? 0.15 : 0.05;
-    (main ? long : thin).push(`M${pt(a - b, 22)}L${pt(a - w, mid)}L${pt(a, tip)}L${pt(a + w, mid)}L${pt(a + b, 22)}Z`);
+    const a = i / 32 * T;
+    if (i % 8 === 0) { const [l, r] = blade(a, 28, 4.6, 46, 8.6, 75); mainLit += l; mainDark += r; rim += l + r; continue; }
+    const tip = i % 4 === 0 ? 57 : i % 2 === 0 ? 52 : 48, [l, r] = blade(a, 28, 1.9, 39, 2.75, tip); lit += l; dark += r;
   }
-  const dirs = [["北", 0], ["東", 90], ["南", 180], ["西", 270]].map(([t, d]) => `<span class="dir" style="left:${60 + 35 * Math.sin(d * Math.PI / 180)}px;top:${60 - 35 * Math.cos(d * Math.PI / 180)}px">${t}</span>`).join("");
-  return `<div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="55" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="${ticks.join("")}" stroke="currentColor" stroke-width=".7" fill="none"/></svg></div>
-    <div class="spikes"><svg viewBox="0 0 120 120"><path d="${thin.join("")}" fill="currentColor"/><path d="${long.join("")}" fill="currentColor" stroke="var(--panel)" stroke-width="1"/></svg>${dirs}</div><span class="n"></span>`;
+  const pos = (d, r) => `left:${(C + r * Math.sin(d * Math.PI / 180)).toFixed(2)}px;top:${(C - r * Math.cos(d * Math.PI / 180)).toFixed(2)}px`;
+  const dirs = ["N", "E", "S", "W"].map((t, k) => `<span class="dir" style="${pos(k * 90, 46)}">${t}</span>`).join("");
+  return `<div class="ring"><svg viewBox="0 0 152 152" fill="none" stroke="currentColor"><circle cx="76" cy="76" r="68.5" stroke-width="1.1"/><circle cx="76" cy="76" r="66.5" stroke-width=".5" opacity=".7"/><circle cx="76" cy="76" r="51.5" stroke-width=".6" opacity=".75"/><path d="${hair}" stroke-width=".8" opacity=".6"/><path d="${mark}" stroke-width=".8" opacity=".9"/></svg></div>
+    <div class="spikes"><svg viewBox="0 0 152 152"><defs><radialGradient id="rg" gradientUnits="userSpaceOnUse" cx="76" cy="76" r="60"><stop offset=".45" stop-color="currentColor" stop-opacity=".78"/><stop offset=".75" stop-color="currentColor"/></radialGradient></defs>
+      <path d="${lit}${dark}" fill="var(--panel)" stroke="var(--panel)" stroke-width="1.2"/><path d="${lit}" fill="url(#rg)"/><path d="${dark}" fill="url(#rg)" opacity=".62"/>
+      <path d="${rim}" fill="var(--panel)" stroke="var(--panel)" stroke-width="2.4" stroke-linejoin="round"/><path d="${mainLit}${mainDark}" fill="currentColor"/><path d="${mainDark}" fill="var(--panel)" opacity=".26"/>
+      <circle cx="76" cy="76" r="28" fill="none" stroke="currentColor" stroke-width="1"/></svg>${dirs}</div><span class="n"></span>`;
 }
 /* 動感：只在縮起時動。slow＝外圈順時針、刺反方向慢轉；fling＝新題甩一圈衝過頭再回正；aim＝北指向游標；press＝按下加速轉（不延後展開） */
 const still = matchMedia("(prefers-reduced-motion: reduce)");
@@ -166,7 +174,7 @@ function motion() { if (!mini() || still.matches) { if (spin !== "off") { spin =
 still.addEventListener?.("change", motion); document.addEventListener("visibilitychange", motion);
 function aim(e) {
   if (still.matches || !mini() || spin === "whirl" || now() - aimT < 60) return; aimT = now();
-  const b = $("strip").getBoundingClientRect(), t = Math.atan2(e.clientX - b.left - 60, 60 - (e.clientY - b.top)) * 180 / Math.PI;
+  const b = $("strip").getBoundingClientRect(), t = Math.atan2(e.clientX - b.left - ROSE.c, ROSE.c - (e.clientY - b.top)) * 180 / Math.PI;
   spin = "aim"; rotate(a => a + ((t - a) % 360 + 540) % 360 - 180, 260, "cubic-bezier(.2,.9,.3,1)");
 }
 function whirl() { if (still.matches || !mini()) return; spin = "whirl"; rotate(a => a + 200, 320, "cubic-bezier(.3,0,.2,1)", slow); }
@@ -175,7 +183,7 @@ function shapes() {
   const o = $("wrap").getBoundingClientRect(), box = e => { const r = e.getBoundingClientRect(), x = r.left - o.left, y = r.top - o.top; return [[x, y], [x + r.width, y], [x + r.width, y + r.height], [x, y + r.height]]; };
   const out = [...document.querySelectorAll("#over > div")].map(box);
   if (document.body.classList.contains("mini")) {
-    const b = $("strip").getBoundingClientRect(), c = [b.left - o.left + 60, b.top - o.top + 60];          // 固定的圓，不隨轉動變
+    const b = $("strip").getBoundingClientRect(), c = [b.left - o.left + ROSE.c, b.top - o.top + ROSE.c];          // 固定的圓，不隨轉動變
     out.push(Array.from({ length: 24 }, (_, i) => [c[0] + ROSE.r * Math.cos(i * Math.PI / 12), c[1] + ROSE.r * Math.sin(i * Math.PI / 12)]));
   }
   return out.map(p => p.map(q => q.map(v => Math.round(v * 10) / 10)));
@@ -184,7 +192,7 @@ function drawStrip(list) {
   const c = live.get(cur); if (!c) return;
   const s = $("strip"), t = `${list.length > 1 ? `共 ${list.length} 題` : "1 題等你"} · 需要你 · ${titleOf(c)}\n最新：${clip(live.get(list.at(-1))?.ask || "", 60)}`;
   if (!s.firstElementChild) s.innerHTML = roseHTML();
-  const nn = s.querySelector(".n"), nt = list.length > 99 ? "99+" : String(list.length); if (nn.textContent !== nt) { nn.textContent = nt; nn.style.fontSize = nt.length > 2 ? "13px" : ""; }
+  const nn = s.querySelector(".n"), nt = list.length > 99 ? "99+" : String(list.length); if (nn.textContent !== nt) { nn.textContent = nt; nn.style.fontSize = nt.length > 2 ? "15px" : ""; }
   if (s.title !== t) { s.title = t; s.setAttribute("aria-label", t + "，點一下展開"); }
 }
 /* 整張重畫只在換題時；同一題只補有變的地方，輸入框永遠不換（聽寫、注音不會斷） */
