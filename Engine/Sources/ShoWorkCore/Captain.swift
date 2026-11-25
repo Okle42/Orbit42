@@ -262,7 +262,9 @@ public enum Captain {
         guard var t = CaptainStore.task(id) else { return nil }
         t.state = .cancelled; t.updatedAt = now; CaptainStore.save(t)
         let note = "【秘書取消 \(id)】這張派工不用做了：\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(60))。已經做到一半的就停在安全的地方，回報目前狀態即可。"
-        switch Peer.find(t.toSession ?? t.to).map({ Peer.send(to: $0, text: note, fromName: "AI工作戰情中心") }) {
+        // /clear 換了 sessionId：單子還記著舊的 ⇒ 找接手的那個（跟標題同一份 prev）
+        let heir = t.toSession.flatMap { s in JobStore.heir(of: s, live: Peer.sessions().map(\.sessionId), jobs: JobStore.all()) }
+        switch (Peer.find(t.toSession ?? t.to) ?? heir.flatMap { Peer.find($0) }).map({ Peer.send(to: $0, text: note, fromName: "AI工作戰情中心") }) {
         case .success?: return (t, true)
         default: return (t, false)
         }

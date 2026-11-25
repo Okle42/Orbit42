@@ -127,10 +127,30 @@ struct WorkLabelTests {
     @Test func clearAndResume() {
         let p = ProcStamp(pid: 10, start: 1), q = ProcStamp(pid: 11, start: 1)
         var old = record(card("--kind", "start", "--doing", "修按鈕", at: 0)); old.proc = p
-        // /clear：同一個程序換 sessionId ⇒ 標題跟著走，舊單也認得
-        let (n, ch) = JobStore.plan(["old": old], sid: "new", source: "clear", proc: p, project: "NFC42")
+        // /clear：同一個程序換 sessionId ⇒ 舊單也認得；沒有交接就待命
+        let (n, ch) = JobStore.plan(["old": old], sid: "new", source: "clear", proc: p, project: "NFC42", now: t0 + 10)
         #expect(n.job?.title == "修按鈕" && n.prev == ["old"] && n.proc == p && ch["old"]?.proc == nil)
-        #expect(one("new", job: n, tasks: [task("T", to: "old", "【派給舊的】", at: 5)]).work == "派給舊的")
+        #expect(n.cleared == t0 + 10)
+        let before = task("T", to: "old", "【派給舊的】", at: 5)
+        #expect(one("new", job: n, tasks: [before]).work == "待命" && one("new", job: n, tasks: [before]).role == "修改")
+        #expect(one("new", job: n).work == "待命")                                                            // 只有開工卡也一樣
+        #expect(one("new", job: n, tasks: [task("T2", to: "new", "【新單】", at: 20)]).work == "新單")          // clear 後才派的
+        #expect(one("new", job: n, tasks: [task("T", to: "old", "【派給舊的】", at: 5, updated: 20)]).work == "派給舊的")   // clear 後又回報
+        #expect(one("new", job: n, tasks: [task("T", to: "old", "【派給舊的】", at: 5, state: .done, updated: 20)]).work == "待命")
+        // clear 後發同標題的開工卡 ⇒ 標題回來
+        var again = n; again.apply(card("--kind", "start", "--doing", "修按鈕", at: 30), project: nil)
+        #expect(one("new", job: again).work == "修按鈕")
+        // 有交接 ⇒ 沿用；秘書 /clear（不是交接）⇒ 不動 cleared
+        let kept = JobStore.carried(old, from: "old", onto: n, resume: true)
+        #expect(kept?.cleared == nil && kept?.prev == ["old"] && kept?.proc == p)
+        #expect(one("new", job: kept, tasks: [before]).work == "派給舊的" && one("new", job: kept).work == "修按鈕")
+        #expect(JobStore.carried(old, from: "old", onto: n, resume: false) == nil)
+        var bare = JobRecord(); bare.proc = p; bare.cleared = t0 + 10
+        #expect(JobStore.carried(old, from: "old", onto: bare, resume: false)?.cleared == t0 + 10)
+        // 舊 sid 認得接手的人；兩個都說是就不猜
+        #expect(JobStore.heir(of: "old", live: ["x", "new"], jobs: ["new": n]) == "new")
+        #expect(JobStore.heir(of: "old", live: ["x", "new"], jobs: ["new": n, "x": n]) == nil)
+        #expect(JobStore.heir(of: "old", live: ["x"], jobs: ["new": n]) == nil)
         // 別的程序、/resume、新開的都不接
         #expect(JobStore.plan(["old": old], sid: "new", source: "clear", proc: q, project: nil).0.job == nil)
         #expect(JobStore.plan(["old": old], sid: "new", source: "resume", proc: p, project: nil).0.job == nil)

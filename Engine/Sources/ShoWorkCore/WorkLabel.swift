@@ -119,6 +119,7 @@ public struct JobRecord: Codable, Sendable, Equatable {
     public var proc: ProcStamp? = nil        // 這段對話現在的程序（/clear 靠它認）
     public var prev: [String] = []           // /clear、交接之前的 sessionId（派出去的單可能還記著舊的）
     public var last: String? = nil           // 最後知道的主專案（待命時用）
+    public var cleared: Date? = nil          // 手動 /clear、沒有交接的時間：之前的工作不再當標題（11-25 Keng：clear 後要變待命）
     public init() {}
 
     /// 一張自報進來（CLI 當下寫；配舊 showork 時由 App 補）。只有開工卡會換標題
@@ -129,7 +130,7 @@ public struct JobRecord: Codable, Sendable, Equatable {
         guard r.task == nil else { return }                       // 派工單的自報：標題看單子
         if r.isStart || (legacy && job == nil) {
             guard let t = WorkTitle.clean(r.title) ?? WorkTitle.clean(r.doing) ?? r.summary.map(WorkTitle.guess) else { return }
-            if var j = job, j.title == t, j.doneAt == nil { if let x = WorkRole.valid(r.role) { j.role = x; job = j }; return }      // 同一件事又發一次開工卡
+            if var j = job, j.title == t, j.doneAt == nil, cleared.map({ j.at > $0 }) ?? true { if let x = WorkRole.valid(r.role) { j.role = x; job = j }; return }      // 同一件事又發一次開工卡
             let pr = (r.touch.flatMap { MainProject.live(mentioned: $0) }) ?? project
             job = Job(role: WorkRole.valid(r.role) ?? WorkRole.guess([r.doing, r.summary].compactMap { $0 }.first ?? ""), title: t, project: pr, at: r.at)
         }
@@ -138,7 +139,7 @@ public struct JobRecord: Codable, Sendable, Equatable {
         job = j
     }
     /// /clear 或交接：新的 sessionId 接手
-    public func moved(from old: String) -> JobRecord { var n = self; n.prev = Array((prev + [old]).suffix(8)); return n }
+    public func moved(from old: String) -> JobRecord { var n = self; n.prev = Array((prev.filter { $0 != old } + [old]).suffix(8)); return n }
 }
 
 public enum JobStore {
@@ -186,19 +187,33 @@ public enum JobStore {
         for (k, r) in changed { save(k, r) }
         save(sid, n)
     }
-    static func plan(_ all: [String: JobRecord], sid: String, source: String?, proc: ProcStamp, project: String?) -> (JobRecord, [String: JobRecord]) {
+    /// clear 一律先記 cleared；真的有交接時 Handover.claim 會接著用 carry(resume:) 拿掉
+    static func plan(_ all: [String: JobRecord], sid: String, source: String?, proc: ProcStamp, project: String?, now: Date = Date()) -> (JobRecord, [String: JobRecord]) {
         var n = all[sid] ?? JobRecord(), changed: [String: JobRecord] = [:]
         let mine = all.filter { $0.key != sid && $0.value.proc == proc }
         if source == "clear", all[sid]?.job == nil, let old = mine.max(by: { ($0.value.seen ?? .distantPast) < ($1.value.seen ?? .distantPast) }) { n = old.value.moved(from: old.key) }
+        if source == "clear", all[sid]?.job == nil, all[sid]?.prev.isEmpty ?? true { n.cleared = now }
         for (k, r) in mine { var r = r; r.proc = nil; changed[k] = r }
         n.proc = proc
         if n.last == nil { n.last = project }
         return (n, changed)
     }
     /// 交接到新 session、或終端機停放到背景：照抄一份
-    public static func carry(from old: String, to new: String) {
-        guard old != new, let r = get(old), get(new)?.job == nil else { return }
-        var n = r.moved(from: old); n.proc = get(new)?.proc; save(new, n)
+    /// resume＝真的有交接 ⇒ 工作標題沿用（拿掉 begin 剛記的 cleared）；其他（秘書 /clear、停放到背景）不動 cleared
+    public static func carry(from old: String, to new: String, resume: Bool = false) {
+        guard old != new, let r = get(old), let n = carried(r, from: old, onto: get(new), resume: resume) else { return }
+        save(new, n)
+    }
+    static func carried(_ r: JobRecord, from old: String, onto cur: JobRecord?, resume: Bool) -> JobRecord? {
+        guard cur?.job == nil || (resume && cur?.cleared != nil) else { return nil }
+        var n = r.moved(from: old); n.proc = cur?.proc
+        n.cleared = resume ? r.cleared : cur?.cleared ?? r.cleared
+        return n
+    }
+    /// 舊 sessionId 現在是誰（/clear 過幾次都認得）；剛好一個才算
+    public static func heir(of old: String, live: [String], jobs: [String: JobRecord]) -> String? {
+        let hits = live.filter { jobs[$0]?.prev.contains(old) ?? false }
+        return hits.count == 1 ? hits[0] : nil
     }
 }
 
@@ -244,19 +259,21 @@ public enum WorkLabels {
 
     /// 一個人現在掛哪張單：最新接的；它結束超過 10 分鐘（或被取消）就看前一張還沒結束的；都沒有＝待命
     public static func one(_ p: Person, captain: String?, job: JobRecord?, tasks: [CaptainTask], now: Date, look: Lookup) -> WorkLabel {
-        struct Cand { var role: String, title: String, project: String?, at: Date, ended: Date?, open: Bool }
+        struct Cand { var role: String, title: String, project: String?, at: Date, ended: Date?, open: Bool, back: Date? = nil, hidden = false }
         let ids = Set([p.sid] + (job?.prev ?? []))
         func taskProject(_ t: CaptainTask) -> String? { t.mainProject ?? look.mentioned(t.text) ?? look.named(t.project) }
         var cs = tasks.filter { t in t.state != .cancelled && (t.toSession.map(ids.contains) ?? (p.name != nil && t.to == p.name)) }.map { t in
             Cand(role: WorkRole.valid(t.role) ?? WorkRole.guess(t.text), title: WorkTitle.clean(t.title) ?? WorkTitle.guess(t.text), project: taskProject(t),
-                 at: t.createdAt, ended: t.state == .done ? t.updatedAt : nil, open: t.state.open)
+                 at: t.createdAt, ended: t.state == .done ? t.updatedAt : nil, open: t.state.open, back: t.state.open ? t.updatedAt : nil)
         }
         if let j = job?.job { cs.append(Cand(role: j.role ?? WorkRole.fix, title: j.title, project: j.project, at: j.at, ended: j.doneAt, open: j.doneAt == nil)) }
+        // 手動 /clear 之前的工作不當標題；clear 後又回報的派工單才算回來。職責和專案照舊
+        if let c = job?.cleared { for i in cs.indices where cs[i].at <= c && !(cs[i].back.map { $0 > c } ?? false) { cs[i].hidden = true } }
         cs.sort { $0.at > $1.at }
         let isCap = p.sid == captain
-        let newest = cs.first
+        let newest = cs.first, shown = cs.filter { !$0.hidden }
         func alive(_ c: Cand) -> Bool { c.ended.map { now.timeIntervalSince($0) < keepDone } ?? true }
-        let pick = newest.flatMap { alive($0) ? $0 : nil } ?? cs.dropFirst().first { $0.open }
+        let pick = shown.first.flatMap { alive($0) ? $0 : nil } ?? shown.dropFirst().first { $0.open }
         let base = pick ?? newest
         let role = isCap ? WorkRole.secretary : base?.role ?? WorkRole.valid(p.nickRole) ?? WorkRole.fix
         let project = base?.project ?? job?.last ?? look.path(p.cwd) ?? MainProject.none

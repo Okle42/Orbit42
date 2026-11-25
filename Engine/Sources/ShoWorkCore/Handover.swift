@@ -141,7 +141,7 @@ extension Handover {
             var n = Nickname(name: r.name, doing: NicknameStore.get(r.sid)?.doing, at: now)
             n.handoverFrom = r.sid
             NicknameStore.save(sid, n)
-            JobStore.carry(from: r.sid, to: sid)
+            JobStore.carry(from: r.sid, to: sid, resume: true)
             for var t in CaptainStore.tasks() where t.state.open && (t.toSession == r.sid || (t.toSession == nil && t.to == r.name)) {
                 t.toSession = sid; t.to = r.name
                 if CaptainStore.save(t) { moved.append(t.id) }
