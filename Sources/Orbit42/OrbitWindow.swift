@@ -155,7 +155,9 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             else { window.alphaValue = 0; window.setFrameOrigin(NSPoint(x: -30000, y: -30000)) }
             window.orderBack(nil)
         } else {
-            window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+            if let f = WindowPlace.load(.standard, screens: NSScreen.screens.map(\.frame), visible: NSScreen.screens.map(\.visibleFrame)) { window.setFrame(f, display: false) } else { window.center() }
+            placeReady = true
+            window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
             // 11-23 Keng：Orbit42 像系統一樣佔滿整個畫面（全螢幕桌面模式，預設開；切掉會記住）
             if UserDefaults.standard.object(forKey: "orbit.desktop") as? Bool ?? true {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.window.toggleFullScreen(nil) }
@@ -167,8 +169,28 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     func window(_ w: NSWindow, willUseFullScreenPresentationOptions o: NSApplication.PresentationOptions) -> NSApplication.PresentationOptions {
         [.fullScreen, .autoHideDock, .autoHideMenuBar, .autoHideToolbar]
     }
+    func windowWillEnterFullScreen(_ n: Notification) { placeReady = false; placeSave?.cancel() }
+    func windowDidFailToEnterFullScreen(_ w: NSWindow) { placeReady = true }
     func windowDidEnterFullScreen(_ n: Notification) { UserDefaults.standard.set(true, forKey: "orbit.desktop"); layoutTerm() }
-    func windowDidExitFullScreen(_ n: Notification) { UserDefaults.standard.set(false, forKey: "orbit.desktop"); layoutTerm() }
+    func windowDidExitFullScreen(_ n: Notification) { UserDefaults.standard.set(false, forKey: "orbit.desktop"); layoutTerm(); placeReady = true }
+
+    /// 視窗位置（WindowPlace）：停下來 1 秒才記；全螢幕（含轉場）不記；這 1 秒內螢幕組合變了＝系統搬的，不記。測試視窗永遠不記
+    private var placeReady = false
+    private var placeSave: DispatchWorkItem?
+    private func placeChanged() {
+        guard placeReady else { return }
+        placeSave?.cancel()
+        let before = WindowPlace.key(NSScreen.screens.map(\.frame))
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.placeReady, !self.window.isMiniaturized, !self.window.styleMask.contains(.fullScreen) else { return }
+            let screens = NSScreen.screens.map(\.frame)
+            guard WindowPlace.key(screens) == before else { return }
+            WindowPlace.save(self.window.frame, .standard, screens: screens)
+        }
+        placeSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+    }
+    func windowDidMove(_ n: Notification) { placeChanged() }
 
     /// 11-23 Keng：球體切深淺（◐）時，衛星終端機（xterm 色票＋裡面的 Claude Code）和小視窗標題列一起換
     var themeNow = "dark"
@@ -667,6 +689,6 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             } })
         }
     }
-    func windowDidResize(_ n: Notification) { layoutTerm() }
+    func windowDidResize(_ n: Notification) { layoutTerm(); placeChanged() }
     func windowWillClose(_ n: Notification) { host.shutdown(); NSApp.terminate(nil) }
 }
