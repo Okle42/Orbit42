@@ -252,7 +252,7 @@ final class TermWindowView: NSView {
         // ⇒ 網頁視圖（DropWebView）自己接檔案，轉給這裡；小視窗本身（標題列）也照樣接
         registerForDraggedTypes([.fileURL])
         if let w = content as? DropWebView {
-            w.onFiles = { [weak self] urls in self?.onDropPaths(urls.map { Self.shellEscape($0.path) }) }
+            w.onFiles = { [weak self] urls in self?.onDropPaths(urls.map { Self.shellEscape(DropCopy.readable($0).path) }) }
             w.onHover = { [weak self] on in
                 self?.dropHover(on)
             }
@@ -270,7 +270,7 @@ final class TermWindowView: NSView {
         dropHover(false)
         let urls = s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         guard !urls.isEmpty else { return false }
-        onDropPaths(urls.map { Self.shellEscape($0.path) })
+        onDropPaths(urls.map { Self.shellEscape(DropCopy.readable($0).path) })
         return true
     }
     static func shellEscape(_ p: String) -> String {
