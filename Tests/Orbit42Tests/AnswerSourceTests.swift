@@ -132,6 +132,6 @@ final class AnswerSourceTests: XCTestCase {
             let n = try String(contentsOf: u, encoding: .utf8).components(separatedBy: "source: .user").count - 1
             if n > 0 { hits.append("\(u.lastPathComponent) \(n)") }
         }
-        XCTAssertEqual(hits.sorted(), ["OfficeView.swift 2", "OfficeWebHost.swift 1", "SphereWebScene.swift 1"])
+        XCTAssertEqual(hits.sorted(), ["SphereWebScene.swift 1"])
     }
 }

@@ -163,7 +163,7 @@ final class WebServer {
     private func perform(_ a: WebAction, peer: String) -> Result<String, CardError> {
         let cards = BoardModel.shared.cards
         // 測試視窗／示範資料絕不真的送（跟原生收件匣同一條規矩）
-        if OfficeDemo.mode != nil || BoardWindow.testMode { return .success("測試：不執行 \(a.name)") }
+        if BoardWindow.testMode { return .success("測試：不執行 \(a.name)") }
         BoardModel.shared.append(["ev": "web-\(a.name)", "id": a.target, "peer": peer])
         defer { BoardModel.shared.refresh() }
         switch a {

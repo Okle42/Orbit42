@@ -38,7 +38,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         guard let dir, FileManager.default.fileExists(atPath: dir.appendingPathComponent("sphere.html").path) else { return nil }
         self.desk = desk; self.orbit = orbit
         let cfg = WKWebViewConfiguration()
-        cfg.setURLSchemeHandler(OfficeWebSchemeHandler(root: dir), forURLScheme: OfficeWebSchemeHandler.scheme)
+        cfg.setURLSchemeHandler(WebSchemeHandler(root: dir), forURLScheme: WebSchemeHandler.scheme)
         let wv = SphereWebView(frame: .zero, configuration: cfg)
         wv.desk = desk
         wv.orbit = orbit
@@ -62,7 +62,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         }
         web.navigationDelegate = self
         let q = [desk ? "desk=1" : nil, orbit ? "orbit=1" : nil].compactMap { $0 }.joined(separator: "&")
-        web.load(URLRequest(url: URL(string: "\(OfficeWebSchemeHandler.scheme)://web/sphere.html\(q.isEmpty ? "" : "?" + q)")!))
+        web.load(URLRequest(url: URL(string: "\(WebSchemeHandler.scheme)://web/sphere.html\(q.isEmpty ? "" : "?" + q)")!))
         model.start()
         model.objectWillChange.sink { [weak self] _ in self?.schedule() }.store(in: &subs)
         // 溫度、額度重置倒數不會觸發 objectWillChange：每 10 秒補一次（內容一樣就不推）
@@ -86,7 +86,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
         // 只收自己包裡的頁面、主框架（answer／permit 會變成使用者的輸入）
-        guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == OfficeWebSchemeHandler.scheme, let m = message.body as? [String: Any] else { return }
+        guard message.frameInfo.isMainFrame, message.frameInfo.securityOrigin.protocol == WebSchemeHandler.scheme, let m = message.body as? [String: Any] else { return }
         handle(m)
     }
     func handle(_ m: [String: Any]) {
@@ -368,7 +368,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     func pushAskFloat() { if orbit { web.evaluateJavaScript("window.karaAskFloat && window.karaAskFloat(\(SphereEmbed.askFloat))", completionHandler: nil) } }
     private func push() {
         guard loaded else { return }
-        let heat = CityParse.cool42(FileManager.default.contents(atPath: HeatGate.cool42Path), now: Date())
+        let heat = CoolParse.cool42(FileManager.default.contents(atPath: HeatGate.cool42Path), now: Date())
         var o = Self.payload(model.cards, model.rateLimits, runs: model.runs, heat: heat, order: model.order, ordered: model.orderManual)
         o["paused"] = HeatGate.shared.paused
         o["disks"] = SphereDisks.read()          // 11-22 Keng：球右半邊的硬碟空間刻度環
@@ -390,7 +390,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     }
 
     /// 網頁要的資料（純函式，方便測）
-    static func payload(_ cards: [BoardCard], _ limits: RateLimits?, runs: [RunProgress] = [], heat: CityPower? = nil, now: Date = Date(), order: [String] = [], ordered: Bool = false) -> [String: Any] {
+    static func payload(_ cards: [BoardCard], _ limits: RateLimits?, runs: [RunProgress] = [], heat: CoolState? = nil, now: Date = Date(), order: [String] = [], ordered: Bool = false) -> [String: Any] {
         let people = cards.filter { !$0.id.contains("#") }
         let l = limits?.current(now: now)
         var o: [String: Any] = ["sessions": people.count]

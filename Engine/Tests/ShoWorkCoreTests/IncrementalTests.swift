@@ -48,9 +48,4 @@ struct IncrementalTests {
         try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: dir.path)
         #expect(FileStat.lstat(link)?.isSymlink == true && FileStat.lstat(link)?.isDirectory == false)
     }
-
-    @Test("頂樓長椅前的站位不插進椅面（椅面 z 1.55 起，角色身體深 0.8）")
-    func roofBench() {
-        for i in 0..<3 { #expect(TowerLayout.roofSlot(i).z + 0.4 <= 1.55) }
-    }
 }
