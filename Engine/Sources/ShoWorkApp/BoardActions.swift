@@ -352,18 +352,12 @@ enum BoardActions {
         return delivered("已送進「\(c.title)」")
     }
 
-    /// 使用者答了組員卡片的問題 ⇒ 轉秘書一則「【使用者已答】」、清掉秘書卡片上同一題（秘書 Penny 10-25：別再重複問 Kang）。
-    /// 答的是秘書自己的卡片就不用轉
+    /// 使用者答了組員卡片的問題 ⇒ 清掉秘書卡片上同一題（秘書 Penny 10-25：別再重複問 Kang）。
+    /// 11-26 秘書省用量：不再 Peer 送「【使用者已答】」叫醒秘書（答案已直接送到那個 session）。答的是秘書自己的卡片就不用清
     private static func tellCaptain(_ c: BoardCard, answer: String, question q: String?) {
         guard testHook == nil, let cap = CaptainStore.captain()?.sessionId, cap != c.sessionId else { return }
         Answered.clearCaptainCard(sid: cap, question: q)
         AskQueue.resolve(sid: cap, question: q)
-        let name = NicknameStore.get(c.sessionId)?.name ?? c.title      // 給 AI 看的：英文名（收件地址）
-        let text = Answered.relay(name: name, question: q, answer: answer)
-        DispatchQueue.global().async {
-            guard let to = Peer.find(cap) else { return }
-            _ = Peer.send(to: to, text: text, fromName: "AI工作戰情中心（使用者已答）")
-        }
     }
 
     /// 權限對話框：在收件匣按了允許／一律允許／拒絕 ⇒ 寫回答檔，等著的 hook（showork permit）讀到就回給 Claude Code

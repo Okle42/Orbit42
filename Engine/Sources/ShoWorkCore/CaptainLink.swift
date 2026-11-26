@@ -315,6 +315,11 @@ public enum CaptainLink {
     // MARK: ③ 秘書鬧鐘
 
     public static let alarmKey = "captain.alarmMinutes"
+    /// 11-26 秘書省用量：預設 120 分鐘（原本 30）；沒事不送（alarmShouldPush 比對簽章）。設 0 或負數＝關
+    public static let alarmDefaultMinutes: Double = 120
+    public static func alarmMinutes(_ d: UserDefaults?) -> Double {
+        (d?.object(forKey: alarmKey) as? NSNumber)?.doubleValue ?? alarmDefaultMinutes
+    }
     public static let idleAfter: TimeInterval = 30 * 60
 
     /// 名冊一行摘要＋指紋（沒變化就只送一行）
@@ -373,9 +378,9 @@ public enum CaptainLink {
     }
 
     // MARK: ⑥ 秘書換哨提醒（11-10：組員到 board.ctxTokens 會自動收尾，秘書沒有；秘書不自動 /clear，只提醒一次）
-    //   captain.ctxTokens（預設 750k，範圍同 ContextGuard 250k–1000k；設負數＝關）
+    //   captain.ctxTokens（預設 300k〔11-26 從 750k 降，秘書省用量〕，範圍同 ContextGuard 250k–1000k；設負數＝關）
     public static let captainCtxKey = "captain.ctxTokens"
-    public static let captainCtxDefault = 750_000
+    public static let captainCtxDefault = 300_000
     public static func captainCtxLimit(_ d: UserDefaults?) -> Int? {
         let v = d?.object(forKey: captainCtxKey) as? Int ?? captainCtxDefault
         return v < 0 ? nil : ContextGuard.clamp(v == 0 ? captainCtxDefault : v)

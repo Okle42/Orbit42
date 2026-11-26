@@ -99,3 +99,16 @@ final class NoBoardTests: XCTestCase {
     }
 }
 
+/// 11-26 第一階段 C：使用者已答只清秘書卡片上的同一題，不再 Peer 送訊叫醒秘書
+@MainActor
+final class AnsweredNoPeerTests: XCTestCase {
+    func testTellCaptainDoesNotSend() throws {
+        let s = try NoBoardTests.src(NoBoardTests.app + "/BoardActions.swift")
+        let a = try XCTUnwrap(s.range(of: "private static func tellCaptain("))
+        let rest = s[a.upperBound...], body = String(rest[..<(rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex)])
+        XCTAssertTrue(body.contains("Answered.clearCaptainCard("), "要清秘書卡片上同一題")
+        XCTAssertTrue(body.contains("AskQueue.resolve("))
+        XCTAssertFalse(body.contains("Peer.send"), "不可再送訊叫醒秘書")
+        XCTAssertFalse(s.contains("使用者已答）\")"), "from-name「…（使用者已答）」不再送")
+    }
+}

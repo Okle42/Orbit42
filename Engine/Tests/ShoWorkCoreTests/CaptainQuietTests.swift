@@ -14,20 +14,22 @@ struct CaptainQuietTests {
         return r
     }
 
-    @Test("工作回報：預設只推 review／blocked／帶 --ask；done、working 只記不推（之後也不補送）")
+    @Test("工作回報：預設只推帶 --ask 的（11-26 起 review／blocked 純狀態卡也不推）；其他只記不推（之後也不補送）")
     func actionableOnly() {
         var st = CardRelay.State(); st.seeded = true
         let quiet = CardRelay.plan(reports: ["w": card(.working, "做事中", at: t0), "d": card(.done, "做完", at: t0),
                                              "r": card(.review, "要審", at: t0), "b": card(.blocked, "卡住", at: t0),
                                              "q": card(.working, "問一下", at: t0, ask: "要 push 嗎")],
                                    captain: "cap", captainLive: true, state: &st, now: t0, text: txt)
-        #expect(Set(quiet.map(\.sessionId)) == ["r", "b", "q"])
+        #expect(Set(quiet.map(\.sessionId)) == ["q"])
         // done／working 已記成看過：同一張卡之後不會補送
         #expect(CardRelay.plan(reports: ["w": card(.working, "做事中", at: t0), "d": card(.done, "做完", at: t0)],
                                captain: "cap", captainLive: true, state: &st, now: t0 + 120, text: txt).isEmpty)
-        // 同一個人改成卡住 ⇒ 推
+        // 同一個人改成卡住（純狀態卡）⇒ 11-26 起也不推；卡住又帶題 ⇒ 推
         #expect(CardRelay.plan(reports: ["w": card(.blocked, "卡住了", at: t0 + 130)],
-                               captain: "cap", captainLive: true, state: &st, now: t0 + 130, text: txt).map(\.sessionId) == ["w"])
+                               captain: "cap", captainLive: true, state: &st, now: t0 + 130, text: txt).isEmpty)
+        #expect(CardRelay.plan(reports: ["w": card(.blocked, "卡住了", at: t0 + 200, ask: "要換方法嗎")],
+                               captain: "cap", captainLive: true, state: &st, now: t0 + 200, text: txt).map(\.sessionId) == ["w"])
     }
 
     @Test("開關改回舊行為：done／working 照推")
@@ -56,7 +58,7 @@ struct CaptainQuietTests {
             defer { now += 70 }
             return !CardRelay.plan(reports: ["a": r], captain: "c", captainLive: true, state: &st, now: now, text: txt).isEmpty
         }
-        #expect(push(nil))
+        #expect(!push(nil))                            // 11-26：沒帶題的卡住狀態卡不推
         #expect(!push(nil) && !push(nil, how: "換了方法"))
         #expect(push("要 push 嗎"))
         #expect(!push("要 push 嗎") && !push(nil))
@@ -65,7 +67,7 @@ struct CaptainQuietTests {
         #expect(push("要部署嗎"))
         #expect(push("要部署嗎", ["好", "不要"]))
         #expect(!push(nil))
-        #expect(push(nil, summary: "又卡住"))
+        #expect(!push(nil, summary: "又卡住"))           // 11-26：純狀態卡不推
         #expect(push("要部署嗎", ["好", "不要"], summary: "又卡住"))       // 換了一張卡，同一題也算新的
     }
 
@@ -112,7 +114,7 @@ struct CaptainQuietTests {
         #expect(CardRelay.Policy.from(d) == .quiet)
         d.set(false, forKey: CardRelay.Policy.actionableKey)
         #expect(CardRelay.Policy.from(d) == .legacy)
-        #expect(CaptainLink.captainCtxLimit(d) == 750_000)
+        #expect(CaptainLink.captainCtxLimit(d) == 300_000)      // 11-26 預設從 750k 降到 300k
         d.set(400_000, forKey: CaptainLink.captainCtxKey)
         #expect(CaptainLink.captainCtxLimit(d) == 400_000)
         d.set(-1, forKey: CaptainLink.captainCtxKey)
@@ -236,7 +238,7 @@ struct CaptainQuietTests {
         #expect(m.contains("只進你的收件匣、不推給你"))
         #expect(m.contains("沒事不送"))
         #expect(m.contains("【換哨提醒】"))
-        #expect(m.contains("做完、做事中的卡只記在看板"))
+        #expect(m.contains("其他狀態卡只記在看板"))
         #expect(!m.contains("無變化"))
     }
 

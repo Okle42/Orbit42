@@ -581,7 +581,7 @@ final class BoardModel: ObservableObject {
 
     // MARK: 秘書連動（T1024033803）：秘書鬧鐘
 
-    /// 秘書鬧鐘：每 captain.alarmMinutes 分鐘（預設 30）看一次【巡檢時間】；沒有秘書不送
+    /// 秘書鬧鐘：每 captain.alarmMinutes 分鐘（預設 120，11-26 從 30 拉長）看一次【巡檢時間】；沒有秘書不送
     ///   captain.alarmQuiet（預設 true，11-10）：只有要秘書處理的事、而且跟上次推的不一樣才推；「無變化」不推
     ///   false＝舊行為：每次都推，名冊跟上次一樣只送「無變化」
     private var alarmAt = Date()            // 看板啟動算起，不一開就送
@@ -591,7 +591,7 @@ final class BoardModel: ObservableObject {
         guard Engine.current != nil, let cap = captain else { return }
         let d = UserDefaults(suiteName: AppPrefs.suite)
         captainShift(roster, captain: cap, defaults: d)
-        let min = d?.object(forKey: CaptainLink.alarmKey) as? Double ?? 30
+        let min = CaptainLink.alarmMinutes(d)
         guard min > 0, now.timeIntervalSince(alarmAt) >= min * 60 else { return }
         alarmAt = now
         let inbox = CaptainInbox.all()
@@ -620,7 +620,7 @@ final class BoardModel: ObservableObject {
         }
     }
 
-    /// 秘書換哨提醒（11-10）：秘書 ctx 過 captain.ctxTokens（預設 750k）送一次【換哨提醒】；不自動 /clear 秘書。
+    /// 秘書換哨提醒（11-10）：秘書 ctx 過 captain.ctxTokens（預設 300k，11-26 從 750k 降）送一次【換哨提醒】；不自動 /clear 秘書。
     /// 送過的秘書 sessionId 記在 board/captain-shift.json（看板重開不重送）
     private var shiftFile: URL { BoardPaths.dir.appendingPathComponent("captain-shift.json") }
     private lazy var shiftSent: Set<String> = (try? BoardJSON.decoder.decode(Set<String>.self, from: Data(contentsOf: shiftFile))) ?? []
