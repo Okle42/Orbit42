@@ -66,7 +66,7 @@ flowchart LR
 - **用你自己的大腦、自己的帳號。** Orbit42 不自帶 AI。每顆衛星跑的是各家官方的 AI 工作程式——Claude Code（`claude`）、OpenAI Codex CLI（`codex`）、Google Antigravity CLI（`agy`）——登入、工具、額度、更新都是各家自己的。
 - **衛星就是真的終端機。** 每顆衛星是一個虛擬終端機，用 [xterm.js](https://xtermjs.org) 畫出來。
 - **背景 session 也拉得進來。** 已經在背景跑的 Claude Code session 可以拉進來當衛星（`claude attach`）。
-- **引擎。** session 狀態、額度、自檢的引擎和球體在 [`Engine/`](Engine/)（2026-11-24 從 ShoWork42 搬入，之後各自獨立）。
+- **引擎。** session 狀態、額度、自檢的引擎和球體在 [`Engine/`](Engine/)。
 
 ## 路線圖
 

@@ -66,7 +66,7 @@ flowchart LR
 - **Your brain, your account.** Orbit42 doesn't ship its own AI. Each satellite runs the provider's official agent — Claude Code (`claude`), OpenAI Codex CLI (`codex`), Google Antigravity CLI (`agy`) — so sign-in, tools, limits and updates are the provider's own.
 - **Satellites are real terminals.** Each one is a pseudo-terminal rendered with [xterm.js](https://xtermjs.org).
 - **Background sessions too.** Running Claude Code background sessions can be pulled in as satellites (`claude attach`).
-- **Engine.** Session state, usage, audits and the sphere live in [`Engine/`](Engine/) (copied from ShoWork42 on 2026-11-24; independent since).
+- **Engine.** Session state, usage, audits and the sphere live in [`Engine/`](Engine/).
 
 ## Roadmap
 
