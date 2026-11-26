@@ -8,6 +8,7 @@ extension OrbitWindow {
     func runTestHooks(_ env: [String: String], test: Bool) {
         guard let root = window.contentView else { return }
         _ = root
+        runReadmeShot(env, test: test)      // ReadmeShotHook.swift：README 用的衛星 Chrome 截圖
         // 測試：ORBIT_TEST_ASK="<題目 json>@<png>" ⇒ 開 3 顆印字的衛星＋假題目，整個主視窗截圖（展開、縮成一條），印位置後結束
         if let spec = env["ORBIT_TEST_ASK"], let at = spec.lastIndex(of: "@"), test {
             let out = String(spec[spec.index(after: at)...])
