@@ -516,7 +516,8 @@ def advice(ss, tot, conf, rl, net):
                     "換主題就開新 session")
     if len(busy) >= 4:
         tips.append(f"同時有 {len(busy)} 個 session 在跑，額度消耗會疊加；不急的排隊做")
-    if tot.get("cache_hit") is not None and tot["cache_hit"] < 0.8:
+    # 今天訊息太少（例如剛過午夜）時命中率沒有代表性，11-27 凌晨 2 則就報了「8% 偏低」
+    if tot.get("cache_hit") is not None and tot["msgs"] >= 50 and tot["cache_hit"] < 0.8:
         tips.append(f"快取命中率 {tot['cache_hit']*100:.0f}% 偏低（健康約 90% 以上）：常常隔很久才回一句、或頻繁切換專案都會讓快取失效")
     if tot["cost"] and tot["sub_cost"] / tot["cost"] > 0.4:
         tips.append(f"子 agent 佔今天花費 {tot['sub_cost']/tot['cost']*100:.0f}%：多開的子 agent／工作流程是主要開銷")
