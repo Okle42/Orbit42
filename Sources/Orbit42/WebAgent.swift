@@ -107,7 +107,9 @@ final class WebAgent {
     // MARK: 問 Keng
     private var asking = false
     func ask(what: String, why: String, host: String, sat: String, _ answer: @escaping (Bool) -> Void) {
-        let name = OrbitWindow.shared.host.satName(sat) ?? sat
+        // 11-26 Keng：視窗要寫畫面上看得到的衛星標題（例如「修改 · Orbit42 | YouTube 驗證」），不是程式內部名「Claude 2」
+        let shown = OrbitWindow.shared.satWins[sat]?.titleLabel.stringValue.trimmingCharacters(in: .whitespaces) ?? ""
+        let name = shown.isEmpty ? (OrbitWindow.shared.host.satName(sat) ?? sat) : shown
         if let a = autoAnswer { print("web-agent ask: \(what)｜\(why)｜\(host)｜衛星 \(name) ⇒ 自動回答 \(a)"); fflush(stdout); return answer(a == "allow") }
         guard !asking else { return answer(false) }                     // 一次只問一件：上一個還沒答，這個直接不做
         asking = true
