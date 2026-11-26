@@ -15,7 +15,7 @@ final class BgJanitorRunner: @unchecked Sendable {
 
     @MainActor func start() {
         let env = ProcessInfo.processInfo.environment
-        if BoardWindow.testMode && env["SHOWORK_TEST_BGJANITOR"] == nil { return }
+        if AppTest.mode && env["SHOWORK_TEST_BGJANITOR"] == nil { return }
         let idle = env["SHOWORK_BGJANITOR_IDLE"].flatMap(Double.init) ?? BgJanitor.idleLimit
         let period = env["SHOWORK_BGJANITOR_PERIOD"].flatMap(Double.init) ?? 60
         let t = DispatchSource.makeTimerSource(queue: q)

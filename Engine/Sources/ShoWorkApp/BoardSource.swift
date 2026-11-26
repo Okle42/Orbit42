@@ -416,7 +416,7 @@ final class BoardModel: ObservableObject {
     private var stat = (n: 0, read: 0.0, readMax: 0.0, apply: 0.0, applyMax: 0.0, shown: 0, since: Date())
     func noteRefresh(read: Double, apply: Double) {
         stat.n += 1; stat.read += read; stat.readMax = max(stat.readMax, read); stat.apply += apply; stat.applyMax = max(stat.applyMax, apply)
-        if BoardWindow.shared.onScreen { stat.shown += 1 }
+        if SphereEmbed.hostOnScreen() { stat.shown += 1 }
         let span = Date().timeIntervalSince(stat.since)
         guard span >= 300 else { return }
         let n = Double(stat.n)
@@ -432,7 +432,7 @@ final class BoardModel: ObservableObject {
     private var againUrgent = false
     func refresh(urgent: Bool = true) {
         if inFlight { again = true; againUrgent = againUrgent || urgent; return }
-        let gap = urgent || BoardWindow.shared.onScreen ? Self.minGap : Self.idleGap
+        let gap = urgent || SphereEmbed.hostOnScreen() ? Self.minGap : Self.idleGap
         let at = lastStart.addingTimeInterval(gap)
         if at > Date() {
             if let d = dueAt, d <= at { return }                         // 已經排了更早的一次

@@ -11,7 +11,7 @@ public struct AgentOptions {
         self.regularApp = regularApp; self.waitForAccessibility = waitForAccessibility; self.testOnly = testOnly; self.onLaunch = onLaunch
     }
     /// 測試模式（螢幕外、不准開到使用者螢幕、不准真的動手）
-    @MainActor public static var isTest: Bool { BoardWindow.testMode }
+    @MainActor public static var isTest: Bool { AppTest.mode }
 }
 
 /// 球體嵌進別的 App（Orbit42）用的接口：完整的球體畫面（播報、空白鍵講話、量表、自檢、cool42…全部同一份），
@@ -34,6 +34,10 @@ public enum SphereEmbed {
     public static var openSession: ((SessionRef) -> Bool)?
     /// 球體工具列「＋ 新衛星」（brain：claude／gemini／codex）
     public static var newSatellite: ((String) -> Void)?
+    /// 11-26 看板視窗拿掉後，「有沒有人在看」改看宿主（Orbit42）主視窗：在前景、沒縮到 Dock、沒被完全蓋住。宿主可換掉
+    public static var hostOnScreen: () -> Bool = {
+        NSApp.isActive && NSApp.windows.contains { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && $0.title == "Orbit42" }
+    }
     /// 宿主自己的指令（球體 ?orbit=1 才有的按鈕，例如 "fullscreen"）
     public static var command: ((String) -> Void)?
     /// 11-23 Orbit42 iPhone App：球體最新一份 karaUpdate 資料（手機版球體用同一份）

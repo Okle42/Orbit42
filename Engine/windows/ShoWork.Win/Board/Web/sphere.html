@@ -567,7 +567,6 @@
   <button class="pill sm" id="bTl" title="今天每個 session 的狀態變化">時間<span class="wide">軸</span></button>
   <button class="pill sm" id="bMini" title="智能體桌面版：開／關">桌面版</button>
   <button class="pill sm deskOnly" id="bSize" title="換尺寸：小 → 中 → 大（拖右下角也可以）">尺寸</button>
-  <button class="pill sm deskOnly" id="bBoard" title="打開戰情中心">戰情<span class="wide">中心</span></button>
   <select class="pill sm" id="voiceSel" title="播報的聲音（選了會試聽一句）" aria-label="播報的聲音" hidden></select>
   <button class="pill sm" id="bPanels" title="開關裡面的小視窗（額度、外環、戰情）">面板</button>
   <button class="pill sm" id="bAuto">自動<span class="wide">排版</span></button>
@@ -2420,7 +2419,6 @@ function deskChrome() {
 }
 addEventListener("resize", deskChrome);
 $("bSize").onclick = () => post({ action: "deskSize" });
-$("bBoard").onclick = () => post({ action: "openBoard" });
 $("bClose").onclick = () => post({ action: "mini", on: false });
 
 /* ---------- v3 #4 額度預警：跨過門檻（5 小時 70／90／100，7 天 80／95）就說一次 ---------- */
@@ -2495,14 +2493,16 @@ if (ORBIT) {
   const m = document.createElement("div"); m.id = "satMenu"; m.setAttribute("role", "menu");
   m.innerHTML = [["claude", "Claude", "Claude Code"], ["gemini", "Gemini", "Antigravity CLI"], ["codex", "ChatGPT", "Codex CLI"]]
     .map(([k, n, d]) => `<div class="mi" data-brain="${k}"><span>${n}</span><small>${d}</small></div>`).join("")
-    + `<div class="mi" data-brain="accounts" style="border-top:1px solid var(--line);margin-top:4px"><span>帳號⋯</span><small>登入／換帳號</small></div>`;
+    + `<div class="mi" data-brain="task" style="border-top:1px solid var(--line);margin-top:4px"><span>新任務⋯</span><small>選資料夾、交代要做什麼</small></div>`
+    + `<div class="mi" data-brain="accounts"><span>帳號⋯</span><small>登入／換帳號</small></div>`;
   // Orbit42 登入畫面按「進入」後告訴球體哪些大腦登入了：沒登入的灰掉（點了改開帳號頁）
-  window.orbitBrains = ids => { for (const mi of m.querySelectorAll("[data-brain]")) { const k = mi.dataset.brain; if (k === "accounts") continue;
+  window.orbitBrains = ids => { for (const mi of m.querySelectorAll("[data-brain]")) { const k = mi.dataset.brain; if (k === "accounts" || k === "task") continue;
     const on = ids.includes(k); mi.style.opacity = on ? "" : ".45"; mi.querySelector("small").textContent = on ? mi.dataset.d : "還沒登入"; mi.dataset.off = on ? "" : "1"; } };
   for (const mi of m.querySelectorAll("[data-brain]")) mi.dataset.d = mi.querySelector("small").textContent;
   document.body.appendChild(m);
   b.onclick = e => { e.stopPropagation(); const r = b.getBoundingClientRect(); m.style.top = (r.bottom + 6) + "px"; m.style.left = Math.max(8, r.left - 60) + "px"; m.classList.toggle("on"); };
   m.onclick = e => { const mi = e.target.closest("[data-brain]"); if (!mi) return; m.classList.remove("on");
+    if (mi.dataset.brain === "task") return post({ action: "newTask" });     // 11-26：新任務（原本在看板視窗）併進 ＋ 新衛星
     post({ action: "newSatellite", brain: mi.dataset.off ? "accounts" : mi.dataset.brain }); };   // brain "accounts"＝打開 Orbit42 帳號頁
   document.addEventListener("click", () => m.classList.remove("on"));
 }
@@ -2802,6 +2802,15 @@ canvas.addEventListener("pointermove", e => {
   }
   tip.classList.toggle("on", !!s);
   canvas.style.cursor = s || gaugeAt(e) || ballAt(e) ? "pointer" : "";
+});
+// 11-26 衛星右鍵選單（放行、派工、退回⋯；原生端彈 NSMenu，平常看不到）。手機沒有
+canvas.addEventListener("contextmenu", e => {
+  const s = moonAt(e) ? null : satAt(e); if (!s?.c?.sessionId || PHONE) return;
+  e.preventDefault(); post({ action: "cardMenu", sessionId: s.c.sessionId });
+});
+$("teamRows").addEventListener("contextmenu", e => {
+  const row = e.target.closest(".row"), c = row && (data.team || [])[+row.dataset.i]; if (!c?.sessionId || PHONE) return;
+  e.preventDefault(); post({ action: "cardMenu", sessionId: c.sessionId });
 });
 let holdTimer = null, listening = false, heard = "", heardFinal = null, heardDone = false;
 canvas.addEventListener("pointerdown", e => {

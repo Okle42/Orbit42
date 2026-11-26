@@ -66,7 +66,7 @@ final class SphereMini: NSObject, NSWindowDelegate {
         p.contentView = root
         p.orderFrontRegardless()
         panel = p; host = h
-        if BoardWindow.testMode, ProcessInfo.processInfo.environment["SHOWORK_TEST_DESK_PROBE"] != nil {
+        if AppTest.mode, ProcessInfo.processInfo.environment["SHOWORK_TEST_DESK_PROBE"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 9) { [weak self] in self?.probe() }
         }
     }
@@ -185,12 +185,12 @@ final class SphereMini: NSObject, NSWindowDelegate {
         guard let p = panel else { return }
         let f = p.frame
         var r = NSRect(x: f.midX - size.width / 2, y: f.maxY - size.height, width: size.width, height: size.height)
-        if !BoardWindow.testMode, let v = (p.screen ?? NSScreen.main)?.visibleFrame {
+        if !AppTest.mode, let v = (p.screen ?? NSScreen.main)?.visibleFrame {
             r.size.width = min(r.width, v.width); r.size.height = min(r.height, v.height)
             r.origin.x = min(max(r.minX, v.minX), v.maxX - r.width)
             r.origin.y = min(max(r.minY, v.minY), v.maxY - r.height)
         }
-        p.setFrame(r, display: true, animate: !BoardWindow.testMode)
+        p.setFrame(r, display: true, animate: !AppTest.mode)
         save()
     }
 
@@ -206,7 +206,7 @@ final class SphereMini: NSObject, NSWindowDelegate {
     }
 
     private func origin(for size: NSSize) -> NSPoint {
-        if BoardWindow.testMode { return NSPoint(x: -4000, y: -4000) }
+        if AppTest.mode { return NSPoint(x: -4000, y: -4000) }
         if let s = Self.defaults?.string(forKey: "sphere.mini.origin") {
             let p = NSPointFromString(s)
             // 存的位置還在某個螢幕上才用（外接螢幕拔掉了就回預設）；放大後超出螢幕就往內收
@@ -220,7 +220,7 @@ final class SphereMini: NSObject, NSWindowDelegate {
     }
 
     private func save() {
-        guard !BoardWindow.testMode, let p = panel else { return }
+        guard !AppTest.mode, let p = panel else { return }
         Self.defaults?.set(NSStringFromPoint(p.frame.origin), forKey: "sphere.mini.origin")
         Self.defaults?.set(NSStringFromSize(p.frame.size), forKey: "sphere.desk.size")
         NotificationCenter.default.post(name: Self.changed, object: nil)
@@ -236,7 +236,7 @@ final class DeskPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var isKeyWindow: Bool { Self.testKey || super.isKeyWindow }
     override func noResponder(for s: Selector) { if Self.testKey { Self.beeps += 1 } else { super.noResponder(for: s) } }
-    override func constrainFrameRect(_ r: NSRect, to screen: NSScreen?) -> NSRect { BoardWindow.testMode ? r : super.constrainFrameRect(r, to: screen) }
+    override func constrainFrameRect(_ r: NSRect, to screen: NSScreen?) -> NSRect { AppTest.mode ? r : super.constrainFrameRect(r, to: screen) }
 }
 
 /// 桌面版的視窗操作（SphereWebView 呼叫）：上方標題列＝拖移、右下角＝縮放

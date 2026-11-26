@@ -8,10 +8,11 @@ import ShoWorkCore
 // everything applies the moment you change it.
 
 enum SettingsTab: String, CaseIterable {
-    case work, glow, layout, about
+    case work, security, glow, layout, about
     var title: String {
         switch self {
         case .work: "工作"
+        case .security: "保全"
         case .glow: "光暈"
         case .layout: "排版"
         case .about: "關於與檢查"
@@ -20,6 +21,7 @@ enum SettingsTab: String, CaseIterable {
     var symbol: String {
         switch self {
         case .work: "gearshape"
+        case .security: "shield"
         case .glow: "sparkles"
         case .layout: "rectangle.3.group"
         case .about: "stethoscope"
@@ -91,6 +93,7 @@ struct SettingsPage: View {
     var body: some View {
         Group {
             if tab == .work { WorkPage() }
+            else if tab == .security { SecurityPage() }
             else if tab == .glow { GlowPage() }
             else if tab == .layout { LayoutPage() }
             else { AboutPage() }
@@ -207,6 +210,27 @@ struct WorkPage: View {
         .toggleStyle(.switch)
         .frame(height: 420)
         .onAppear { review = Reviewer.shared.enabled; wrap = CtxGuard.shared.autoWrapUp; ctx = ContextGuard.tokenLimit }
+    }
+}
+
+/// 11-26 保全（原本在看板視窗工具列）：Wi-Fi 狀態、要注意的裝置、push 守門、立即掃描、定時巡邏
+struct SecurityPage: View {
+    @ObservedObject private var model = BoardModel.shared
+    @AppStorage(AppPrefs.guardPatrolKey, store: UserDefaults(suiteName: AppPrefs.suite)) private var patrol = false
+    @State private var note: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            GuardCard(status: model.guardStatus, scanning: model.guardScanning, patrol: $patrol, onScan: scan, onClose: nil)
+            if let note { Text(note).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12) }
+        }
+        .padding(.vertical, 8)
+        .frame(width: 620, alignment: .top)
+        .onAppear { model.start() }
+    }
+    /// 測試模式（沒配假腳本）不掃真的網路
+    private func scan() {
+        if AppTest.mode && ProcessInfo.processInfo.environment["SHOWORK_WIFIWATCH_SCRIPT"] == nil { note = "測試模式不掃描真的網路"; return }
+        note = model.guardScan() ? "開始掃描Wi-Fi（約數十秒）" : "已經在掃描了"
     }
 }
 

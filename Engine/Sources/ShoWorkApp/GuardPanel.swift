@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import ShoWorkCore
 
-// 保全面板：Wi-Fi 裝置、push 守門「放行一次」、定時巡邏（原本在 3D 辦公室裡，11-25 搬到戰情中心工具列）
+// 保全面板：Wi-Fi 裝置、push 守門「放行一次」、定時巡邏（11-26 起在設定窗「保全」分頁）
 
 private struct GuardBadge: View {
     let level: GuardLevel
@@ -43,7 +43,7 @@ private struct PushGuardSection: View {
                         // 記號要帶被擋的時間：同一個 HEAD 放行用掉後又被擋（例如 git 自己拒推、重推），新的那筆要能再按（11-03）
                         let k = e.dir + h + "\(e.at.timeIntervalSince1970)"
                         Button(allowed.contains(k) ? "已放行" : "放行一次") {
-                            guard !BoardWindow.testMode else { allowed.insert(k); return }   // 測試視窗不寫檔
+                            guard !AppTest.mode else { allowed.insert(k); return }   // 測試視窗不寫檔
                             PushGuard.allow(e); allowed.insert(k)
                         }
                         .controlSize(.small).disabled(allowed.contains(k))
@@ -64,7 +64,7 @@ struct GuardCard: View {
     let scanning: Bool
     @Binding var patrol: Bool
     let onScan: () -> Void
-    let onClose: () -> Void
+    var onClose: (() -> Void)? = nil
     @State private var showOnline = false
 
     var body: some View {
@@ -73,8 +73,10 @@ struct GuardCard: View {
                 Text("保全").font(.headline)
                 GuardBadge(level: status.level)
                 Spacer(minLength: 8)
-                Button { onClose() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                    .buttonStyle(.plain).help("關閉").keyboardShortcut(.cancelAction)
+                if let onClose {
+                    Button { onClose() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .buttonStyle(.plain).help("關閉").keyboardShortcut(.cancelAction)
+                }
             }
             Text(status.summary).font(.callout).fixedSize(horizontal: false, vertical: true)
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
@@ -142,7 +144,7 @@ struct GuardCard: View {
             Text("命名裝置：wifiwatch.sh --label <MAC> <名字>").font(.caption).foregroundStyle(.tertiary)
         }
         .padding(12)
-        .frame(width: 460, alignment: .leading)
+        .frame(minWidth: 460, maxWidth: .infinity, alignment: .leading)
     }
 }
 

@@ -125,9 +125,9 @@ final class Arranger {
     }
 
     /// One independent layout per screen, screens in NSScreen order.
-    /// 戰情中心開著的那台螢幕，終端機只排在它旁邊剩下的那一側（Kang 10-08）。
+    /// 11-26 看板視窗拿掉了：每台螢幕都照原本的排法（不再讓位給看板）
     func plan() -> [(Target, CGRect)] {
-        let board = Arranger.boardFrame()
+        let board: CGRect? = nil
         let screens = screenAreasAX()
         let byScreen = Dictionary(grouping: targets(), by: \.screen)
         return byScreen.keys.sorted().flatMap { i -> [(Target, CGRect)] in
@@ -137,18 +137,6 @@ final class Arranger {
             let frames = a != screens[i] ? LayoutPlan.cascade(ts.count, in: a) : LayoutPlan.frames(count: ts.count, in: a, four: fourStyle)
             return Array(zip(ts, frames))
         }
-    }
-
-    /// 戰情中心視窗在畫面上的位置（AX 座標）；沒開或縮到 Dock 回傳 nil。用視窗清單找，--arrange-dry 也看得到。
-    static func boardFrame() -> CGRect? {
-        let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
-        // 只認自己這個 process 的（10-12：--board-window 測試視窗同名，會被當成看板）。
-        // 不比 owner 名稱：10-25 改成 .app 後名稱變成 CFBundleDisplayName「ShoWork42 戰情中心」，比名稱就找不到看板、終端機不再讓位
-        guard let w = list.first(where: { ($0[kCGWindowOwnerPID as String] as? Int32) == getpid()
-                                          && ($0[kCGWindowName as String] as? String) == "AI工作戰情中心"
-                                          && ($0[kCGWindowLayer as String] as? Int) == 0 }),
-              let b = w[kCGWindowBounds as String] as? [String: Any] else { return nil }
-        return CGRect(x: b["X"] as? Double ?? 0, y: b["Y"] as? Double ?? 0, width: b["Width"] as? Double ?? 0, height: b["Height"] as? Double ?? 0)
     }
 
     /// Test mode: SHOWORK_ONLY_WIDS="w1,w2,…" ⇒ refuse to touch ANYTHING if a window outside the
@@ -406,7 +394,6 @@ final class Menu: NSObject, NSMenuDelegate {
         }
         if shown.isEmpty { menu.addItem(withTitle: "目前沒有工作中的 AI 視窗", action: nil, keyEquivalent: "").isEnabled = false }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "AI工作戰情中心⋯", action: #selector(openBoard), keyEquivalent: "")
         menu.addItem(withTitle: "桌面智能體", action: #selector(toggleMini), keyEquivalent: "").state = SphereMini.shared.enabled ? .on : .off
         // 11-22 球體桌面版：尺寸（拖右下角也可以，會記住）
         let sizes = NSMenu()
@@ -434,7 +421,6 @@ final class Menu: NSObject, NSMenuDelegate {
 
     @objc private func arrangeNow() { Arranger.shared.arrange() }
     @objc private func openSettings() { SettingsPanel.shared.toggle() }
-    @objc private func openBoard() { BoardWindow.shared.show() }
     @objc private func toggleMini() { SphereMini.shared.enabled.toggle() }    // 球體 v3 #7（SphereMini.swift）
     @objc private func deskSize(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }

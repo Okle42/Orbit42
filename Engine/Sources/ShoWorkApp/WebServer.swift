@@ -126,7 +126,7 @@ final class WebServer {
         if r.path == WebRouter.orderPath {
             return WebRouter.handleOrder(r, peer: peer, localIP: boundIP, token: store.token(), limiter: &orderLimiter,
                                          order: { q in
-                                             if BoardWindow.testMode { return true }
+                                             if AppTest.mode { return true }
                                              if case .set(let ids) = q { return BoardModel.shared.setOrder(ids) }
                                              return BoardModel.shared.setOrder(nil)
                                          }, audit: { [store] e in store.audit(e) })
@@ -163,7 +163,7 @@ final class WebServer {
     private func perform(_ a: WebAction, peer: String) -> Result<String, CardError> {
         let cards = BoardModel.shared.cards
         // 測試視窗／示範資料絕不真的送（跟原生收件匣同一條規矩）
-        if BoardWindow.testMode { return .success("測試：不執行 \(a.name)") }
+        if AppTest.mode { return .success("測試：不執行 \(a.name)") }
         BoardModel.shared.append(["ev": "web-\(a.name)", "id": a.target, "peer": peer])
         defer { BoardModel.shared.refresh() }
         switch a {

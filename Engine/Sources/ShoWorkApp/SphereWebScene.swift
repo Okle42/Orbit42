@@ -13,7 +13,7 @@ import ShoWorkCore
 //     ready／focus／speak／stopSpeaking（v2）
 //     answer {sessionId, text}、permit {sessionId, permitId, decision, answers}（v3 #1：球旁邊的選項按鈕）
 //     listen {on}、captain {text}（v3 #2：按住球講話 → 交給秘書）
-//     mini {on}、openBoard（v3 #7：桌面常駐小球）
+//     mini {on}（v3 #7：桌面常駐小球）；cardMenu {sessionId}、newTask（11-26：看板視窗拿掉後的入口）
 //     deskSize {id?}、deskChrome {noDrag}（11-22 球體桌面版：換尺寸、告訴原生端標題列哪些地方是按鈕不能拖）
 // 球體的狀態與播報由網頁自己判（狀態一變就說一句）。
 // 語音（v2，11-21）：macOS 內建台灣中文語音（AVSpeechSynthesizer），網頁上的喇叭按鈕開關，預設關。
@@ -56,7 +56,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         web.setValue(false, forKey: "drawsBackground")
         // 測試視窗在螢幕外＝被當成看不見、rAF 停掉、WebGL 不畫（同 OfficeWebHost）：測試時關掉遮擋偵測
         let occ = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
-        if BoardWindow.testMode, web.responds(to: occ), let m = class_getInstanceMethod(WKWebView.self, occ) {
+        if AppTest.mode, web.responds(to: occ), let m = class_getInstanceMethod(WKWebView.self, occ) {
             typealias SetBool = @convention(c) (AnyObject, Selector, Bool) -> Void
             unsafeBitCast(method_getImplementation(m), to: SetBool.self)(web, occ, false)
         }
@@ -80,7 +80,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         web.configuration.userContentController.removeScriptMessageHandler(forName: "sphere")
     }
 
-    private var blocked: Bool { BoardWindow.testMode }
+    private var blocked: Bool { AppTest.mode }
 
     // MARK: 網頁 → 原生端
 
@@ -143,7 +143,11 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             if let id = str("id") { SphereMini.shared.setPreset(id) } else { SphereMini.shared.cyclePreset() }
         case "deskChrome":
             (web as? SphereWebView)?.noDrag = (m["noDrag"] as? [[Double]] ?? []).filter { $0.count == 4 }.map { NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) }
-        case "openBoard": openBoard()
+        case "cardMenu":        // 11-26 衛星右鍵選單（放行、派工、退回⋯；原本在看板視窗）
+            guard let c = card(str("sessionId")) else { return say("這個 session 已經不在了。") }
+            CardMenu.popUp(c, in: web) { [weak self] in self?.say($0 + "。") }
+        case "newTask":         // 11-26 ＋ 新衛星 選單「新任務⋯」（選資料夾、提示、全自動）
+            CardMenu.newTask { [weak self] in self?.say($0 + "。") }
         case "askShow": SphereEmbed.askShow?(str("sessionId") ?? "")      // 戰情列的「● 等你答」：叫出浮層那一題
         case "theme":           // 11-22 Keng：終端機（Ghostty）配色跟球體連動
             GhosttyTheme.apply(mode: str("mode") ?? "auto", now: str("name") ?? "dark", blocked: blocked)
@@ -185,13 +189,6 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             }
         default: break
         }
-    }
-
-    /// 打開戰情中心、切到球體分頁（小球點一下）
-    func openBoard() {
-        UserDefaults(suiteName: "ai.okle42.showork")?.set("sphere", forKey: "board.mode")
-        if !blocked { NSApp.activate(ignoringOtherApps: true) }
-        BoardWindow.shared.show()
     }
 
     /// 小球彈一下（SphereWatch 發現新的「需要你」）
@@ -331,9 +328,9 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
 
     func webView(_ w: WKWebView, didFinish n: WKNavigation!) {
         loaded = true; sent = nil; push(); pushPrefs(); pushAskFloat()
-        // 測試：SHOWORK_TEST_SPHERE_SHOT=<png> 12 秒後（等卡片讀完）用 WebKit 自己截（BoardWindow.snapshot 的 cacheDisplay 拍不到 WebGL 的顏色）
+        // 測試：SHOWORK_TEST_SPHERE_SHOT=<png> 12 秒後（等卡片讀完）用 WebKit 自己截（cacheDisplay 拍不到 WebGL 的顏色）
         let env = ProcessInfo.processInfo.environment
-        if BoardWindow.testMode, let out = env[desk ? "SHOWORK_TEST_SPHERE_MINI_SHOT" : "SHOWORK_TEST_SPHERE_SHOT"] {
+        if AppTest.mode, let out = env[desk ? "SHOWORK_TEST_SPHERE_MINI_SHOT" : "SHOWORK_TEST_SPHERE_SHOT"] {
             // SHOWORK_TEST_SPHERE_JS：截圖前先跑一段網頁程式（例如假一筆「需要你」看選項按鈕）
             if let code = env[desk ? "SHOWORK_TEST_SPHERE_DESK_JS" : "SHOWORK_TEST_SPHERE_JS"] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 9) { [weak self] in self?.web.evaluateJavaScript(code) }

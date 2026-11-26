@@ -136,7 +136,7 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
             Look.shared.fromSphere(mode: o["mode"] as? String ?? "auto", name: n)
         case "focus":
             if let sid = o["sessionId"] as? String { onFocus(sid) }
-        case "permit", "captain", "ask", "listen", "speak", "newSatellite", "orbit", "audit", "timeline", "openBoard":
+        case "permit", "captain", "ask", "listen", "speak", "newSatellite", "orbit", "audit", "timeline", "cardMenu", "newTask":
             if a != "speak" && a != "listen" { toast("這個要在 Mac 上做（手機版只能看和回答答案卡）") }
             if a == "speak" { js(web, "window.karaVoice", ["end"]) }       // 手機不出聲；網頁要收到結束才不會卡住
         default: break

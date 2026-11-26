@@ -191,61 +191,16 @@ if argv.count == 4, argv[1] == "--work-e2e" {
     NSApplication.shared.run()
 }
 
-// Orbit42 測試：只開 Orbit42 視窗（螢幕外、不開 socket、不跟正在跑的 ShoWorkAgent 搶），同 --board-window
+// Orbit42 測試：只開 Orbit42 視窗（螢幕外、不開 socket、不跟正在跑的 ShoWorkAgent 搶），
 if options.testOnly {
     MainActor.assumeIsolated {
         NSApplication.shared.setActivationPolicy(.prohibited)
-        BoardWindow.testMode = true
+        AppTest.mode = true
         EditMenu.install()
         options.onLaunch?()
     }
     NSApplication.shared.run()
     return
-}
-
-// Test: ShoWorkAgent --board-window  → 只開戰情中心視窗（不開 socket、不發光、不需要輔助使用權限）
-if argv.count == 2, argv[1] == "--board-window" {
-    MainActor.assumeIsolated {
-        // 10-21 Bella 實證：.accessory 從 shell 啟動時 run() 仍會被系統啟用、搶走 Kang 的前景（語音輸入被打斷）⇒ 全程 .prohibited，不准中途切回
-        NSApplication.shared.setActivationPolicy(.prohibited)
-        if let a = ProcessInfo.processInfo.environment["SHOWORK_APPEARANCE"] {      // 截圖驗深淺色用
-            NSApplication.shared.appearance = NSAppearance(named: a == "dark" ? .darkAqua : .aqua)
-        }
-        BoardWindow.testMode = true      // 10-20 Kang：測試視窗不准開到他的螢幕上（開在螢幕外、不搶焦點）
-        EditMenu.install()
-        if ProcessInfo.processInfo.environment["SHOWORK_TEST_BOARDFRAME"] != nil {   // 終端機排列找得到看板嗎（改 .app 後 owner 名稱會變）
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { print("board frame:", Arranger.boardFrame().map { "\($0)" } ?? "nil"); fflush(stdout) }
-        }
-        if ProcessInfo.processInfo.environment["SHOWORK_TEST_MENU"] != nil {      // 印出編輯選單（看系統有沒有補「開始聽寫」）
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { print("edit menu:", EditMenu.dump().joined(separator: " | ")); fflush(stdout) }
-        }
-        BoardWindow.shared.show()
-        if ProcessInfo.processInfo.environment["SHOWORK_TEST_SPHERE_MINI"] != nil { SphereMini.shared.show() }   // 小球開在螢幕外
-        if ProcessInfo.processInfo.environment["SHOWORK_TEST_BGJANITOR"] != nil { BgJanitorRunner.shared.start() }   // 測試：空轉背景 session 清理
-        // SHOWORK_TEST_DROP=<路徑>（10-26）：10 秒後（等卡片讀完）對對話輸入框跑拖檔那段（插路徑＋拉焦點），再用鍵盤事件打「接著打」，印出框裡的字
-        if let path = ProcessInfo.processInfo.environment["SHOWORK_TEST_DROP"] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                func all(_ v: NSView) -> [DropTextView] { [v as? DropTextView].compactMap { $0 } + v.subviews.flatMap(all) }
-                guard let w = NSApp.windows.first(where: { $0.title == "AI工作戰情中心" }), let root = w.contentView,
-                      let tv = all(root).max(by: { $0.convert($0.bounds, to: nil).minY > $1.convert($1.bounds, to: nil).minY })   // 最下面那個＝對話窗格
-                else { print("drop: 找不到輸入框"); fflush(stdout); return }
-                tv.string = "看這個"
-                tv.insertPaths([path], at: NSRange(location: (tv.string as NSString).length, length: 0))
-                tv.focus()
-                (w.firstResponder as? NSTextView)?.insertText("接著打", replacementRange: NSRange(location: NSNotFound, length: 0))
-                print("drop: 焦點在輸入框=\(w.firstResponder === tv) 內容=[\(tv.string)] 游標=\(tv.selectedRange().location)/\((tv.string as NSString).length)")
-                fflush(stdout)
-            }
-        }
-        // SHOWORK_TEST_SHOT=<png>：等 SHOWORK_TEST_SHOT_DELAY 秒（預設 4）存一張截圖（視窗在螢幕外，外部截圖工具拍不到）
-        if let out = ProcessInfo.processInfo.environment["SHOWORK_TEST_SHOT"] {
-            let delay = Double(ProcessInfo.processInfo.environment["SHOWORK_TEST_SHOT_DELAY"] ?? "") ?? 4
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                print(BoardWindow.shared.snapshot(to: out) ? "shot saved \(out)" : "shot failed"); fflush(stdout)
-            }
-        }
-        NSApplication.shared.run()
-    }
 }
 
 // Test: ShoWorkAgent --board-act <approve|park|sendback|review> <sessionId> [文字]
@@ -335,23 +290,13 @@ MainActor.assumeIsolated {
                                                         object: nil, queue: .main) { _ in
         MainActor.assumeIsolated { SettingsPanel.shared.show() }
     }
-    DistributedNotificationCenter.default().addObserver(forName: Notification.Name("ai.okle42.showork.showBoard"),
-                                                        object: nil, queue: .main) { _ in
-        MainActor.assumeIsolated { BoardWindow.shared.show() }
-    }
     Arranger.shared.start()
     JobStore.appWrites = true
-    BoardModel.shared.start()          // 戰情中心的資料（審核、ctx 收尾）視窗沒開也要跑
+    BoardModel.shared.start()          // 背景功能（巡檢、自動收尾、交接 /clear、派工回報、答案卡送回、審核）：11-26 拿掉看板視窗後由這裡獨自啟動
     SphereWatch.shared.start()         // 球體 v4：今日時間軸紀錄＋需要你提醒（SphereWatch.swift）
     SphereMini.shared.restore()        // 桌面常駐小球：上次開著就照樣開（球體 v3 #7）
     BgJanitorRunner.shared.start()     // 11-22：空轉的背景 session（沒接過工作、閒置 10 分鐘）自動 claude stop（BgJanitorRunner.swift）
     WebServer.shared.start()           // 網頁版戰情中心：預設關，showork web enable 才開、只綁 Tailscale IP（WebServer.swift）
-    NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
-        MainActor.assumeIsolated { BoardWindow.terminating = true }
-    }
-    if BoardWindow.wasOpen {           // 上次開著 ⇒ 重啟後照樣打開（等 run loop 起來再開視窗，見已知坑 11）
-        DispatchQueue.main.async { MainActor.assumeIsolated { BoardWindow.shared.show() } }
-    }
     let server = Server { m in DispatchQueue.main.async { MainActor.assumeIsolated { engine.handle(m) } } }
     do { try server.start() } catch {
         FileHandle.standardError.write(Data("ShoWorkAgent: cannot open socket at \(Paths.socket.path): \(error)\n".utf8))

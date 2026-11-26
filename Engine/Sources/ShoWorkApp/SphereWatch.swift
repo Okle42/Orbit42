@@ -49,7 +49,7 @@ final class SphereWatch {
             last[sid] = nil
             lines.append(["at": Stamp.iso(now), "sid": sid, "status": "離線"])
         }
-        if !lines.isEmpty, !BoardWindow.testMode { append(lines) }
+        if !lines.isEmpty, !AppTest.mode { append(lines) }
         notifyAsks(people)
         primed = true
     }
@@ -68,7 +68,7 @@ final class SphereWatch {
         // 剛啟動時本來就在等的不提醒；小球關著不提醒（這是小球的功能，不另外吵人）
         guard primed, !fresh.isEmpty, SphereMini.shared.enabled else { return }
         SphereMini.shared.bounce()
-        if BoardWindow.testMode { return }
+        if AppTest.mode { return }
         for c in fresh.prefix(3) {
             let who = c.display
             let q = c.asks.first?.ask ?? c.permit.map { "要不要讓它執行 \($0.tool)：\($0.summary)" } ?? "在等你"
