@@ -40,6 +40,14 @@ The sphere slides aside and the satellite's terminal opens on the right. **Colla
 
 Press <kbd>⌘O</kbd> (or drop a file) to open STL, OBJ, PLY, USDZ and more in a small 3D window with the same title bar as a terminal. It can also open inside a satellite, so an agent's 3D output shows up next to its terminal.
 
+## A real Chrome inside a satellite
+
+<p align="center">
+  <img src="docs/images/orbit42-web.png" alt="A satellite window with a Chrome page on top (a demo pricing page) and the Claude Code terminal below it" width="420">
+</p>
+
+A satellite can open a web page above its terminal — a real Chrome running headless in the background, so the agent's preview sits right where it is working. It uses its own Chrome profile, separate from your everyday browser, and opens no network port.
+
 ## How it works
 
 ```mermaid

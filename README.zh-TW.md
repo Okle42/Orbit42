@@ -40,6 +40,14 @@
 
 按 <kbd>⌘O</kbd>（或把檔案拖進來）就能用 3D 小視窗打開 STL、OBJ、PLY、USDZ 等格式，標題列跟終端機一樣。也能直接開在衛星裡，AI 做出來的 3D 檔就在它的終端機旁邊看。
 
+## 衛星裡開真的 Chrome
+
+<p align="center">
+  <img src="docs/images/orbit42-web.png" alt="一顆衛星的視窗：上面是 Chrome 網頁（示範價目表），下面是 Claude Code 終端機" width="420">
+</p>
+
+衛星可以在終端機上方打開網頁——背景跑的是真的 Chrome（無頭模式），AI 做出來的預覽就在它工作的地方看。用自己的 Chrome 設定檔，跟你平常的瀏覽器分開，也不開任何網路埠。
+
 ## 怎麼運作
 
 ```mermaid
