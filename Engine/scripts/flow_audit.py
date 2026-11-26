@@ -87,6 +87,7 @@ def project_name(slug):
         if s.startswith(pre):
             s = s[len(pre):]
     s = re.sub(r"^-*wt-", "", s).strip("-")          # worktree 資料夾 _wt-xxx
+    s = re.sub(r"--claude-worktrees-.*$", "", s)      # Claude Code 開的 worktree 算回原專案
     return s or "（家目錄）"
 
 
@@ -165,7 +166,7 @@ def usage_today(days=1):
     start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
     cutoff = start.timestamp() - 3600
     files = [p for p in glob.glob(os.path.join(CLAUDE, "projects", "**", "*.jsonl"), recursive=True) if os.path.getmtime(p) >= cutoff]
-    seen, by_proj, tot = set(), {}, {"msgs": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0, "sub_cost": 0.0}
+    seen, by_proj, tot = set(), {}, {"msgs": 0, "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0, "sub_cost": 0.0, "cache_read_cost": 0.0}
     openers = []
     for p in files:
         rel = os.path.relpath(p, os.path.join(CLAUDE, "projects"))
@@ -200,6 +201,7 @@ def usage_today(days=1):
                     continue
                 seen.add(key)
                 c = cost_of(u, m.get("model"))
+                tot["cache_read_cost"] += u.get("cache_read_input_tokens", 0) * price(m.get("model"))[0] * 0.1 / 1e6
                 d = by_proj.setdefault(slug, {"cost": 0.0, "msgs": 0, "sub_cost": 0.0})
                 d["cost"] += c; d["msgs"] += 1
                 if is_sub:
@@ -473,7 +475,9 @@ def send(shared, text):
     part('Content-Disposition: form-data; name="payload_json"\r\nContent-Type: application/json',
          json.dumps({"content": head[:1990], "username": "流量自檢", "allowed_mentions": {"parse": []}}, ensure_ascii=False).encode())
     for i, (fn, data) in enumerate(files):
-        safe = re.sub(r"[^\w.\-]", "_", f"{shared['label']}-{shared['at'].replace(' ', '_').replace(':', '')}-{fn}")
+        # Discord 會把附件檔名裡的中文吃掉（機爵的變成「-2026-…」），檔名只放 ASCII；中文名改用代號，內文仍有原名
+        lab = shared["label"] if shared["label"].isascii() else code(shared["label"])
+        safe = re.sub(r"[^A-Za-z0-9_.\-]", "_", f"{lab}-{shared['at'].replace(' ', '_').replace(':', '')}-{fn}")
         part(f'Content-Disposition: form-data; name="files[{i}]"; filename="{safe}"\r\nContent-Type: application/octet-stream', data)
     body.extend(f"--{b}--\r\n".encode())
     url += ("&" if "?" in url else "?") + "wait=true"      # 等 Discord 回傳訊息，確認附件真的有上去
@@ -501,6 +505,15 @@ def advice(ss, tot, conf, rl, net):
     if big_idle:
         tips.append("閒置超過 1 小時、記憶量又大（≥150k）的 session：" + "、".join(f"{s['name']}（{fmt_tok(s['ctx'])}）" for s in big_idle[:5])
                     + "。快取過期後再問一句會整段重寫快取，最貴；不用了就 /clear 或關掉")
+    # 還在用、但記憶量已經很大的 session：每回一句都要重讀整段 context，是一天花費的大宗（11-26 三個 380k～620k 卻判成「沒浪費」）
+    big_live = [s for s in ss if s["ctx"] >= 300_000 and s not in big_idle and not s["cat"].startswith(("預備", "停放"))]
+    if big_live:
+        per = lambda s: s["ctx"] * DEFAULT_PRICE[0] * 0.1 / 1e6
+        tips.append("記憶量超過 300k、還在用的 session：" + "、".join(f"{s['name']}（{fmt_tok(s['ctx'])}，每回一句約 US${per(s):.2f}）" for s in big_live[:5])
+                    + "。一段工作做完就寫交接再 /clear，或 /compact，不要一直接著聊")
+    if tot["cost"] and tot.get("cache_read_cost", 0) / tot["cost"] > 0.6:
+        tips.append(f"今天花費有 {tot['cache_read_cost']/tot['cost']*100:.0f}%（US${tot['cache_read_cost']:.0f}）是在重讀快取：命中率高不代表省，是 session 拖太長；"
+                    "換主題就開新 session")
     if len(busy) >= 4:
         tips.append(f"同時有 {len(busy)} 個 session 在跑，額度消耗會疊加；不急的排隊做")
     if tot.get("cache_hit") is not None and tot["cache_hit"] < 0.8:
@@ -619,7 +632,11 @@ def main():
     rl = rate_limits()
     print(f"網路取樣 {a.net} 秒⋯", file=sys.stderr) if a.net else None
     net = network(a.net)
-    proj = sorted(((project_name(k), v) for k, v in by_proj.items()), key=lambda x: -x[1]["cost"])
+    merged = {}      # 不同資料夾可能對到同一個專案名（家目錄、worktree），合併成一列，免得代號重複出現
+    for k, v in by_proj.items():
+        d = merged.setdefault(project_name(k), {"cost": 0.0, "msgs": 0, "sub_cost": 0.0})
+        d["cost"] += v["cost"]; d["msgs"] += v["msgs"]; d["sub_cost"] += v["sub_cost"]
+    proj = sorted(merged.items(), key=lambda x: -x[1]["cost"])
     r = {"version": 1, "label": label, "at": datetime.now().strftime("%Y-%m-%d %H:%M"), "os": f"{platform.system()} {platform.release()}",
          "claude": {"rate_limits": rl, "sessions": ss, "today": tot, "by_project": [[n, v] for n, v in proj], "standing": conf},
          "network": net}
