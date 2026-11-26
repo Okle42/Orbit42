@@ -32,6 +32,14 @@ Part of the **42 series** by [Okle42](https://github.com/Okle42) · [繁體中�
 
 The sphere slides aside and the satellite's terminal opens on the right. **Collapse** hides the terminal while the satellite keeps working; **End** stops it (a pulled-in background session is only detached, never killed).
 
+## Open 3D models right in Orbit42
+
+<p align="center">
+  <img src="docs/images/orbit42-3d.png" alt="The 3D viewer window: a demo model of a ringed planet, with Isometric / Front / Right / Top / Wireframe buttons and size and face count at the bottom" width="420">
+</p>
+
+Press <kbd>⌘O</kbd> (or drop a file) to open STL, OBJ, PLY, USDZ and more in a small 3D window with the same title bar as a terminal. It can also open inside a satellite, so an agent's 3D output shows up next to its terminal.
+
 ## How it works
 
 ```mermaid
