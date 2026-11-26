@@ -472,6 +472,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         markSecretary()
         if w.isHidden || !w.wantShown { animate(w, on: true); autoArrange() } else { w.flash() }
         window.makeFirstResponder(w.content)
+        host.wakeIfHeadless(id)
     }
     /// 11-23 Keng「點左上角綠燈應該是完全關閉：按下去先跟我確認，確認後清掉整個內容再關掉」
     /// 確認 → host.end：掛斷終端機程式（Orbit42 開的 AI 會結束）、丟掉捲動紀錄與網頁視圖、從球上拿掉 → onRemoved 關小視窗。

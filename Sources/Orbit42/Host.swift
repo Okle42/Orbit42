@@ -8,6 +8,20 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     // 11-23 Keng「衛星終端機只能開一個視窗，要能開多個、重疊、移動」：
     // 每顆衛星自己一個網頁視圖（index.html?term=1&sat=<id>），各自裝在自己的小視窗裡
     private(set) var views: [String: DropWebView] = [:]
+    /// 11-26 Keng「版面嚴重變形、調不回來」：沒視窗先接上的背景 session（固定 110×36、網頁標成 headless 不再量欄數）
+    /// ⇒ 衛星視窗真的顯示出來時要叫網頁照視窗重新量一次（wakeIfHeadless）
+    private(set) var headless: Set<String> = []
+    /// 測試用（HeadlessWakeTest.swift）：照背景 session 沒視窗先接上那條路，把這顆標成 headless
+    func testMakeHeadless(_ id: String) {
+        guard let v = views[id] else { return }
+        sats[id]?.localResize(cols: 110, rows: 36)
+        Self.call(v, "window.orbitHeadless", [id, 110, 36]); headless.insert(id)
+    }
+    func wakeIfHeadless(_ id: String) {
+        guard headless.remove(id) != nil, let v = views[id] else { return }
+        Self.call(v, "window.orbitOpened", [id])      // openTerm → 等大小穩定 → headless=false → 照視窗量（已開過的程式不會再開一次）
+        print("wake headless \(id)"); fflush(stdout)
+    }
     private let files: WebFiles? = Host.webDir.map { WebFiles(root: $0) }
     private var sats: [String: Satellite] = [:]
     private var order: [String] = []
@@ -99,6 +113,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 try? await Task.sleep(for: .seconds(4))
                 guard let s, self?.sats[s.id] === s else { return }
                 Self.call(v, "window.orbitHeadless", [s.id, 110, 36])
+                self?.headless.insert(s.id)
                 Self.call(v, "window.orbitReplay", [s.id, s.snapshot().base64EncodedString()])
             }
         }
