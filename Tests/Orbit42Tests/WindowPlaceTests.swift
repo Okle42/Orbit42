@@ -1,6 +1,6 @@
 import AppKit
 import XCTest
-@testable import ShoWorkApp
+@testable import Orbit42App
 
 /// 視窗位置：只測計算與存取，不開視窗、不碰正式設定
 final class WindowPlaceTests: XCTestCase {

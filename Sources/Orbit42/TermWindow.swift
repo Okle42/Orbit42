@@ -1,6 +1,6 @@
 import WebKit
 import AppKit
-import ShoWorkCore
+import Orbit42Core
 
 /// A satellite's terminal as a small window inside Orbit42: title bar you can drag, macOS-style
 /// traffic lights in Okle42 colors (red = end, gray = tuck away, white = fill the screen),
@@ -130,7 +130,7 @@ final class TermWindowView: NSView {
         return (dark ? NSColor(white: 1, alpha: alpha)      /* 11-24 深色綠白對調：呼吸光原本綠 ⇒ 白 */ : NSColor(srgbRed: 1, green: 0.23, blue: 0.19, alpha: alpha)).cgColor
     }
 
-    /// 11-23 Keng：打開時邊框亮一下紅光（跟 ShoWork 光暈同一個感覺），0.9 秒淡掉
+    /// 11-23 Keng：打開時邊框亮一下紅光（跟 Orbit42 光暈同一個感覺），0.9 秒淡掉
     func flash() {
         guard let clip = clip.layer, let me = layer else { return }
         if secretary {

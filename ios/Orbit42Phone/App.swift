@@ -87,7 +87,7 @@ struct ConnectView: View {
     }
 
     func connect(_ s: String) {
-        guard let l = MacLink.parse(s) else { error = "網址不對：要是 showork web enable 印出來的那行（http://100.… 開頭，後面帶 ?t=）"; return }
+        guard let l = MacLink.parse(s) else { error = "網址不對：要是 orbit web enable 印出來的那行（http://100.… 開頭，後面帶 ?t=）"; return }
         error = nil; checking = true
         Task {
             do { _ = try await OrbitAPI(link: l).sats(); onLink(l) }

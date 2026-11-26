@@ -1,6 +1,6 @@
-﻿// ShoWork42 W2 驗收：全螢幕邊緣光。
-//   Sw42EdgeTest.exe <bin dir with ShoWorkAgent.exe + showork.exe> <result file>
-// 自己開一個私有 agent（SHOWORK_PIPE／SHOWORK_HOME／SHOWORK_STATUS_FILE）、一個 conhost 測試視窗、一個自己的無框全螢幕視窗。
+﻿// Orbit42 W2 驗收：全螢幕邊緣光。
+//   Sw42EdgeTest.exe <bin dir with Orbit42Agent.exe + orbit.exe> <result file>
+// 自己開一個私有 agent（ORBIT_PIPE／ORBIT_HOME／ORBIT_STATUS_FILE）、一個 conhost 測試視窗、一個自己的無框全螢幕視窗。
 // 規矩：只動自己開的視窗（白名單）；前後比對其他所有視窗的位置與大小；截圖只取邊緣附近幾個小方塊、只在記憶體裡看顏色。
 using System.Diagnostics;
 using System.Drawing;
@@ -20,11 +20,11 @@ static class EdgeTest
         // rearrange the user's terminals
         try
         {
-            var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ShoWork42", "settings.json");
+            var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Orbit42", "settings.json");
             if (File.Exists(real) && System.Text.Json.JsonDocument.Parse(File.ReadAllText(real)).RootElement
                     .TryGetProperty("general", out var g) && g.TryGetProperty("autoArrange", out var on) && on.GetBoolean())
             {
-                Console.WriteLine("拒絕執行：你自己的 ShoWork42 開著「自動排版」，請先在系統匣選單取消勾選。");
+                Console.WriteLine("拒絕執行：你自己的 Orbit42 開著「自動排版」，請先在系統匣選單取消勾選。");
                 return 2;
             }
         }
@@ -39,9 +39,9 @@ static class EdgeTest
         Process? agent = null, con = null; int cmdPid = 0;
         try
         {
-            var psi = new ProcessStartInfo(Path.Combine(bin, "ShoWorkAgent.exe")) { UseShellExecute = false };
-            psi.Environment["SHOWORK_PIPE"] = pipe; psi.Environment["SHOWORK_HOME"] = Path.Combine(work, "home");
-            psi.Environment["SHOWORK_STATUS_FILE"] = status; psi.Environment["SHOWORK_DEBUG"] = "1";
+            var psi = new ProcessStartInfo(Path.Combine(bin, "Orbit42Agent.exe")) { UseShellExecute = false };
+            psi.Environment["ORBIT_PIPE"] = pipe; psi.Environment["ORBIT_HOME"] = Path.Combine(work, "home");
+            psi.Environment["ORBIT_STATUS_FILE"] = status; psi.Environment["ORBIT_DEBUG"] = "1";
             agent = Process.Start(psi)!; mine.Add(agent.Id);
             Thread.Sleep(1500);
             Check("私有 agent 啟動", !agent.HasExited, $"pid={agent.Id}");
@@ -54,8 +54,8 @@ static class EdgeTest
 
             void Emit(string ev)
             {
-                var e = new ProcessStartInfo(Path.Combine(bin, "showork.exe"), $"emit {ev} --agent claude --pid {cmdPid}") { UseShellExecute = false, CreateNoWindow = true };
-                e.Environment["SHOWORK_PIPE"] = pipe;
+                var e = new ProcessStartInfo(Path.Combine(bin, "orbit.exe"), $"emit {ev} --agent claude --pid {cmdPid}") { UseShellExecute = false, CreateNoWindow = true };
+                e.Environment["ORBIT_PIPE"] = pipe;
                 Process.Start(e)!.WaitForExit();
             }
             Emit("done");

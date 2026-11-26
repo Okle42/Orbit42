@@ -1,13 +1,13 @@
 ﻿# W4：打包成單一 exe，放在 windows\dist\
-#   ShoWork42.exe        內含 .NET runtime（約 155 MB），下載就能用
-#   ShoWork42-small.exe  約 1.5 MB，需要先裝 .NET 8 Desktop Runtime（沒裝時 Windows 會跳出官方下載連結）
-# 兩個都內含原生版 showork.exe（hook 用），雙擊後會先問要不要安裝。
+#   Orbit42.exe        內含 .NET runtime（約 155 MB），下載就能用
+#   Orbit42-small.exe  約 1.5 MB，需要先裝 .NET 8 Desktop Runtime（沒裝時 Windows 會跳出官方下載連結）
+# 兩個都內含原生版 orbit.exe（hook 用），雙擊後會先問要不要安裝。
 # 需要：.NET 8 SDK、Visual Studio Build Tools（C++，NativeAOT 用）。
 # 用法：powershell -ExecutionPolicy Bypass -File pack.ps1 [-Version 0.5.1]
 param([string]$Version = '')
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$work = Join-Path $root 'ShoWork.Win\obj\pack'
+$work = Join-Path $root 'Orbit42.Engine.Win\obj\pack'
 $dist = Join-Path $root 'dist'
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $work, $dist | Out-Null
@@ -20,28 +20,28 @@ function Run-Dotnet([string[]]$a) {
   if ($LASTEXITCODE -ne 0) { throw "dotnet $($a -join ' ') failed ($LASTEXITCODE)" }
 }
 
-Write-Host '1/3 showork.exe（NativeAOT）' -ForegroundColor Cyan
-Run-Dotnet @('publish', "$root\showork\showork.csproj", '-c', 'Release', '-r', 'win-x64', '-o', "$work\cli")
-$cli = Join-Path $work 'cli\showork.exe'
+Write-Host '1/3 orbit.exe（NativeAOT）' -ForegroundColor Cyan
+Run-Dotnet @('publish', "$root\orbit\orbit.csproj", '-c', 'Release', '-r', 'win-x64', '-o', "$work\cli")
+$cli = Join-Path $work 'cli\orbit.exe'
 
 $variants = @(
-  @{ name = 'ShoWork42.exe'; selfContained = 'true' },
-  @{ name = 'ShoWork42-small.exe'; selfContained = 'false' }
+  @{ name = 'Orbit42.exe'; selfContained = 'true' },
+  @{ name = 'Orbit42-small.exe'; selfContained = 'false' }
 )
 $i = 1
 foreach ($v in $variants) {
   $i++
   Write-Host "$i/3 $($v.name)" -ForegroundColor Cyan
   $out = Join-Path $work $v.name
-  Run-Dotnet (@('publish', "$root\ShoWork.Win\ShoWork.Win.csproj", '-c', 'Release', '-r', 'win-x64', '--self-contained', $v.selfContained,
+  Run-Dotnet (@('publish', "$root\Orbit42.Engine.Win\Orbit42.Engine.Win.csproj", '-c', 'Release', '-r', 'win-x64', '--self-contained', $v.selfContained,
             '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=none',
-            "-p:PackShowork=$cli", '-o', $out) + $ver)
+            "-p:PackOrbit=$cli", '-o', $out) + $ver)
   $exe = @(Get-ChildItem $out -Filter *.exe)
   if ($exe.Count -ne 1) { throw "expected exactly one exe in $out, got: $($exe.Name -join ', ')" }
   Copy-Item $exe[0].FullName (Join-Path $dist $v.name) -Force
 }
 # the next normal build must not reuse the packed (resource-embedding) compile
-Remove-Item -Recurse -Force (Join-Path $root 'ShoWork.Win\obj\Release') -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $root 'Orbit42.Engine.Win\obj\Release') -ErrorAction SilentlyContinue
 
 $sums = foreach ($v in $variants) {
   $f = Get-Item (Join-Path $dist $v.name)

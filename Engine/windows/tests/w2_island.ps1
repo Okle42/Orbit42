@@ -1,12 +1,12 @@
-﻿# ShoWork42 Windows W2 驗收：系統匣動態島（彈出面板、膠囊通知、系統匣圖示脈動）
+﻿# Orbit42 Windows W2 驗收：系統匣動態島（彈出面板、膠囊通知、系統匣圖示脈動）
 # 只碰本腳本自己開的兩個測試主控台視窗和自己啟動的 agent（白名單）；其他視窗前後位置逐一比對。
 # 測試視窗用 SW_SHOWNOACTIVATE 開，不搶使用者的前景視窗。
-# 用法：powershell -ExecutionPolicy Bypass -File w2_island.ps1 -Agent <ShoWorkAgent.exe> -Out <資料夾>
+# 用法：powershell -ExecutionPolicy Bypass -File w2_island.ps1 -Agent <Orbit42Agent.exe> -Out <資料夾>
 param([string]$Agent, [string]$Out)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'guard.ps1')
 New-Item -ItemType Directory -Force $Out | Out-Null
-$showork = Join-Path (Split-Path $Agent) 'showork.exe'
+$orbit = Join-Path (Split-Path $Agent) 'orbit.exe'
 Add-Type -ReferencedAssemblies System.Drawing @'
 using System; using System.Runtime.InteropServices; using System.Collections.Generic; using System.Drawing; using System.Text;
 public static class T {
@@ -60,7 +60,7 @@ function Usage($secs) {
   $p = Get-Process -Id $agentProc.Id; $c1 = $p.TotalProcessorTime.TotalMilliseconds
   return @{ cpu = ($c1 - $c0) / ($secs * 10); ws = $p.WorkingSet64 / 1MB }       # % of one core
 }
-function Emit($ev, $target) { & $showork emit $ev --agent claude --pid $target }
+function Emit($ev, $target) { & $orbit emit $ev --agent claude --pid $target }
 function Pill { [T]::Find([uint32]$agentProc.Id, $true) }
 function Island { [T]::Find([uint32]$agentProc.Id, $false) }
 # fake a left click on our own tray icon: the NotifyIcon callback message to the agent's own windows
@@ -69,7 +69,7 @@ function PillCount { [regex]::Matches((Get-Content (Join-Path $home_ 'agent.log'
 
 $before = Snapshot
 $home_ = Join-Path $Out 'home'; New-Item -ItemType Directory -Force $home_ | Out-Null
-$env:SHOWORK_PIPE = "SW42-w2-island-$PID"; $env:SHOWORK_HOME = $home_; $env:SHOWORK_DEBUG = '1'; $env:SHOWORK_STATUS_FILE = Join-Path $Out 'status.json'
+$env:ORBIT_PIPE = "SW42-w2-island-$PID"; $env:ORBIT_HOME = $home_; $env:ORBIT_DEBUG = '1'; $env:ORBIT_STATUS_FILE = Join-Path $Out 'status.json'
 $agentProc = Start-Process $Agent -PassThru
 Start-Sleep 3
 $u = Usage 5

@@ -1,5 +1,5 @@
 import Foundation
-import ShoWorkCore
+import Orbit42Core
 
 /// Which AI runs inside a satellite. Each brain is the vendor's own official CLI agent,
 /// so login, tools and updates stay theirs (S2 turns this into a full adapter: status, resume, usage).

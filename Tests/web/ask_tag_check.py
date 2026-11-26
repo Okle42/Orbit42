@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""戰情列：Mac Orbit42（浮層活著）只留「● 等你答」，浮層掛了答案卡照畫；沒有浮層（手機、Windows、戰情中心）答案卡照舊。無頭 Chrome。"""
+"""戰情列：Mac Orbit42（浮層活著）只留「● 等你答」，浮層掛了答案卡照畫；沒有浮層（手機、Windows、Orbit42）答案卡照舊。無頭 Chrome。"""
 import functools, http.server, json, os, shutil, subprocess, sys, tempfile, threading
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Engine/windows/ShoWork.Win/Board/Web"))
+WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Engine/windows/Orbit42.Engine.Win/Board/Web"))
 JS = """<script type=module>
 const msgs = []; window.webkit = { messageHandlers: { sphere: { postMessage: m => msgs.push(m) } } };
 setTimeout(() => { let o = {}; try { if (new URLSearchParams(location.search).has("float")) window.karaAskFloat?.(true);

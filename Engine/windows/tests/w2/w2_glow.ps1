@@ -1,7 +1,7 @@
-# ShoWork42 W2: every glow style on a real window - CPU, memory, alignment, z-order, screenshots.
+# Orbit42 W2: every glow style on a real window - CPU, memory, alignment, z-order, screenshots.
 # Touches ONLY the two console windows this script opens (whitelist); every other visible window's rect is
 # compared before/after. Screenshots are taken only when every sample point of the rect is one of our windows.
-# Usage (interactive desktop): powershell -File w2_glow.ps1 -Agent <ShoWorkAgent.exe> -Work <temp dir> [-Seconds 10] [-Direction inward|outward]
+# Usage (interactive desktop): powershell -File w2_glow.ps1 -Agent <Orbit42Agent.exe> -Work <temp dir> [-Seconds 10] [-Direction inward|outward]
 # -Direction (settings.json general.direction; default inward): inward = the glow covers exactly the target's visible rect and
 # sits directly ABOVE it, click-through; outward = the glow frames the target with the same pad on every side, directly below it.
 param([string]$Agent, [string]$Work, [int]$Seconds = 10, [string]$Styles = 'breathe,orbit,ripple,drift,sparkle,aurora', [double]$Width = 1,
@@ -86,8 +86,8 @@ foreach ($style in $Styles.Split(',')) {
   New-Item -ItemType Directory -Force $home2 | Out-Null
   $j = '{"v":1,"looks":{"working":{"enabled":true,"hex":"#9E66FF","style":"' + $style + '","width":' + $Width + '}},"general":{"direction":"' + $Direction + '"}}'
   [IO.File]::WriteAllText("$home2\settings.json", $j)
-  $env:SHOWORK_HOME = $home2; $env:SHOWORK_DEBUG = '1'
-  $env:SHOWORK_PIPE = 'sw42-w2-glow-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+  $env:ORBIT_HOME = $home2; $env:ORBIT_DEBUG = '1'
+  $env:ORBIT_PIPE = 'sw42-w2-glow-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
   $ag = Start-Process $Agent -ArgumentList "--glow $($tgt.hwnd) working $($Seconds + 30)" -PassThru
   Start-Sleep 3
   $glows = [W2]::Of([uint32]$ag.Id)

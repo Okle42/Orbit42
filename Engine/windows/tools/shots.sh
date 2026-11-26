@@ -6,24 +6,24 @@
 #     --kit     改拍地基小測試場景（Mac --office-bench kit），輸出 sbs-kit-<day|night>.png，並印亮度探針對照
 #     --no-mac  不重跑 Mac（沿用資料夾裡已經有的 Mac 圖）
 #     --dump    兩邊都出 dump，跑 scene_diff（城市：--skip 還沒搬的子樹交給呼叫者自己加）
-#   環境變數 MAC_REPO＝Mac 版 worktree（預設 ~/github-repos/ShoWork42/.claude/worktrees/agent-ad77ee3f0de4c6495）
+#   環境變數 MAC_REPO＝Mac 版 worktree（預設 ~/github-repos/Orbit42/.claude/worktrees/agent-ad77ee3f0de4c6495）
 set -euo pipefail
 OUT="${1:?用法：shots.sh <輸出資料夾> [--kit] [--no-mac] [--dump]}"; shift
 KIT=0; MAC=1; DUMP=0
 for a in "$@"; do case "$a" in --kit) KIT=1;; --no-mac) MAC=0;; --dump) DUMP=1;; esac; done
 HERE="$(cd "$(dirname "$0")" && pwd)"
-MAC_REPO="${MAC_REPO:-$HOME/github-repos/ShoWork42/.claude/worktrees/agent-ad77ee3f0de4c6495}"
+MAC_REPO="${MAC_REPO:-$HOME/github-repos/Orbit42/.claude/worktrees/agent-ad77ee3f0de4c6495}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
 if [ $MAC = 1 ]; then
   (cd "$MAC_REPO" && swift build >/dev/null)
   if [ $KIT = 1 ]; then
-    (cd "$MAC_REPO" && SHOWORK_SCENE_DUMP="$OUT" .build/debug/ShoWorkAgent --office-bench kit | grep -E "shot|dump" || true)
+    (cd "$MAC_REPO" && ORBIT_SCENE_DUMP="$OUT" .build/debug/Orbit42Agent --office-bench kit | grep -E "shot|dump" || true)
   else
-    if [ $DUMP = 1 ]; then export SHOWORK_SCENE_DUMP="$OUT"; fi
-    (cd "$MAC_REPO" && SHOWORK_BENCH_DIR="$OUT" .build/debug/ShoWorkAgent --office-bench city 1 | grep -E "city shot|dump" || true)
-    unset SHOWORK_SCENE_DUMP
+    if [ $DUMP = 1 ]; then export ORBIT_SCENE_DUMP="$OUT"; fi
+    (cd "$MAC_REPO" && ORBIT_BENCH_DIR="$OUT" .build/debug/Orbit42Agent --office-bench city 1 | grep -E "city shot|dump" || true)
+    unset ORBIT_SCENE_DUMP
   fi
 fi
 

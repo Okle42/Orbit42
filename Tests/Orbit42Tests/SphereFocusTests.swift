@@ -1,14 +1,14 @@
 import AppKit
 import WebKit
 import XCTest
-@testable import ShoWorkApp
+@testable import Orbit42App
 
 /// 11-25 Keng「打字跟語音輸入有東西在干擾我」：球體每次更新都把焦點還給戰情列上次點過的那一列，
 /// 網頁的 focus() 會讓 WebKit 把整個視窗的鍵盤焦點從終端機搶走，聽寫就被系統暫停（T1125204651）
 @MainActor
 final class SphereFocusTests: XCTestCase {
     func testUpdateNeverStealsFocus() async throws {
-        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Engine/windows/ShoWork.Win/Board/Web").standardizedFileURL
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Engine/windows/Orbit42.Engine.Win/Board/Web").standardizedFileURL
         let cfg = WKWebViewConfiguration(); cfg.setURLSchemeHandler(WebSchemeHandler(root: dir), forURLScheme: WebSchemeHandler.scheme)
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled], backing: .buffered, defer: true); w.isReleasedWhenClosed = false
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800)); w.contentView = root

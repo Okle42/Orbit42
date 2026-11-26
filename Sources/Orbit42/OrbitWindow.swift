@@ -1,9 +1,9 @@
 import AppKit
 import WebKit
-import ShoWorkApp
-import ShoWorkCore
+import Orbit42App
+import Orbit42Core
 
-/// Orbit42 主視窗：整個 ShoWork 球體（播報、空白鍵講話、量表、自檢、cool42…）＋右邊滑出的衛星終端機
+/// Orbit42 主視窗：整個 Orbit42 球體（播報、空白鍵講話、量表、自檢、cool42…）＋右邊滑出的衛星終端機
 @MainActor
 final class OrbitWindow: NSObject, NSWindowDelegate {
     static let shared = OrbitWindow()
@@ -15,11 +15,11 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     private var askTimer: Timer?
     private var loginWatch: NSKeyValueObservation?
     private var webWatch: Timer?
-    /// 11-23 Keng「Orbit42 改檔自動重新載入，免重開」：每秒看球體頁（Web/sphere.html，SHOWORK_WEB_DIR 優先）的修改時間，
+    /// 11-23 Keng「Orbit42 改檔自動重新載入，免重開」：每秒看球體頁（Web/sphere.html，ORBIT_WEB_DIR 優先）的修改時間，
     /// 變了且連續 2 次一樣（檔案寫完）才 reload 球體 WebView；資料下一秒由宿主重推，版面在 localStorage。衛星終端機不動。
     private func watchSphereFile() {
         let env = ProcessInfo.processInfo.environment
-        let dir = env["SHOWORK_WEB_DIR"].map { URL(fileURLWithPath: $0) } ?? Bundle.main.resourceURL?.appendingPathComponent("Web")
+        let dir = env["ORBIT_WEB_DIR"].map { URL(fileURLWithPath: $0) } ?? Bundle.main.resourceURL?.appendingPathComponent("Web")
         guard let file = dir?.appendingPathComponent("sphere.html").path else { return }
         let mtime = { (try? FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date) ?? nil }
         var loaded = mtime(), seen = loaded
@@ -124,7 +124,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         host.startTimers()
         SphereEmbed.typeAnswer = { [weak self] sid, text, still, done in self?.host.typeAnswer(sid, text, still: still, done: done) ?? false }
         SphereEmbed.typeClear = { [weak self] sid, still, done in self?.host.typeClear(sid, still: still, done: done) ?? false }
-        host.registerRemote()                 // 11-23 iPhone App：衛星清單與畫面（ShoWork 網頁伺服器唯讀端點）
+        host.registerRemote()                 // 11-23 iPhone App：衛星清單與畫面（Orbit42 網頁伺服器唯讀端點）
         if ProcessInfo.processInfo.environment["ORBIT_TEST_RESTORE"] == "load" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in MainActor.assumeIsolated { self?.host.restore() } }
         }

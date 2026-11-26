@@ -1,5 +1,5 @@
 import XCTest
-@testable import ShoWorkApp
+@testable import Orbit42App
 
 /// 審核員（Tools.run 帶 stdin）：對方沒讀完就結束，不可以讓整個 App 被 SIGPIPE 或例外結束
 final class ToolsStdinTests: XCTestCase {

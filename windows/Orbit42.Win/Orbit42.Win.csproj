@@ -15,14 +15,14 @@
     <Description>Orbit42：球體是桌面，每個 AI 是一顆有自己真終端機的衛星</Description>
     <InvariantGlobalization>true</InvariantGlobalization>
     <ApplicationIcon>Orbit42.ico</ApplicationIcon>
-    <!-- ShoWork.Win 引用的 showork.exe（hook CLI）是獨立式；Orbit42 只是把它一起帶著，不呼叫它的程式碼 ⇒ 不檢查（NETSDK1151） -->
+    <!-- Orbit42.Engine.Win 引用的 orbit.exe（hook CLI）是獨立式；Orbit42 只是把它一起帶著，不呼叫它的程式碼 ⇒ 不檢查（NETSDK1151） -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
-    <!-- 引擎和球體（2026-11-24 起在這個 repo 的 Engine，不再找旁邊的 ShoWork42） -->
-    <ShoWork42Dir Condition="'$(ShoWork42Dir)' == ''">$(MSBuildThisFileDirectory)..\..\Engine</ShoWork42Dir>
+    <!-- 引擎和球體（2026-11-24 起在這個 repo 的 Engine，不再找旁邊的 Orbit42） -->
+    <Orbit42Dir Condition="'$(Orbit42Dir)' == ''">$(MSBuildThisFileDirectory)..\..\Engine</Orbit42Dir>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="$(ShoWork42Dir)\windows\ShoWork.Win\ShoWork.Win.csproj" />
+    <ProjectReference Include="$(Orbit42Dir)\windows\Orbit42.Engine.Win\Orbit42.Engine.Win.csproj" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
   </ItemGroup>
   <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">

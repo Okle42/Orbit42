@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- window rects in physical pixels on every monitor, like the Mac version's points-everywhere -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>Orbit42Agent</AssemblyName>
+    <RootNamespace>Orbit42</RootNamespace>
+    <!-- shown in Settings → Apps and the file's properties; pack.ps1 can override Version -->
+    <Version>0.5.1</Version>
+    <Product>Orbit42</Product>
+    <AssemblyTitle>Orbit42</AssemblyTitle>
+    <Description>Orbit42：終端機裡的 AI 在工作、做完了、在等你回答時，視窗外圍發光</Description>
+    <ApplicationIcon>Orbit42.ico</ApplicationIcon>
+    <!-- a resident tray agent: small footprint over peak throughput (idle target < 60 MB) -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\Wire.cs" Link="Wire.cs" />
+    <!-- 11-02 P8：Orbit42的動作要用 hook 端已轉寫的 Peer（收件匣直送）、CaptainInbox（放行／事先放行）、Nickname、PushGuard：
+         直接連原始檔（namespace Orbit42.Hooks；orbit.exe 那份是 internal，不會撞名） -->
+    <Compile Include="..\orbit\Core\*.cs" LinkBase="Hooks" />
+    <!-- orbit.exe (the hook CLI and console helper) must sit next to Orbit42Agent.exe -->
+    <ProjectReference Include="..\orbit\orbit.csproj" Condition="'$(PackOrbit)' == ''" />
+    <!-- W4 packaging (pack.ps1): the native orbit.exe rides inside the single Orbit42.exe and is written
+         next to the installed agent at install time -->
+    <EmbeddedResource Include="$(PackOrbit)" LogicalName="orbit.exe" Condition="'$(PackOrbit)' != ''" />
+  </ItemGroup>
+
+  <!-- W6 3D office tower: WebView2 (Win11 ships the runtime; missing runtime falls back to the card view) -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+  </ItemGroup>
+  <!-- the package always references its WPF wrapper too (WindowsBase 4 vs 5 warning, ~extra dll in the output);
+       this is a WinForms app, drop it -->
+  <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+  <!-- the page (three.js r170 vendored, no CDN): copied next to the exe for normal builds, and embedded so the
+       single-file / installed exe can extract it to %LOCALAPPDATA%\Orbit42\office-web\ (OfficeHost.WebFolder) -->
+  <ItemGroup>
+    <None Remove="Board\Web\**" />
+    <!-- Board\Web\bench：Mac／JS 3D 量尺頁（開發用，不出貨） -->
+    <Content Include="Board\Web\**" Exclude="Board\Web\bench\**" Link="Web\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+    <EmbeddedResource Include="Board\Web\**" Exclude="Board\Web\bench\**" LogicalName="Web/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Release: replace the copied .NET orbit.exe with the native one. Without VS Build Tools this only warns
+       and the .NET build stays (it works, it is just ~70 ms slower per hook). -->
+  <Target Name="NativeOrbit" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And '$(SkipNativeOrbit)' != 'true' And '$(PackOrbit)' == ''">
+    <!-- the AOT linker finds MSVC through vswhere.exe, which is not on PATH until the next sign-in -->
+    <Exec Command="set &quot;PATH=$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer%3B%PATH%&quot; &amp;&amp; dotnet publish &quot;$(MSBuildThisFileDirectory)..\orbit\orbit.csproj&quot; -c Release -r win-x64 -o &quot;$(MSBuildThisFileDirectory)obj\orbit-aot&quot; -nologo -v q"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="NativeOrbitExit" />
+    </Exec>
+    <Copy Condition="'$(NativeOrbitExit)' == '0'" SourceFiles="$(MSBuildThisFileDirectory)obj\orbit-aot\orbit.exe" DestinationFolder="$(OutDir)" />
+    <Warning Condition="'$(NativeOrbitExit)' != '0'" Text="native orbit.exe not built (VS Build Tools C++ missing?); keeping the .NET one" />
+  </Target>
+
+</Project>

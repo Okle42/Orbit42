@@ -1,6 +1,6 @@
-﻿# ShoWork42 Windows W1 驗收：真實 Claude Code 在 conhost 與 Windows Terminal 各跑一個
+﻿# Orbit42 Windows W1 驗收：真實 Claude Code 在 conhost 與 Windows Terminal 各跑一個
 #
-# 前提：已執行 ShoWorkAgent.exe --install（hooks 在 settings.json、binaries 在 %LOCALAPPDATA%\ShoWork42\bin），
+# 前提：已執行 Orbit42Agent.exe --install（hooks 在 settings.json、binaries 在 %LOCALAPPDATA%\Orbit42\bin），
 #       windows\tests\Sw42Probe 已 build（Release）。
 # 用法：powershell -ExecutionPolicy Bypass -File w1_e2e.ps1 [-Out w1_result.txt] [-Model haiku]
 #
@@ -19,11 +19,11 @@ public static class W {
   [DllImport("user32.dll")] public static extern void keybd_event(byte k, byte s, uint f, UIntPtr e);
 }
 '@
-$bin = Join-Path $env:LOCALAPPDATA 'ShoWork42\bin'
-$agentExe = Join-Path $bin 'ShoWorkAgent.exe'
-$showork = Join-Path $bin 'showork.exe'
+$bin = Join-Path $env:LOCALAPPDATA 'Orbit42\bin'
+$agentExe = Join-Path $bin 'Orbit42Agent.exe'
+$orbit = Join-Path $bin 'orbit.exe'
 $probe = Join-Path $PSScriptRoot 'Sw42Probe\bin\Release\net8.0-windows\Sw42Probe.exe'
-foreach ($f in $agentExe, $showork, $probe) { if (-not (Test-Path $f)) { throw "missing $f" } }
+foreach ($f in $agentExe, $orbit, $probe) { if (-not (Test-Path $f)) { throw "missing $f" } }
 $work = Join-Path $env:TEMP ('sw42-e2e-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Force "$work\home", "$work\conhost", "$work\wt" | Out-Null
 $fso = New-Object -ComObject Scripting.FileSystemObject
@@ -48,28 +48,28 @@ function Windows {
   return $m
 }
 
-Write-Host '=== ShoWork42 W1 驗收 ===' -ForegroundColor Cyan
+Write-Host '=== Orbit42 W1 驗收 ===' -ForegroundColor Cyan
 Write-Host '會開一個 conhost 視窗和一個 Windows Terminal 視窗各跑一個 Claude（Haiku），約 3–4 分鐘。你的其他視窗不會被動到。'
 
 # ---- 0. 其他視窗的位置（agent 停掉之後拍，光暈不算）
-Get-Process ShoWorkAgent -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process Orbit42Agent -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 800
 $keepFront = [W]::GetForegroundWindow()
 $before = Windows
 
 # ---- 驗收 2：agent 沒在跑時 emit，20 次都 exit 0 且 < 200 ms
-$direct = 1..20 | ForEach-Object { Run $showork 'emit working --agent claude' }
+$direct = 1..20 | ForEach-Object { Run $orbit 'emit working --agent claude' }
 $maxDirect = ($direct | ForEach-Object { $_.ms } | Measure-Object -Maximum).Maximum
 Check 'emit（agent 沒跑）20 次都 exit 0' (@($direct | Where-Object { $_.code -ne 0 }).Count -eq 0)
 Check ('emit（agent 沒跑）最大 {0:N0} ms < 200 ms' -f $maxDirect) ($maxDirect -lt 200) ('全部：' + (($direct | ForEach-Object { [int]$_.ms }) -join ' '))
 $bash = $env:CLAUDE_CODE_GIT_BASH_PATH; if (-not $bash) { $bash = 'C:\Program Files\Git\bin\bash.exe' }
-$viaBash = 1..10 | ForEach-Object { Run $bash ('-c "\"' + $showork.Replace('\', '/') + '\" emit working --agent claude"') }
-Metric 'hook 實際路徑（Git Bash + showork.exe）最大 ms' ('{0:N0}（全部 {1}；exit {2}）' -f ($viaBash | ForEach-Object { $_.ms } | Measure-Object -Maximum).Maximum, (($viaBash | ForEach-Object { [int]$_.ms }) -join ' '), (($viaBash | ForEach-Object { $_.code } | Sort-Object -Unique) -join ','))
+$viaBash = 1..10 | ForEach-Object { Run $bash ('-c "\"' + $orbit.Replace('\', '/') + '\" emit working --agent claude"') }
+Metric 'hook 實際路徑（Git Bash + orbit.exe）最大 ms' ('{0:N0}（全部 {1}；exit {2}）' -f ($viaBash | ForEach-Object { $_.ms } | Measure-Object -Maximum).Maximum, (($viaBash | ForEach-Object { [int]$_.ms }) -join ' '), (($viaBash | ForEach-Object { $_.code } | Sort-Object -Unique) -join ','))
 
 # ---- agent（同一個 binary，加上狀態檔與記錄檔）
-$env:SHOWORK_HOME = "$work\home"; $env:SHOWORK_DEBUG = '1'; $env:SHOWORK_STATUS_FILE = "$work\home\status.json"
+$env:ORBIT_HOME = "$work\home"; $env:ORBIT_DEBUG = '1'; $env:ORBIT_STATUS_FILE = "$work\home\status.json"
 $agent = Start-Process $agentExe -PassThru
-Remove-Item Env:SHOWORK_HOME, Env:SHOWORK_DEBUG, Env:SHOWORK_STATUS_FILE
+Remove-Item Env:ORBIT_HOME, Env:ORBIT_DEBUG, Env:ORBIT_STATUS_FILE
 $log = "$work\home\agent.log"
 function Status {
   for ($i = 0; $i -lt 20; $i++) { try { return Get-Content "$work\home\status.json" -Raw -ErrorAction Stop | ConvertFrom-Json } catch { Start-Sleep -Milliseconds 50 } }
@@ -92,7 +92,7 @@ function Events($claudePid) {
 if (-not (WaitUntil { Test-Path "$work\home\status.json" } 10000)) { throw 'agent did not start' }
 
 # ---- 開兩個 Claude（不讓它們繼承本機 Claude 工作階段的環境變數）
-Get-ChildItem Env: | Where-Object { ($_.Name -like 'CLAUDE*' -and $_.Name -ne 'CLAUDE_CODE_GIT_BASH_PATH') -or $_.Name -like 'SHOWORK*' } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
+Get-ChildItem Env: | Where-Object { ($_.Name -like 'CLAUDE*' -and $_.Name -ne 'CLAUDE_CODE_GIT_BASH_PATH') -or $_.Name -like 'ORBIT*' } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $t0 = Get-Date
 $con = Start-Process conhost.exe -ArgumentList "cmd /c claude --model $Model" -WorkingDirectory "$work\conhost" -PassThru
 $wtDir = $fso.GetFolder("$work\wt").ShortPath
@@ -113,7 +113,7 @@ Check 'WT 裡的 Claude 啟動' ([bool]$PidB) "pid=$PidB"
 if (-not ($PidA -and $PidB)) { throw 'Claude did not start' }
 
 # 各自的視窗（白名單）：conhost = 主控台視窗；WT = 假視窗的 owner，而且必須是這次新開的視窗
-function ConsoleOf($p) { $l = & $showork console $p; [IntPtr][long](($l -split "`t")[1]) }
+function ConsoleOf($p) { $l = & $orbit console $p; [IntPtr][long](($l -split "`t")[1]) }
 $winA = ConsoleOf $PidA
 $winB = [W]::GetWindow((ConsoleOf $PidB), 4)
 Check 'conhost 視窗找得到' ($winA -ne [IntPtr]::Zero) "hwnd=$winA"

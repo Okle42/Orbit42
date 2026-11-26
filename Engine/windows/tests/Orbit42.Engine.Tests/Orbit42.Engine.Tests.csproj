@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- the geometry is pure: link the source instead of referencing the WinForms agent -->
+    <Compile Include="..\..\Orbit42.Engine.Win\LayoutPlan.cs" Link="LayoutPlan.cs" />
+    <!-- Orbit42的規則與讀檔也都不碰 WinForms：直接連原始檔 -->
+    <Compile Include="..\..\Orbit42.Engine.Win\Board\*.cs" LinkBase="Board" />
+    <!-- 11-02 P8：Mac Orbit42Core 的大樓／城市核心轉寫（Core）與 Windows 的資料來源（Source）：都不碰 WinForms -->
+    <Compile Include="..\..\Orbit42.Engine.Win\Board\Core\*.cs" LinkBase="Board\Core" />
+    <Compile Include="..\..\Orbit42.Engine.Win\Board\Source\*.cs" LinkBase="Board\Source" />
+    <Compile Include="..\..\Orbit42.Engine.Win\Log.cs" Link="Log.cs" />
+    <Compile Include="..\..\Orbit42.Engine.Win\WorkState.cs" Link="WorkState.cs" />
+    <Compile Include="..\..\Shared\Wire.cs" Link="Wire.cs" />
+    <!-- W5 hook 端（orbit card／title／guard-push）：純邏輯都在 orbit\Core，HookCli 只讀寫 stdin／stdout -->
+    <Compile Include="..\..\orbit\Core\*.cs" LinkBase="Hooks" />
+    <Compile Include="..\..\orbit\HookCli.cs" Link="Hooks\HookCli.cs" />
+    <Compile Include="..\..\Orbit42.Engine.Win\InstallerHooks.cs" Link="InstallerHooks.cs" />
+    <!-- 打字進終端機：純邏輯部分（按鍵、找目標、能不能送）；Win32 呼叫只宣告不執行 -->
+    <Compile Include="..\..\Orbit42.Engine.Win\TermSend.cs" Link="TermSend.cs" />
+    <!-- 11-02 自動交接的看板端（收尾完送 /clear、再打接手）＋寫名冊：不碰 WinForms，送字換成假的測 -->
+    <Compile Include="..\..\Orbit42.Engine.Win\HandoverClear.cs" Link="HandoverClear.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>

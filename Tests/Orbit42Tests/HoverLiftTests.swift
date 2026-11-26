@@ -1,5 +1,5 @@
 import XCTest
-@testable import ShoWorkApp
+@testable import Orbit42App
 
 final class HoverLiftTests: XCTestCase {
     func run(_ h: inout HoverLift, _ xs: [(Double, String?)], inside: Bool = true, paused: Bool = false) -> [String?] {

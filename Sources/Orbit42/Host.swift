@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
-import ShoWorkApp
-import ShoWorkCore
+import Orbit42App
+import Orbit42Core
 
 @MainActor
 final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
@@ -270,7 +270,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return v
     }
 
-    /// 11-23 iPhone App（經 ShoWork 網頁伺服器：Tailscale＋token，唯讀）：衛星清單與畫面
+    /// 11-23 iPhone App（經 Orbit42 網頁伺服器：Tailscale＋token，唯讀）：衛星清單與畫面
     func registerRemote() {
         SphereEmbed.remoteSats = { [weak self] in
             // 附上 Claude 的 session id（手機點球上的 session 時，用這個對到是哪顆衛星）
@@ -344,7 +344,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     static var webDir: URL? {
         var c: [URL] = []
-        if let r = Bundle.main.resourceURL { c.append(r.appendingPathComponent("OrbitWeb")) }   // Orbit42.app：Resources/OrbitWeb（Resources/Web 放 ShoWork 的球體網頁）
+        if let r = Bundle.main.resourceURL { c.append(r.appendingPathComponent("OrbitWeb")) }   // Orbit42.app：Resources/OrbitWeb（Resources/Web 放 Orbit42 的球體網頁）
         c.append(URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Web"))
         return c.first { FileManager.default.fileExists(atPath: $0.appendingPathComponent("index.html").path) }
     }
@@ -442,7 +442,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         add(s); onOpen(s.id); return s.id
     }
 
-    // MARK: 球體（ShoWork 完整球體）→ 這裡
+    // MARK: 球體（Orbit42 完整球體）→ 這裡
     /// ＋ 新衛星
     func newSatellite(_ brain: String) {
         userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "new", "brain": brain]))

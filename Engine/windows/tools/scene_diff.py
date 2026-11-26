@@ -5,7 +5,7 @@
     --only  只比方塊／geometry 路徑以這個開頭的（燈光、鏡頭照比）
     --skip  整棵子樹不比（方塊、geometry、燈光、被藏的節點都略過），逗號分隔；例：--skip basement（B1 還沒搬）
 
-dump 格式見 Mac Sources/ShoWorkAgent/SceneDump.swift 與 Web/kit.js walkScene()。比的東西：
+dump 格式見 Mac Sources/Orbit42Agent/SceneDump.swift 與 Web/kit.js walkScene()。比的東西：
   方塊（VoxelMesh）：世界座標中心、大小、yaw 配對（容差 0.011 公尺、yaw 0.002 弧度；yaw 先正規化到 [0, π/2)，轉 90° 的長寬互換），
                      配到之後再比材質（側面、頂面、底面）與 hidden。
   其他 geometry（SCNPlane、SCNBox…）：型別＋位置＋尺寸參數。

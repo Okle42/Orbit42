@@ -1,7 +1,7 @@
-﻿# ShoWork42 W2 驗收：設定視窗（UI Automation 操作）→ 光暈即時套用、關掉的狀態改亮下一個、settings.json 來回。
+﻿# Orbit42 W2 驗收：設定視窗（UI Automation 操作）→ 光暈即時套用、關掉的狀態改亮下一個、settings.json 來回。
 # 只動本腳本自己開的主控台視窗與自己的 agent（獨立 pipe／資料夾）；其他視窗前後比對位置。
 # 不碰「開機時啟動」（會寫使用者的 HKCU Run），只檢查它顯示的跟登錄檔一致。
-# 用法：powershell -File w2_settings.ps1 -Agent <ShoWorkAgent.exe> -Work <暫存資料夾>
+# 用法：powershell -File w2_settings.ps1 -Agent <Orbit42Agent.exe> -Work <暫存資料夾>
 param([string]$Agent, [string]$Work)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..\guard.ps1')
@@ -54,14 +54,14 @@ function Status { try { Get-Content "$Work\status.json" -Raw | ConvertFrom-Json 
 function GlowState { $s = Status; if ($s -and $s.glows) { ($s.glows | Select-Object -First 1).state } else { 'none' } }
 function Settings { Get-Content "$Work\settings.json" -Raw | ConvertFrom-Json }
 function Send($ev, $procId) {
-  $p = New-Object System.IO.Pipes.NamedPipeClientStream('.', $env:SHOWORK_PIPE, [System.IO.Pipes.PipeDirection]::Out)
+  $p = New-Object System.IO.Pipes.NamedPipeClientStream('.', $env:ORBIT_PIPE, [System.IO.Pipes.PipeDirection]::Out)
   $p.Connect(2000)
   $b = [Text.Encoding]::UTF8.GetBytes('{"v":1,"event":"' + $ev + '","agent":"claude","pid":' + $procId + '}' + "`n")
   $p.Write($b, 0, $b.Length); $p.Dispose()
 }
 function StartAgent([bool]$settings) {
   # opened 4 s after start, the way a user opens it from the tray (not in the middle of the agent's own start-up)
-  $env:SHOWORK_OPEN_SETTINGS = $(if ($settings) { '4' } else { '' })
+  $env:ORBIT_OPEN_SETTINGS = $(if ($settings) { '4' } else { '' })
   $p = Start-Process $Agent -PassThru
   Start-Sleep 3
   return $p
@@ -69,18 +69,18 @@ function StartAgent([bool]$settings) {
 function SettingsWindow($p) {
   $c = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $p.Id)
   for ($i = 0; $i -lt 20; $i++) {
-    foreach ($w in $A::RootElement.FindAll($TP::Children, $c)) { if ($w.Current.Name -like 'ShoWork42*') { return $w } }
+    foreach ($w in $A::RootElement.FindAll($TP::Children, $c)) { if ($w.Current.Name -like 'Orbit42*') { return $w } }
     Start-Sleep -Milliseconds 250
   }
   throw 'settings window not found'
 }
 
-$env:SHOWORK_PIPE = 'sw42-w2-set-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
-$env:SHOWORK_HOME = $Work
-$env:SHOWORK_STATUS_FILE = "$Work\status.json"
-$env:SHOWORK_DEBUG = '1'
+$env:ORBIT_PIPE = 'sw42-w2-set-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+$env:ORBIT_HOME = $Work
+$env:ORBIT_STATUS_FILE = "$Work\status.json"
+$env:ORBIT_DEBUG = '1'
 # the test turns 自動排版 on: with ONLY_LISTED and no ONLY_WIDS the arranger has no candidates (never the user's terminals)
-$env:SHOWORK_ARRANGE_ONLY_LISTED = '1'
+$env:ORBIT_ARRANGE_ONLY_LISTED = '1'
 $before = [W2]::AllRects(@())
 
 # a console with two AI stand-ins (the shell and a child sharing its console)
@@ -97,7 +97,7 @@ function Invoke($root, $name) {
   Start-Sleep -Milliseconds 400
 }
 function Shot($p, $file) {
-  $h = [W2]::Of([uint32]$p.Id) | Where-Object { [W2]::Title($_) -like 'ShoWork42*' } | Select-Object -First 1
+  $h = [W2]::Of([uint32]$p.Id) | Where-Object { [W2]::Title($_) -like 'Orbit42*' } | Select-Object -First 1
   if ($h) { [W2]::Shot($h, (Join-Path $Work $file)) }
 }
 Add-Type @"
@@ -161,7 +161,7 @@ try {
   Check 'settings.json: working untouched' (($s.looks.working.style -eq 'breathe') -and ($s.looks.working.hex -eq '#9E66FF')) ($s.looks.working | ConvertTo-Json -Compress)
   Check 'settings.json: autoArrange on' ($s.general.autoArrange -eq $true) ($s.general | ConvertTo-Json -Compress)
   Check 'settings.json: direction outward' ($s.general.direction -eq 'outward') ($s.general | ConvertTo-Json -Compress)
-  $runKey = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).ShoWork42
+  $runKey = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).Orbit42
   Check '開機時啟動 shows the registry state (not changed by the test)' ((ToggleState $win '開機時啟動') -eq $(if ($runKey) { 'On' } else { 'Off' })) ''
 
   $ag.Refresh()
@@ -171,7 +171,7 @@ try {
   $win.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close(); Start-Sleep 3
   $ag.Refresh(); $closedWs = $ag.WorkingSet64 / 1MB
   Write-Host ('  info: working set after closing it {0:N1} MB' -f $closedWs)
-  Check 'settings window closed (disposed)' (@([W2]::Of([uint32]$ag.Id) | Where-Object { [W2]::Title($_) -like 'ShoWork42*' }).Count -eq 0) ''
+  Check 'settings window closed (disposed)' (@([W2]::Of([uint32]$ag.Id) | Where-Object { [W2]::Title($_) -like 'Orbit42*' }).Count -eq 0) ''
   Check 'glow kept its new look after closing' ((GlowState) -eq 'done') (GlowState)
   Stop-Process -Id $ag.Id; Start-Sleep 1
 

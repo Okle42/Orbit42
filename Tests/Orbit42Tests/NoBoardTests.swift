@@ -1,15 +1,15 @@
 import AppKit
 import WebKit
 import XCTest
-@testable import ShoWorkApp
-@testable import ShoWorkCore
+@testable import Orbit42App
+@testable import Orbit42Core
 
 /// 11-26 第一階段 A＋B：拿掉看板視窗（BoardWindow），操作搬進衛星右鍵選單／＋ 新衛星／設定窗；背景功能照跑
 @MainActor
 final class NoBoardTests: XCTestCase {
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../..").standardizedFileURL
     static func src(_ p: String) throws -> String { try String(contentsOf: root.appendingPathComponent(p), encoding: .utf8) }
-    static let app = "Engine/Sources/" + (FileManager.default.fileExists(atPath: root.appendingPathComponent("Engine/Sources/Orbit42App").path) ? "Orbit42App" : "ShoWorkApp")
+    static let app = "Engine/Sources/" + (FileManager.default.fileExists(atPath: root.appendingPathComponent("Engine/Sources/Orbit42App").path) ? "Orbit42App" : "Orbit42App")
 
     /// 看板視窗整檔刪掉、入口全拔
     func testBoardWindowGone() throws {
@@ -17,8 +17,8 @@ final class NoBoardTests: XCTestCase {
         let main = try Self.src(Self.app + "/AgentMain.swift"), menu = try Self.src(Self.app + "/Arranger.swift")
         XCTAssertFalse(main.contains("--board-window"), "測試模式 --board-window 要拿掉")
         XCTAssertFalse(main.contains("showBoard"), "showBoard 通知要拿掉")
-        XCTAssertFalse(menu.contains("openBoard"), "選單「…戰情中心」要拿掉")
-        let html = try Self.src("Engine/windows/" + (FileManager.default.fileExists(atPath: Self.root.appendingPathComponent("Engine/windows/Orbit42.Engine.Win").path) ? "Orbit42.Engine.Win" : "ShoWork.Win") + "/Board/Web/sphere.html")
+        XCTAssertFalse(menu.contains("openBoard"), "選單「…Orbit42」要拿掉")
+        let html = try Self.src("Engine/windows/" + (FileManager.default.fileExists(atPath: Self.root.appendingPathComponent("Engine/windows/Orbit42.Engine.Win").path) ? "Orbit42.Engine.Win" : "Orbit42.Engine.Win") + "/Board/Web/sphere.html")
         XCTAssertFalse(html.contains("bBoard"))
         XCTAssertFalse(html.contains("openBoard"))
     }
@@ -73,7 +73,7 @@ final class NoBoardTests: XCTestCase {
             var got: [[String: Any]] = []
             func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) { if let d = m.body as? [String: Any] { got.append(d) } }
         }
-        let web = Self.root.appendingPathComponent("Engine/windows/" + (FileManager.default.fileExists(atPath: Self.root.appendingPathComponent("Engine/windows/Orbit42.Engine.Win").path) ? "Orbit42.Engine.Win" : "ShoWork.Win") + "/Board/Web")
+        let web = Self.root.appendingPathComponent("Engine/windows/" + (FileManager.default.fileExists(atPath: Self.root.appendingPathComponent("Engine/windows/Orbit42.Engine.Win").path) ? "Orbit42.Engine.Win" : "Orbit42.Engine.Win") + "/Board/Web")
         let cfg = WKWebViewConfiguration(); cfg.setURLSchemeHandler(WebSchemeHandler(root: web), forURLScheme: WebSchemeHandler.scheme)
         let rec = Rec(); cfg.userContentController.add(rec, name: "sphere")
         let v = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800), configuration: cfg)

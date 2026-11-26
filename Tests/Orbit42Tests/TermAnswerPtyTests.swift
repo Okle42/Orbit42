@@ -1,5 +1,5 @@
 import XCTest
-import ShoWorkCore
+import Orbit42Core
 @testable import Orbit42
 
 /// 假的 Claude（python）跑在真的 PTY 裡：畫輸入框、收 bracketed paste、Enter 才寫進假的對話紀錄。不碰任何真的 session。

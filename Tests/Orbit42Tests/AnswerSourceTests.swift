@@ -1,6 +1,6 @@
 import XCTest
-@testable import ShoWorkCore
-@testable import ShoWorkApp
+@testable import Orbit42Core
+@testable import Orbit42App
 
 /// 只有 Keng 在介面上按的才打進終端機；指令列、別的 session 觸發的、放行、排了好幾題、開著權限框的都走原路
 @MainActor
@@ -25,10 +25,10 @@ final class AnswerSourceTests: XCTestCase {
     /// Gavin5：同題按兩次、終端機已答、偽造選項、沒題目 id ⇒ 一次都不多送，不記事先放行；沒寫字改走訊息要講；寫過字不改走訊息
     func testOnceOnly() throws {
         let d = FileManager.default.temporaryDirectory.appendingPathComponent("once-\(UUID().uuidString)")
-        let env = ["SHOWORK_ASKS_DIR": "asks", "SHOWORK_PREAPPROVAL_LOG": "pre.json", "SHOWORK_CAPTAIN_INBOX": "in", "SHOWORK_TYPED_MARKS": "m", "SHOWORK_RELEASE_LOG": "rel"]
+        let env = ["ORBIT_ASKS_DIR": "asks", "ORBIT_PREAPPROVAL_LOG": "pre.json", "ORBIT_CAPTAIN_INBOX": "in", "ORBIT_TYPED_MARKS": "m", "ORBIT_RELEASE_LOG": "rel"]
         for (k, v) in env { setenv(k, d.appendingPathComponent(v).path, 1) }
-        setenv("SHOWORK_CLAUDE_DIR", d.path, 1)                       // 沒有任何 session：訊息送不到真的人
-        defer { for k in env.keys { unsetenv(k) }; unsetenv("SHOWORK_CLAUDE_DIR"); SphereEmbed.typeAnswer = nil; BoardActions.testDeliver = nil; BoardActions.testHook = nil; try? FileManager.default.removeItem(at: d) }
+        setenv("ORBIT_CLAUDE_DIR", d.path, 1)                       // 沒有任何 session：訊息送不到真的人
+        defer { for k in env.keys { unsetenv(k) }; unsetenv("ORBIT_CLAUDE_DIR"); SphereEmbed.typeAnswer = nil; BoardActions.testDeliver = nil; BoardActions.testHook = nil; try? FileManager.default.removeItem(at: d) }
         var sent: [String] = [], typed = 0
         BoardActions.testDeliver = { sent.append($0); return true }
         BoardActions.testHook = true
@@ -110,7 +110,7 @@ final class AnswerSourceTests: XCTestCase {
         _ = press(wp); XCTAssertEqual(pre(), before + 1)
         AskQueue.save("test-once", [w]); _ = phone(wp); XCTAssertEqual(pre(), before + 2)
     }
-    /// 舊的 showork（不認得 caps）、不存在的：不打字
+    /// 舊的 orbit（不認得 caps）、不存在的：不打字
     func testOldHookMeansNoTyping() throws {
         let d = FileManager.default.temporaryDirectory.appendingPathComponent("caps-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)

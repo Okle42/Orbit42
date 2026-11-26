@@ -3,8 +3,8 @@
 //
 //   node windows/tools/fx_bench.mjs --out <資料夾> --name <檔名> --query "w=typhoon&cam=16,25,60&t=4[&target=x,y,z][&dump=1]"
 //   輸出：<name>.png（有 dump=1 時另存 <name>.json）
-//   Mac 對照：SHOWORK_BENCH_WEATHER=typhoon SHOWORK_BENCH_CAM=16,25,60 [SHOWORK_BENCH_TARGET=x,y,z] SHOWORK_BENCH_DIR=<資料夾>
-//             .build/debug/ShoWorkAgent --office-bench rain <秒> 10   （每 2 秒存一張 rain_t<秒>_az<方位>.png）
+//   Mac 對照：ORBIT_BENCH_WEATHER=typhoon ORBIT_BENCH_CAM=16,25,60 [ORBIT_BENCH_TARGET=x,y,z] ORBIT_BENCH_DIR=<資料夾>
+//             .build/debug/Orbit42Agent --office-bench rain <秒> 10   （每 2 秒存一張 rain_t<秒>_az<方位>.png）
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const WEB = resolve(here, "../ShoWork.Win/Board/Web");
+const WEB = resolve(here, "../Orbit42.Engine.Win/Board/Web");
 const args = process.argv.slice(2);
 const opt = k => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
 const has = k => args.includes(k);

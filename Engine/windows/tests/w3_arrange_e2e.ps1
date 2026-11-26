@@ -1,9 +1,9 @@
-﻿# ShoWork42 Windows W3 驗收：自動排版（每台螢幕各自排）
-# 只動本腳本自己開的 conhost 測試視窗：agent 以 SHOWORK_ONLY_WIDS＋SHOWORK_ARRANGE_ONLY_LISTED=1 啟動，候選只有白名單。
+﻿# Orbit42 Windows W3 驗收：自動排版（每台螢幕各自排）
+# 只動本腳本自己開的 conhost 測試視窗：agent 以 ORBIT_ONLY_WIDS＋ORBIT_ARRANGE_ONLY_LISTED=1 啟動，候選只有白名單。
 # 測試視窗以最小化開啟，之後只用 SW_SHOWNOACTIVATE／SW_SHOWMINNOACTIVE 切換；排版前後前景視窗必須不變。
 # 其他所有可見視窗的位置大小前後比對必須完全相同。
-# 用法：powershell -ExecutionPolicy Bypass -File w3_arrange_e2e.ps1 [-Agent ShoWorkAgent.exe] [-Out 結果檔]
-param([string]$Agent = "$PSScriptRoot\..\ShoWork.Win\bin\Release\net8.0-windows\ShoWorkAgent.exe",
+# 用法：powershell -ExecutionPolicy Bypass -File w3_arrange_e2e.ps1 [-Agent Orbit42Agent.exe] [-Out 結果檔]
+param([string]$Agent = "$PSScriptRoot\..\Orbit42.Engine.Win\bin\Release\net8.0-windows\Orbit42Agent.exe",
       [string]$Out = "$env:TEMP\sw42_w3_result.txt")
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'guard.ps1')
@@ -88,7 +88,7 @@ $me = $PID
 function Snapshot { $d = @{}; foreach ($h in [W3]::Top()) { if ([W3]::IsWindowVisible($h)) { $d[[long]$h] = (RawOf $h) + " min=" + [W3]::IsIconic($h) + " max=" + [W3]::IsZoomed($h) } }; $d }
 $before = Snapshot
 
-Write-Host '=== ShoWork42 W3 自動排版驗收 ===' -ForegroundColor Cyan
+Write-Host '=== Orbit42 W3 自動排版驗收 ===' -ForegroundColor Cyan
 Write-Host '會開 6 個最小化的測試用 PowerShell 視窗，用不啟動的方式逐一還原讓 agent 自動排版，約 1 分鐘。其他視窗不會被動到。'
 $tests = @()
 for ($k = 1; $k -le 6; $k++) {
@@ -133,11 +133,11 @@ $started = @()                                                   # every agent t
 function StartAgent($extra) {
   $psi = New-Object Diagnostics.ProcessStartInfo $Agent
   $psi.UseShellExecute = $false
-  $psi.EnvironmentVariables['SHOWORK_PIPE'] = 'ShoWork42-w3test-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
-  $psi.EnvironmentVariables['SHOWORK_HOME'] = $home42
-  $psi.EnvironmentVariables['SHOWORK_STATUS_FILE'] = (Join-Path $home42 'status.json')
-  $psi.EnvironmentVariables['SHOWORK_DEBUG'] = '1'
-  $psi.EnvironmentVariables['SHOWORK_ONLY_WIDS'] = $wids
+  $psi.EnvironmentVariables['ORBIT_PIPE'] = 'Orbit42-w3test-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+  $psi.EnvironmentVariables['ORBIT_HOME'] = $home42
+  $psi.EnvironmentVariables['ORBIT_STATUS_FILE'] = (Join-Path $home42 'status.json')
+  $psi.EnvironmentVariables['ORBIT_DEBUG'] = '1'
+  $psi.EnvironmentVariables['ORBIT_ONLY_WIDS'] = $wids
   foreach ($k in $extra.Keys) { $psi.EnvironmentVariables[$k] = $extra[$k] }
   $p = [Diagnostics.Process]::Start($psi)
   $script:started += $p.Id
@@ -178,7 +178,7 @@ function Fg($label) {
 
 try {
   # ---------- A. auto arrange on count change ----------
-  $proc = @(StartAgent @{ SHOWORK_AUTO_ARRANGE = '1'; SHOWORK_ARRANGE_ONLY_LISTED = '1' })[-1]
+  $proc = @(StartAgent @{ ORBIT_AUTO_ARRANGE = '1'; ORBIT_ARRANGE_ONLY_LISTED = '1' })[-1]
   Check 'agent 啟動（自己的 pipe、自己的資料夾）' (-not $proc.HasExited) "pid=$($proc.Id)"
   $steps = @(@{ show = @(0); n = 1 }, @{ show = @(1); n = 2 }, @{ show = @(2); n = 3 }, @{ show = @(3, 4, 5); n = 6 })
   foreach ($s in $steps) {
@@ -218,23 +218,23 @@ try {
   Stop-Process -Id $proc.Id
 
   # ---------- B. NOOP: plans and logs, moves nothing ----------
-  $proc = @(StartAgent @{ SHOWORK_AUTO_ARRANGE = '1'; SHOWORK_ARRANGE_ONLY_LISTED = '1'; SHOWORK_ARRANGE_NOOP = '1' })[-1]
+  $proc = @(StartAgent @{ ORBIT_AUTO_ARRANGE = '1'; ORBIT_ARRANGE_ONLY_LISTED = '1'; ORBIT_ARRANGE_NOOP = '1' })[-1]
   $pre = @{}; foreach ($t in $tests) { $pre[[long]$t.hwnd] = RawOf $t.hwnd }
   Show $tests[4]; Start-Sleep 2.5
   $moved = @($tests | Where-Object { $_.n -ne 5 -and (RawOf $_.hwnd) -ne $pre[[long]$_.hwnd] }).Count
   $noop = (Get-Content $log -Raw -Encoding UTF8) -match 'ARRANGE NOOP: would arrange 5 windows'
-  Check 'SHOWORK_ARRANGE_NOOP=1：只記錄計畫、一個視窗都不動' ($noop -and $moved -eq 0) "log=$noop 被動到=$moved"
+  Check 'ORBIT_ARRANGE_NOOP=1：只記錄計畫、一個視窗都不動' ($noop -and $moved -eq 0) "log=$noop 被動到=$moved"
   Stop-Process -Id $proc.Id
 
   # ---------- C. Mac semantics: ONLY_WIDS without ONLY_LISTED refuses when a foreign terminal is on screen ----------
   $foreign = @([W3]::Top() | Where-Object { -not $testSet[[long]$_] -and [W3]::IsWindowVisible($_) -and -not [W3]::IsIconic($_) -and ([W3]::Cls($_) -in 'ConsoleWindowClass', 'CASCADIA_HOSTING_WINDOW_CLASS') })
   if ($foreign.Count -gt 0) {
-    $proc = @(StartAgent @{ SHOWORK_AUTO_ARRANGE = '1' })[-1]
+    $proc = @(StartAgent @{ ORBIT_AUTO_ARRANGE = '1' })[-1]
     $pre = @{}; foreach ($t in $tests) { $pre[[long]$t.hwnd] = RawOf $t.hwnd }
     Hide $tests[4]; Start-Sleep 2.5
     $moved = @($tests | Where-Object { $_.n -ne 5 -and (RawOf $_.hwnd) -ne $pre[[long]$_.hwnd] }).Count
     $refused = (Get-Content $log -Raw -Encoding UTF8) -match 'ARRANGE REFUSED'
-    Check "SHOWORK_ONLY_WIDS（不加 ONLY_LISTED）：畫面上有別的終端機視窗（$($foreign.Count) 個）→ 拒絕排版" ($refused -and $moved -eq 0) "log=$refused 被動到=$moved"
+    Check "ORBIT_ONLY_WIDS（不加 ONLY_LISTED）：畫面上有別的終端機視窗（$($foreign.Count) 個）→ 拒絕排版" ($refused -and $moved -eq 0) "log=$refused 被動到=$moved"
     Stop-Process -Id $proc.Id
   } else { Check '拒絕排版（畫面上沒有別的終端機視窗，略過）' $true 'skipped' }
   Fg '結束'

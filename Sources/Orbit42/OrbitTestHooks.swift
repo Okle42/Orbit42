@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
-import ShoWorkApp
-import ShoWorkCore
+import Orbit42App
+import Orbit42Core
 
 // 螢幕外測試用的掛勾（ORBIT_TEST_*）：原本夾在 OrbitWindow.show 裡，11-25 原樣搬出來。平常不會跑
 extension OrbitWindow {
@@ -440,7 +440,7 @@ extension OrbitWindow {
                 } }
             } }
         }
-        // 測試：ORBIT_TEST_HIDESATS=1 ⇒ 開一顆衛星（視窗打開），5 秒後數一次開著的衛星視窗；網頁（SHOWORK_TEST_SPHERE_JS＋SHOWORK_TEST_SPHERE_SHOT，載完 9 秒才跑）模擬點空白處，18 秒時再數一次
+        // 測試：ORBIT_TEST_HIDESATS=1 ⇒ 開一顆衛星（視窗打開），5 秒後數一次開著的衛星視窗；網頁（ORBIT_TEST_SPHERE_JS＋ORBIT_TEST_SPHERE_SHOT，載完 9 秒才跑）模擬點空白處，18 秒時再數一次
         if env["ORBIT_TEST_HIDESATS"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in MainActor.assumeIsolated {
                 guard let self else { return }

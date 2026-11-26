@@ -1,5 +1,5 @@
 // Test-only helper for the W1 e2e. Talks to a test Claude's console WITHOUT focusing it (WriteConsoleInput),
-// reads what is on its screen, and snapshots window rectangles. Never used by ShoWork itself.
+// reads what is on its screen, and snapshots window rectangles. Never used by Orbit42 itself.
 //   Sw42Probe type <pid> <text>                 type text into pid's console
 //   Sw42Probe key <pid> enter|esc|up|down|tab   press one key there
 //   Sw42Probe wait <pid> <regex> <timeoutMs>    poll the screen every 25 ms; print the time it first matches

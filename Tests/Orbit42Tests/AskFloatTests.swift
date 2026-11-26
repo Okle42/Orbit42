@@ -1,8 +1,8 @@
 import AppKit
 import WebKit
 import XCTest
-@testable import ShoWorkCore
-@testable import ShoWorkApp
+@testable import Orbit42Core
+@testable import Orbit42App
 
 /// 答案卡浮層：擺位、焦點、題目狀態（視窗不顯示；不送任何字）
 @MainActor
@@ -35,7 +35,7 @@ final class AskFloatTests: XCTestCase {
         XCTAssertTrue(inside(AskFloatLayout.strip(s, root: root, corner: nil, terminals: [NSRect(origin: .zero, size: root)]), root))
     }
     func make() throws -> (NSWindow, AskFloatRoot, AskFloat, NSTextView, UserDefaults) {
-        let web = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Engine/windows/ShoWork.Win/Board/Web").standardizedFileURL
+        let web = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Engine/windows/Orbit42.Engine.Win/Board/Web").standardizedFileURL
         let name = "askfloat-\(UUID().uuidString)", ud = UserDefaults(suiteName: name)!
         addTeardownBlock { ud.removePersistentDomain(forName: name) }
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: root), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
@@ -167,7 +167,7 @@ final class AskFloatTests: XCTestCase {
         _ = try? await f.webView.evaluateJavaScript("(()=>{const i=document.createElement('iframe');i.srcdoc='<script>parent.webkit;\(evil.replacingOccurrences(of: "'", with: "\\'"))<\\/script>';document.body.append(i);location.href='https://evil.example/';window.open('https://evil.example/')})(),0")
         try await Task.sleep(for: .milliseconds(900))
         XCTAssertEqual(got.count, 0); XCTAssertEqual(f.webView.url?.absoluteString, AskFloat.page)
-        for u in ["https://evil.example/", "showork://web/sphere.html", "showork://evil/ask.html", "showork://web/ask.html?x", "file:///etc/passwd", "about:blank"] { XCTAssertFalse(AskFloat.allowed(URL(string: u), mainFrame: true)) }
+        for u in ["https://evil.example/", "orbit://web/sphere.html", "orbit://evil/ask.html", "orbit://web/ask.html?x", "file:///etc/passwd", "about:blank"] { XCTAssertFalse(AskFloat.allowed(URL(string: u), mainFrame: true)) }
         XCTAssertFalse(AskFloat.allowed(URL(string: AskFloat.page), mainFrame: false)); XCTAssertTrue(AskFloat.allowed(URL(string: AskFloat.page), mainFrame: true))
         XCTAssertTrue(f.webView.registeredDraggedTypes.isEmpty)
     }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ShoWork42 流量架構自檢（11-22 Keng：我們建好、push，學弟那邊拉下來就有一套一樣的檢測，兩台互當對照組）
+"""Orbit42 流量架構自檢（11-22 Keng：我們建好、push，學弟那邊拉下來就有一套一樣的檢測，兩台互當對照組）
 
 檢查兩種「流量」：
   1. Claude 額度：這台開了哪些 session（互動／背景／預備程序／停放空殼）、誰的記憶量（context）大、
@@ -252,7 +252,7 @@ def rate_limits():
         r = json.load(open(os.path.join(CLAUDE, "cache", "rate_limits.json"), encoding="utf-8"))["rate_limits"]
         return {k: {"used": v.get("used_percentage"), "resets": datetime.fromtimestamp(v["resets_at"]).strftime("%m-%d %H:%M") if v.get("resets_at") else None} for k, v in r.items()}
     except Exception:
-        return None   # 沒裝 ShoWork42 的狀態列就沒有這份
+        return None   # 沒裝 Orbit42 的狀態列就沒有這份
 
 
 # ───────────────────────── 網路流量 ─────────────────────────
@@ -477,7 +477,7 @@ def send(shared, text):
         part(f'Content-Disposition: form-data; name="files[{i}]"; filename="{safe}"\r\nContent-Type: application/octet-stream', data)
     body.extend(f"--{b}--\r\n".encode())
     url += ("&" if "?" in url else "?") + "wait=true"      # 等 Discord 回傳訊息，確認附件真的有上去
-    req = urllib.request.Request(url, data=bytes(body), method="POST", headers={"Content-Type": f"multipart/form-data; boundary={b}", "User-Agent": "ShoWork42-flow-audit/1"})
+    req = urllib.request.Request(url, data=bytes(body), method="POST", headers={"Content-Type": f"multipart/form-data; boundary={b}", "User-Agent": "Orbit42-flow-audit/1"})
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
             msg = json.loads(res.read() or b"{}")
@@ -532,7 +532,7 @@ def report(r):
     if rl:
         L.append("額度：" + "　".join(f"{'5 小時' if k == 'five_hour' else '7 天'} {v['used']}%（{v['resets']} 重置）" for k, v in rl.items()))
     else:
-        L.append("額度：讀不到（這台沒有 ShoWork42 狀態列寫的 rate_limits.json）")
+        L.append("額度：讀不到（這台沒有 Orbit42 狀態列寫的 rate_limits.json）")
     L += ["", "【這台開著的 Claude】"]
     cats = {}
     for s in r["claude"]["sessions"]:
@@ -599,7 +599,7 @@ def compare(a, b):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="ShoWork42 流量架構自檢（Claude 額度＋網路）")
+    ap = argparse.ArgumentParser(description="Orbit42 流量架構自檢（Claude 額度＋網路）")
     ap.add_argument("--label", default=None, help="這台是誰（報告與檔名用）")
     ap.add_argument("--net", type=int, default=10, help="網路取樣秒數，0＝不量")
     ap.add_argument("--names", action="store_true", help="JSON 保留專案名（預設只留代號）")

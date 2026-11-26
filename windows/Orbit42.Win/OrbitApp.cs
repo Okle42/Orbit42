@@ -5,12 +5,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
-using ShoWork;
+using Orbit42;
 
 namespace Orbit42;
 
 /// Orbit42 Windows 版主體（Mac main.swift 的 Host＋LoginPanel＋OrbitWindow）：
-/// 主視窗＝ShoWork 戰情中心的球體鋪滿（BoardForm Orbit 模式）；上面蓋登入畫面（WebView2），再上面是衛星終端機小視窗（SatWindow＋WebView2＋ConPTY）。
+/// 主視窗＝Orbit42的球體鋪滿（BoardForm Orbit 模式）；上面蓋登入畫面（WebView2），再上面是衛星終端機小視窗（SatWindow＋WebView2＋ConPTY）。
 /// 測試（螢幕外，不碰使用者畫面）：ORBIT_OFFSCREEN=1、ORBIT_TEST_LOGIN_SHOT=<png>、ORBIT_TEST_TERM="<指令>@<輸出txt>"、ORBIT_TEST_QUIT=1
 sealed class OrbitApp
 {
@@ -38,7 +38,7 @@ sealed class OrbitApp
 
     // MARK: 開機
 
-    /// 引擎起來之後（ShoWork.Program.RunEmbedded 的 onLaunch）：開戰情中心 Orbit 模式當主視窗
+    /// 引擎起來之後（Orbit42.Program.RunEmbedded 的 onLaunch）：開Orbit42 Orbit 模式當主視窗
     public void Launch()
     {
         OrbitEmbed.Active = true;
@@ -57,7 +57,7 @@ sealed class OrbitApp
         f.Show();
     }
 
-    /// 戰情中心建好了：登入畫面、衛星、計時器
+    /// Orbit42建好了：登入畫面、衛星、計時器
     async Task Attach()
     {
         try
@@ -361,13 +361,13 @@ sealed class OrbitApp
     void MarkSecretary()
     {
         if (wins.Count == 0) return;
-        var cap = ShoWork.Hooks.CaptainStore.Captain();
+        var cap = Orbit42.Hooks.CaptainStore.Captain();
         var recs = cap == null ? new() : SessionFile.All().Where(r => r.SessionId == cap).ToList();
         foreach (var (id, w) in wins)
         {
             if (!sats.TryGetValue(id, out var s)) continue;
             var on = s.Pty is { } p && recs.Any(r => r.Pid == p.Pid || ProcTree.IsAncestor(p.Pid, r.Pid));
-            if (on) w.Title = ShoWork.Hooks.NicknameStore.Get(cap!)?.Doing ?? "待命中"; else if (w.Secretary) w.Title = Title(s);
+            if (on) w.Title = Orbit42.Hooks.NicknameStore.Get(cap!)?.Doing ?? "待命中"; else if (w.Secretary) w.Title = Title(s);
             w.Secretary = on;
         }
     }
@@ -521,7 +521,7 @@ sealed class OrbitApp
     }
 
     /// 安裝新版（pack.ps1）／別的程式要 Orbit42 正常結束：寫 %LOCALAPPDATA%\Orbit42\quit.request。
-    /// 從 ssh 之類別的工作階段送 WM_CLOSE 送不到 ⇒ 用檔案；正常結束才會記下衛星（重開接回）、把 ShoWorkAgent 開回來
+    /// 從 ssh 之類別的工作階段送 WM_CLOSE 送不到 ⇒ 用檔案；正常結束才會記下衛星（重開接回）、把 Orbit42Agent 開回來
     public static string QuitFile => Path.Combine(OrbitPaths.Support, "quit.request");
     void QuitRequested()
     {

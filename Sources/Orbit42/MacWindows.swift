@@ -1,5 +1,5 @@
 import AppKit
-import ShoWorkApp
+import Orbit42App
 import ApplicationServices
 import LocalAuthentication
 import ScreenCaptureKit

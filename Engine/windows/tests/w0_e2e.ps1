@@ -1,12 +1,12 @@
-﻿# ShoWork42 Windows W0 驗收：光暈跟隨傳統主控台視窗
+﻿# Orbit42 Windows W0 驗收：光暈跟隨傳統主控台視窗
 # 只動本腳本自己開的兩個測試視窗（白名單），不碰其他任何視窗。
-# 用法（要在使用者桌面的互動工作階段執行）：powershell -File w0_e2e.ps1 -Agent <ShoWorkAgent.exe 路徑> -Out <結果檔> [-Direction inward|outward]
+# 用法（要在使用者桌面的互動工作階段執行）：powershell -File w0_e2e.ps1 -Agent <Orbit42Agent.exe 路徑> -Out <結果檔> [-Direction inward|outward]
 # -Direction：光暈方向（預設朝內）。朝內＝光暈剛好蓋住 A 的可見範圍、在 A 正上方、點擊穿透；朝外＝四邊等距框住 A、在 A 正下方。
-# 測試 agent 用自己的資料夾（SHOWORK_HOME，裡面的 settings.json 指定方向）與自己的 pipe，不讀使用者的設定。
+# 測試 agent 用自己的資料夾（ORBIT_HOME，裡面的 settings.json 指定方向）與自己的 pipe，不讀使用者的設定。
 param([string]$Agent, [string]$Out, [ValidateSet('inward', 'outward')][string]$Direction = 'inward')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'guard.ps1')
-$Host.UI.RawUI.WindowTitle = 'ShoWork42 W0 驗收（Claude Code）'
+$Host.UI.RawUI.WindowTitle = 'Orbit42 W0 驗收（Claude Code）'
 Add-Type @'
 using System; using System.Runtime.InteropServices;
 public static class W {
@@ -49,7 +49,7 @@ function OpenConsole($title) {
   $h = [IntPtr][long](Get-Content $f); Remove-Item $f
   return @{ conhost = $p; ps = $ps.ProcessId; hwnd = $h }
 }
-Write-Host '=== ShoWork42 W0 驗收 ===' -ForegroundColor Cyan
+Write-Host '=== Orbit42 W0 驗收 ===' -ForegroundColor Cyan
 Write-Host '會開兩個測試用 PowerShell 視窗，自動移動／切換／縮小它們，約 1 分鐘。其他視窗不會被動到。'
 $a = OpenConsole 'SW42-TEST-A'
 $b = OpenConsole 'SW42-TEST-B'
@@ -58,13 +58,13 @@ Check 'console-hwnd B' ($b.hwnd -ne [IntPtr]::Zero -and $b.hwnd -ne $a.hwnd) "hw
 
 [W]::SetWindowPos($a.hwnd, [IntPtr]::Zero, 200, 150, 900, 520, 0x14) | Out-Null
 [W]::SetWindowPos($b.hwnd, [IntPtr]::Zero, 500, 300, 900, 520, 0x14) | Out-Null
-$env:SHOWORK_DEBUG = "1"
+$env:ORBIT_DEBUG = "1"
 $home0 = Join-Path ([IO.Path]::GetTempPath()) ('sw42-w0-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force $home0 | Out-Null
 [IO.File]::WriteAllText("$home0\settings.json", '{"v":1,"general":{"direction":"' + $Direction + '"}}')
-$env:SHOWORK_HOME = $home0
-$env:SHOWORK_PIPE = 'sw42-w0-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
-$env:SHOWORK_STATUS_FILE = "$home0\status.json"
+$env:ORBIT_HOME = $home0
+$env:ORBIT_PIPE = 'sw42-w0-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+$env:ORBIT_STATUS_FILE = "$home0\status.json"
 Write-Host "光暈方向：$Direction"
 $agentProc = Start-Process $Agent -ArgumentList "--glow $($a.hwnd) working 120" -PassThru
 Start-Sleep 2

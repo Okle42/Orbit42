@@ -4,7 +4,7 @@
 import argparse, functools, html, http.server, json, os, re, subprocess, sys, tempfile, threading, shutil
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ap = argparse.ArgumentParser(); ap.add_argument("--shots"); a = ap.parse_args()
-WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Engine/windows/ShoWork.Win/Board/Web"))
+WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Engine/windows/Orbit42.Engine.Win/Board/Web"))
 
 JS = r"""
 const P = new URLSearchParams(location.search), CASE = P.get("case"), fails = []; let n = 0, name = "";

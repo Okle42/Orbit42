@@ -1,7 +1,7 @@
 # Orbit42 圖示產生器（2026-11-24 Keng：選 B「實渲染・思考中」→ 分深淺色自動切換 → 球心加小小的金色 42）
 # 素材：assets/icon-src/ball_render.png ＝ App 實際渲染的智能體（只留球）。要重新渲染：
-#   ORBIT_OFFSCREEN=1 ORBIT_TEST_W=1200 ORBIT_TEST_H=1200 SHOWORK_WEB_DIR=<ShoWork42>/windows/ShoWork.Win/Board/Web \
-#   SHOWORK_TEST_SPHERE_SHOT=assets/icon-src/ball_render.png SHOWORK_TEST_SPHERE_JS='karaIconShot({noRibbons:true}); const st=document.createElement("style"); st.textContent="*,*::before,*::after{background-image:none!important} html,body{background:#000!important}"; document.head.appendChild(st); karaSetState("thinking");' \
+#   ORBIT_OFFSCREEN=1 ORBIT_TEST_W=1200 ORBIT_TEST_H=1200 ORBIT_WEB_DIR=<Orbit42>/windows/Orbit42.Engine.Win/Board/Web \
+#   ORBIT_TEST_SPHERE_SHOT=assets/icon-src/ball_render.png ORBIT_TEST_SPHERE_JS='karaIconShot({noRibbons:true}); const st=document.createElement("style"); st.textContent="*,*::before,*::after{background-image:none!important} html,body{background:#000!important}"; document.head.appendChild(st); karaSetState("thinking");' \
 #   .build/debug/Orbit42      （等 png 出現再關掉；1200x1200 視窗時球心約在 (600, 470)）
 # 用法：python3 scripts/make_icon_render.py
 # 產出：

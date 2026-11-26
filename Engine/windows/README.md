@@ -1,4 +1,4 @@
-# ShoWork42 for Windows（開發中）
+# Orbit42 for Windows（開發中）
 
 對象：傳統主控台視窗（conhost）與 Windows Terminal ＋ Claude Code。功能目標與 macOS 版相同。
 
@@ -8,33 +8,33 @@
 | W1 | Claude Code hooks → 紫／綠／紅；Windows Terminal；按鍵／點擊清除；系統匣圖示；開機啟動 | ✅（見 W1-結果.md） |
 | W2 | 設定視窗（三種狀態同一頁）；六種光芒；動態島（系統匣）；全螢幕邊緣光 | ✅（見 W2W3-結果.md） |
 | W3 | 自動排版（每台螢幕各自排，Ctrl+Alt+L） | ✅（Windows 預設關） |
-| W4 | 打包單一 exe（ShoWork42.exe 內含 runtime／ShoWork42-small.exe），雙擊安裝、「設定 > 應用程式」解除安裝 | ✅（見 W2W3-結果.md 的 W4 一節） |
-| W5 | hook 端：卡片、閘門、放行（`showork brief／card／title／guard-push／preview-check／names／captain／release`，Mac 版移植，資料檔格式相同） | 🟡 macOS 上單元測試＋跟 Mac 版 preview-check 逐條比對一致；**Windows 真機都還沒跑過**（見下） |
-| W6 | 戰情中心 3D 辦公大樓（WebView2＋three.js r170，「卡片／大樓」切換）：大樓剖面、桌子＝AI 數、方塊角色狀態色、樓層主題、點角色看卡片 | 🟡 Mac 上 build／單元測試／瀏覽器示範截圖過；**還沒在 Windows 真機驗證**（WebView2 載入、點角色回傳、單一 exe 解出網頁、Surface 內顯效能都沒實測） |
+| W4 | 打包單一 exe（Orbit42.exe 內含 runtime／Orbit42-small.exe），雙擊安裝、「設定 > 應用程式」解除安裝 | ✅（見 W2W3-結果.md 的 W4 一節） |
+| W5 | hook 端：卡片、閘門、放行（`orbit brief／card／title／guard-push／preview-check／names／captain／release`，Mac 版移植，資料檔格式相同） | 🟡 macOS 上單元測試＋跟 Mac 版 preview-check 逐條比對一致；**Windows 真機都還沒跑過**（見下） |
+| W6 | Orbit42 3D 辦公大樓（WebView2＋three.js r170，「卡片／大樓」切換）：大樓剖面、桌子＝AI 數、方塊角色狀態色、樓層主題、點角色看卡片 | 🟡 Mac 上 build／單元測試／瀏覽器示範截圖過；**還沒在 Windows 真機驗證**（WebView2 載入、點角色回傳、單一 exe 解出網頁、Surface 內顯效能都沒實測） |
 
 ### W5：hook 端（卡片、閘門、放行）
 
-邏輯在 `showork\Core\`（不碰 WinForms、不呼叫 Win32），子指令在 `showork\HookCli.cs`；測試 `tests\ShoWork.Tests\HookTests.cs` 在 macOS 上跑。
-安裝器（`ShoWork.Win\InstallerHooks.cs`）多裝三組 hook：SessionStart → `brief`、UserPromptSubmit → `title`、PreToolUse(Bash) → `guard-push`（都不 async）；
-舊版裝過的升級時只換掉 ShoWork 自己的 hook 組，卸載照樣回到安裝前的位元組。
-資料都在 `%LOCALAPPDATA%\ShoWork42\board\`：`cards\`、`names\`、`captain-inbox\`、`captain.json`、`permits\releases.jsonl`、`permits\preapprovals.json`、`guard\preview.tsv`、`guard\pushes.jsonl`，
-欄位與時間格式跟 Mac 一樣。測試用的路徑變數同 Mac：`SHOWORK_CAPTAIN_INBOX`、`SHOWORK_RELEASE_LOG`、`SHOWORK_PREAPPROVAL_LOG`、`SHOWORK_PREVIEW_RULES`、`SHOWORK_LOCAL_CONFIG`、`SHOWORK_CLAUDE_DIR`，外加 `SHOWORK_HOME`。
+邏輯在 `orbit\Core\`（不碰 WinForms、不呼叫 Win32），子指令在 `orbit\HookCli.cs`；測試 `tests\Orbit42.Engine.Tests\HookTests.cs` 在 macOS 上跑。
+安裝器（`Orbit42.Engine.Win\InstallerHooks.cs`）多裝三組 hook：SessionStart → `brief`、UserPromptSubmit → `title`、PreToolUse(Bash) → `guard-push`（都不 async）；
+舊版裝過的升級時只換掉 Orbit42 自己的 hook 組，卸載照樣回到安裝前的位元組。
+資料都在 `%LOCALAPPDATA%\Orbit42\board\`：`cards\`、`names\`、`captain-inbox\`、`captain.json`、`permits\releases.jsonl`、`permits\preapprovals.json`、`guard\preview.tsv`、`guard\pushes.jsonl`，
+欄位與時間格式跟 Mac 一樣。測試用的路徑變數同 Mac：`ORBIT_CAPTAIN_INBOX`、`ORBIT_RELEASE_LOG`、`ORBIT_PREAPPROVAL_LOG`、`ORBIT_PREVIEW_RULES`、`ORBIT_LOCAL_CONFIG`、`ORBIT_CLAUDE_DIR`，外加 `ORBIT_HOME`。
 
 **沒在 Windows 真機驗證過的**（都只在 macOS 上用 `dotnet` 跑過）：
-- 整條 hook 流程（Git Bash 跑 showork.exe、stdin 的 hook JSON、stdout 的中文、`CLAUDE_CODE_SESSION_ID` 在 Bash 工具裡有沒有）。
-- 寄給秘書（`Peer`）：Windows 版 Claude Code 的 `messagingSocketPath` 長什麼樣子沒看過；`\\.\pipe\…` 當 named pipe、其他當 AF_UNIX socket。連不上就單子留在收件匣（delivered=false），新秘書跑 `showork captain` 會看到。
-- NativeAOT 版 showork.exe（Mac 上只做到 build 時 AOT 分析器 0 警告、trimmed publish 0 警告）。
+- 整條 hook 流程（Git Bash 跑 orbit.exe、stdin 的 hook JSON、stdout 的中文、`CLAUDE_CODE_SESSION_ID` 在 Bash 工具裡有沒有）。
+- 寄給秘書（`Peer`）：Windows 版 Claude Code 的 `messagingSocketPath` 長什麼樣子沒看過；`\\.\pipe\…` 當 named pipe、其他當 AF_UNIX socket。連不上就單子留在收件匣（delivered=false），新秘書跑 `orbit captain` 會看到。
+- NativeAOT 版 orbit.exe（Mac 上只做到 build 時 AOT 分析器 0 警告、trimmed publish 0 警告）。
 - git／gh 從 PATH 找 `git.exe`／`gh.exe`；`cd /c/Users/…` 這種 Git Bash 路徑換成 `C:/Users/…`。
 
 **跟 Mac 不同、刻意的**：`title` 不帶 `terminalSequence`、做完時也不補寫視窗標題（W1 的 WT 分頁判斷靠主控台標題）；只輸出 `sessionTitle`＋`additionalContext`。
-`brief` 沒有自動接手、`card --kind wrapup` 只存卡片（沒有自動 /clear）。`showork.exe` 也算 showork 自己的指令（不預告）。
+`brief` 沒有自動接手、`card --kind wrapup` 只存卡片（沒有自動 /clear）。`orbit.exe` 也算 orbit 自己的指令（不預告）。
 規則清單照 Mac：Windows 的暫存區（`%TEMP%`、`C:\Users\…\AppData\Local\Temp`）**不算**暫存區，rm 到那裡會被擋；要放寬改 `preview.tsv`。
 
 **還沒做**：事先放行的「回答」UI（Windows 看板還不寫 `preapprovals.json`，只會讀與用掉）、預告合併送秘書（`notice` 只進收件匣）、roster／task／b1、自動交接。
 
 ## 做法（對照 macOS 版）
 
-- **找視窗**：`AttachConsole(AI 的 pid)` → `GetConsoleWindow()`，不用猜標題（在 `showork.exe console` 子行程裡做）。
+- **找視窗**：`AttachConsole(AI 的 pid)` → `GetConsoleWindow()`，不用猜標題（在 `orbit.exe console` 子行程裡做）。
   conhost 拿到的就是視窗本身；Windows Terminal 拿到 ConPTY 的 `PseudoConsoleWindow`，它的 **owner** 是目前裝著該分頁的 WT 視窗。
 - **光暈**：點擊穿透、不搶焦點的 layered window；位置用 DWM 的 `EXTENDED_FRAME_BOUNDS`（`GetWindowRect` 含隱形邊框會偏幾 px）。
   預設**朝內**（設定頁「光暈方向」，`settings.json` 的 `general.direction`）：光暈剛好蓋住視窗可見範圍、放在目標**正上方**
@@ -42,7 +42,7 @@
   點目標時目標會先跳到光暈上面，前景／疊放事件在幾十 ms 內把光暈放回去。**朝外**＝原本的做法，`SetWindowPos(glow, target)` 放在目標正下方。
 - **跟隨**：out-of-context WinEvent hooks（移動、前景切換、疊放、最小化、關閉），外加 250ms 看門狗；只在有光暈時才開。
 - **省資源**：光環點陣圖只在視窗大小或狀態改變時重畫；呼吸只改圖層透明度，不重畫。
-- **hook → agent**：`showork.exe emit` 經 named pipe `\.\pipe\ShoWork42-<SID>` 送一行 JSON；200 ms 內一定結束、永遠 exit 0。
+- **hook → agent**：`orbit.exe emit` 經 named pipe `\.\pipe\Orbit42-<SID>` 送一行 JSON；200 ms 內一定結束、永遠 exit 0。
 - **清除**：有綠的時候才裝 low-level 鍵盤／滑鼠 hook；WT 多分頁時用唯讀的標題比對判斷哪個分頁在畫面上。
 
 ## 已知坑
@@ -61,53 +61,53 @@
 ## 建置、安裝與測試
 
 ```powershell
-cd windows\ShoWork.Win
-dotnet build -c Release                                  # 同時 build showork.exe，放在 ShoWorkAgent.exe 旁邊
-bin\Release\net8.0-windows\ShoWorkAgent.exe --install    # 複製到 %LOCALAPPDATA%\ShoWork42\bin、合併 hooks、開機啟動、啟動 agent
-bin\Release\net8.0-windows\ShoWorkAgent.exe --status
-bin\Release\net8.0-windows\ShoWorkAgent.exe --board-dump | Out-String   # 戰情中心看板卡片 JSON（唯讀；WinExe 要接管線 PowerShell 才會等它）
-bin\Release\net8.0-windows\ShoWorkAgent.exe --board-window               # 只開戰情中心視窗（唯讀，不開 pipe、不發光）；agent 裡從系統匣「戰情中心…」開
-bin\Release\net8.0-windows\ShoWorkAgent.exe --city-dump --out city.json   # 城市資料來源跑一輪（磁碟、雲端、ssh 主機、防火牆、港口、額度、天氣），寫出真實的 CityState（唯讀）
-bin\Release\net8.0-windows\ShoWorkAgent.exe --office-dump [--board-demo] --out office.json   # 推給 3D 網頁的 office2 JSON（唯讀：不寫名冊、不呼叫 claude）
-bin\Release\net8.0-windows\ShoWorkAgent.exe --board-window --board-demo --size 820x700 --shot a.png --exit-after-shot   # 示範卡片截圖驗收
-bin\Release\net8.0-windows\ShoWorkAgent.exe --uninstall  # 停 agent、移除 hooks（settings.json 回到原本位元組）、移除開機啟動
+cd windows\Orbit42.Engine.Win
+dotnet build -c Release                                  # 同時 build orbit.exe，放在 Orbit42Agent.exe 旁邊
+bin\Release\net8.0-windows\Orbit42Agent.exe --install    # 複製到 %LOCALAPPDATA%\Orbit42\bin、合併 hooks、開機啟動、啟動 agent
+bin\Release\net8.0-windows\Orbit42Agent.exe --status
+bin\Release\net8.0-windows\Orbit42Agent.exe --board-dump | Out-String   # Orbit42看板卡片 JSON（唯讀；WinExe 要接管線 PowerShell 才會等它）
+bin\Release\net8.0-windows\Orbit42Agent.exe --board-window               # 只開Orbit42視窗（唯讀，不開 pipe、不發光）；agent 裡從系統匣「Orbit42…」開
+bin\Release\net8.0-windows\Orbit42Agent.exe --city-dump --out city.json   # 城市資料來源跑一輪（磁碟、雲端、ssh 主機、防火牆、港口、額度、天氣），寫出真實的 CityState（唯讀）
+bin\Release\net8.0-windows\Orbit42Agent.exe --office-dump [--board-demo] --out office.json   # 推給 3D 網頁的 office2 JSON（唯讀：不寫名冊、不呼叫 claude）
+bin\Release\net8.0-windows\Orbit42Agent.exe --board-window --board-demo --size 820x700 --shot a.png --exit-after-shot   # 示範卡片截圖驗收
+bin\Release\net8.0-windows\Orbit42Agent.exe --uninstall  # 停 agent、移除 hooks（settings.json 回到原本位元組）、移除開機啟動
 
 # W0：光暈跟隨（會開兩個測試視窗並自動移動它們；-Direction inward（預設）或 outward）
-powershell -File ..\tests\w0_e2e.ps1 -Agent bin\Release\net8.0-windows\ShoWorkAgent.exe -Out w0_result.txt -Direction inward
+powershell -File ..\tests\w0_e2e.ps1 -Agent bin\Release\net8.0-windows\Orbit42Agent.exe -Out w0_result.txt -Direction inward
 # W2：六種款式（對齊、疊放、點擊穿透、切換前景、CPU、截圖）
-powershell -File ..\tests\w2\w2_glow.ps1 -Agent bin\Release\net8.0-windows\ShoWorkAgent.exe -Work $env:TEMP\sw42-glow -Direction inward
+powershell -File ..\tests\w2\w2_glow.ps1 -Agent bin\Release\net8.0-windows\Orbit42Agent.exe -Work $env:TEMP\sw42-glow -Direction inward
 # W1：真實 Claude Code（需先 --install；會開一個 conhost 和一個 WT 視窗各跑一個 Haiku）
 dotnet build -c Release ..\tests\Sw42Probe
 powershell -ExecutionPolicy Bypass -File ..\tests\w1_e2e.ps1
 ```
 
-戰情中心（唯讀版，`ShoWork.Win\Board\View\`）：部門島卡片格、Kubo、影分身、右側對話框、工具列 5 小時／7 天流量表。
+Orbit42（唯讀版，`Orbit42.Engine.Win\Board\View\`）：部門島卡片格、Kubo、影分身、右側對話框、工具列 5 小時／7 天流量表。
 每 1.5 秒重讀，沒變不重畫；島的動畫 8 fps，只 Invalidate 島本身，地板／桌子／島身先畫成點陣圖快取；縮小、被完全蓋住（自己算 z-order 遮擋）、
 別的虛擬桌面、「在 Windows 中顯示動畫」關掉時都停。新任務、交給秘書、AI 審核、自動收尾、退回、放行、丟待辦都還沒做（會動到別的東西）。
-測試用：`SHOWORK_BOARD_DEMO=1`（示範卡片）、`SHOWORK_BOARD_THEME=light|dark`、`SHOWORK_REDUCE_MOTION=1`、`SHOWORK_OPEN_BOARD=1`（agent 啟動就開戰情中心），都不改系統設定。
+測試用：`ORBIT_BOARD_DEMO=1`（示範卡片）、`ORBIT_BOARD_THEME=light|dark`、`ORBIT_REDUCE_MOTION=1`、`ORBIT_OPEN_BOARD=1`（agent 啟動就開Orbit42），都不改系統設定。
 `--shot a.png` 存兩張：`a.png` 是螢幕實拍（先叫到最上層，拍得到「沒重畫」和系統捲軸的真樣子）、`a.pw.png` 是 PrintWindow 對照，log 記兩張的差異比例。
-`SHOWORK_BOARD_FAULT=paint`（畫島時丟例外，驗不跳對話框、只關戰情中心）、`SHOWORK_EXIT_AFTER=N`（測試 agent N 秒後正常結束，不在系統匣留殘影）。
-修正與驗收數字見 `戰情中心-結果.md`。
+`ORBIT_BOARD_FAULT=paint`（畫島時丟例外，驗不跳對話框、只關Orbit42）、`ORBIT_EXIT_AFTER=N`（測試 agent N 秒後正常結束，不在系統匣留殘影）。
+修正與驗收數字見 `Orbit42-結果.md`。
 
-3D 辦公大樓（W6，`ShoWork.Win\Board\Office.cs`＋`Board\View\OfficeHost.cs`＋`Board\Web\`）：戰情中心左上「卡片／大樓」切換（記在 `board\board-view.txt`）。
+3D 辦公大樓（W6，`Orbit42.Engine.Win\Board\Office.cs`＋`Board\View\OfficeHost.cs`＋`Board\Web\`）：Orbit42左上「卡片／大樓」切換（記在 `board\board-view.txt`）。
 - 資料：`Office.cs`（純邏輯、測試直接連）把卡片組成 JSON（樓層、AI、狀態、英文名、任務、主題、狀態色），`PostWebMessageAsJson` 推給頁面；頁面只畫、不讀檔。
   樓層號固定（`board\tower.json`，第一次看到的順序發號）；全部 AI 離開 2 小時內樓層留著（燈暗），之後降到閒置薄層。點角色 → 頁面 `postMessage({type:"select"})` → 左下角浮出那個人的卡片（沿用 IslandCardView）。
-- 網頁：three.js r170（MIT，`Board\Web\vendor\three-r170\`，離線可用、不從 CDN 載）。`dotnet build` 複製到 exe 旁的 `Web\`；單一 exe 從內嵌資源解到 `%LOCALAPPDATA%\ShoWork42\office-web\`。
-  WebView2 用 `SetVirtualHostNameToFolderMapping`（`https://office.showork42.invalid/`），只准看自己的頁面。
-- 退路：WebView2 Runtime 不在（`SHOWORK_OFFICE_NO_WEBVIEW=1` 可模擬）、初始化或頁面載入失敗、瀏覽器行程掛掉 ⇒ 退回卡片、切換鈕變灰，不跳例外。
+- 網頁：three.js r170（MIT，`Board\Web\vendor\three-r170\`，離線可用、不從 CDN 載）。`dotnet build` 複製到 exe 旁的 `Web\`；單一 exe 從內嵌資源解到 `%LOCALAPPDATA%\Orbit42\office-web\`。
+  WebView2 用 `SetVirtualHostNameToFolderMapping`（`https://office.orbit42.invalid/`），只准看自己的頁面。
+- 退路：WebView2 Runtime 不在（`ORBIT_OFFICE_NO_WEBVIEW=1` 可模擬）、初始化或頁面載入失敗、瀏覽器行程掛掉 ⇒ 退回卡片、切換鈕變灰，不跳例外。
 - 省電：靜態東西合併成少數幾個 mesh、陰影只在重建／換燈光時算一次、沒動畫不渲染；有人在打字／等你時 12 fps；視窗看不到時把 WebView2 藏起來。
-- 不靠 Windows 看：`cd windows\ShoWork.Win\Board\Web && python3 -m http.server 8000`，開 `http://127.0.0.1:8000/office.html?demo=1`（`&light=day|night`）。
-- 測試用：`--board-window --board-tower`、`SHOWORK_BOARD_VIEW=tower|cards`、`SHOWORK_OFFICE_DEVTOOLS=1`（開 F12）。
+- 不靠 Windows 看：`cd windows\Orbit42.Engine.Win\Board\Web && python3 -m http.server 8000`，開 `http://127.0.0.1:8000/office.html?demo=1`（`&light=day|night`）。
+- 測試用：`--board-window --board-tower`、`ORBIT_BOARD_VIEW=tower|cards`、`ORBIT_OFFICE_DEVTOOLS=1`（開 F12）。
 - 跟 Mac 比還沒做：角色閒晃（休息上頂樓、拜訪別層）、搬家動畫、真實天氣、城市細節（電廠、航班看板）、地下室 B1、保全 WiFi 面板、樓層索引列、收件匣、
   重新裝潢（問 AI 挑主題；Windows 只用專案名關鍵字＋雜湊穩定挑）、WASD 走動。
 
-偵錯：環境變數 `SHOWORK_DEBUG=1` ⇒ `%LOCALAPPDATA%\ShoWork42\agent.log`；`SHOWORK_STATUS_FILE` ⇒ agent 狀態 JSON；
-`SHOWORK_PIPE`／`SHOWORK_HOME` ⇒ 測試用的獨立 pipe 名稱與資料夾；`SHOWORK_CLAUDE_DIR` ⇒ 看板讀哪一份 `.claude`（預設 `%USERPROFILE%\.claude`）。設了 `SHOWORK_PIPE` 的測試 agent 不會排版，
-除非同時給 `SHOWORK_ONLY_WIDS`（白名單；加 `SHOWORK_ARRANGE_ONLY_LISTED=1` 則只排名單裡的視窗）。
+偵錯：環境變數 `ORBIT_DEBUG=1` ⇒ `%LOCALAPPDATA%\Orbit42\agent.log`；`ORBIT_STATUS_FILE` ⇒ agent 狀態 JSON；
+`ORBIT_PIPE`／`ORBIT_HOME` ⇒ 測試用的獨立 pipe 名稱與資料夾；`ORBIT_CLAUDE_DIR` ⇒ 看板讀哪一份 `.claude`（預設 `%USERPROFILE%\.claude`）。設了 `ORBIT_PIPE` 的測試 agent 不會排版，
+除非同時給 `ORBIT_ONLY_WIDS`（白名單；加 `ORBIT_ARRANGE_ONLY_LISTED=1` 則只排名單裡的視窗）。
 
 ## 跟 Mac 版的差異：名字標示（11-25）
 
-Mac 版每張卡固定兩行「職責 · 主專案／工作標題」（`Engine/Sources/ShoWorkCore/WorkLabel.swift`），由派工單或開工卡定住。
+Mac 版每張卡固定兩行「職責 · 主專案／工作標題」（`Engine/Sources/Orbit42Core/WorkLabel.swift`），由派工單或開工卡定住。
 Windows 版的核心還沒移植：`board\jobs`、`--role`／`--title` 都不認得，球體清單照舊顯示 session 名與自報的任務。
 球體網頁是同一份，Windows 沒送 `faded`，列的順序由 C# 決定，畫面不受影響。
 名卡拖動排序（`CardOrder.swift`）也是 Mac 版才有：Windows 沒送 `orderable`，網頁就不開拖動、選單與鍵盤排序，畫面照舊。

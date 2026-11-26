@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const WEB = resolve(here, "../ShoWork.Win/Board/Web");
+const WEB = resolve(here, "../Orbit42.Engine.Win/Board/Web");
 const args = process.argv.slice(2);
 const opt = k => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
 const has = k => args.includes(k);

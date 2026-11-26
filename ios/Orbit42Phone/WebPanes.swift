@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-/// App 裡帶著的網頁（Web＝ShoWork 球體、OrbitWeb＝衛星終端機）用 orbit://app/<路徑> 讀：
+/// App 裡帶著的網頁（Web＝Orbit42 球體、OrbitWeb＝衛星終端機）用 orbit://app/<路徑> 讀：
 /// ES module 在 file:// 底下載不進來（跟 Mac main.swift WebFiles 同一招）
 final class BundleFiles: NSObject, WKURLSchemeHandler {
     let root = Bundle.main.resourceURL!.standardizedFileURL

@@ -1,10 +1,10 @@
 import AppKit
 import LocalAuthentication
-import ShoWorkApp
-import ShoWorkCore
+import Orbit42App
+import Orbit42Core
 
 /// 選單「暫停防冒充檢查⋯」：Touch ID 或 Mac 密碼過了才暫停，30 分鐘後自動恢復。開、關都通知、留紀錄。
-/// 狀態只在記憶體裡，showork 來問時回答（GuardOff）。
+/// 狀態只在記憶體裡，orbit 來問時回答（GuardOff）。
 final class PauseState: @unchecked Sendable {
     private let lock = NSLock(); private var date: Date?
     var until: Date? { get { lock.withLock { date } } set { lock.withLock { date = newValue } } }

@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// 連到哪一台 Mac：ShoWork 網頁戰情中心的網址（`showork web enable` 印出來的那行，`http://100.x.y.z:埠/?t=token`）。
+/// 連到哪一台 Mac：Orbit42 Orbit42 網頁版的網址（`orbit web enable` 印出來的那行，`http://100.x.y.z:埠/?t=token`）。
 /// token 就是密碼 ⇒ 存鑰匙圈，不存 UserDefaults。示範模式不連線，用球體網頁內建的假資料。
 struct MacLink: Equatable, Sendable {
     var host: String
@@ -74,7 +74,7 @@ actor RequestGate {
     func leave() { if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() } }
 }
 
-/// Mac 上 Orbit42 的 API（讀畫面＋回答答案卡＋11-24 起衛星終端機輸入）。全部帶 X-ShoWork-Token 標頭
+/// Mac 上 Orbit42 的 API（讀畫面＋回答答案卡＋11-24 起衛星終端機輸入）。全部帶 X-Orbit-Token 標頭
 struct OrbitAPI: Sendable {
     let link: MacLink
 
@@ -92,7 +92,7 @@ struct OrbitAPI: Sendable {
         var c = URLComponents(url: link.base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { c.queryItems = query }
         var r = URLRequest(url: c.url!, timeoutInterval: 8)
-        r.setValue(link.token, forHTTPHeaderField: "X-ShoWork-Token")
+        r.setValue(link.token, forHTTPHeaderField: "X-Orbit-Token")
         if let body {
             r.httpMethod = "POST"
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")

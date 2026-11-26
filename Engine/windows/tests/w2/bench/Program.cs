@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
-using ShoWork;
+using Orbit42;
 
 // W2 checks without any window: settings.json robustness and round trip, the reduce-motion fallback,
 // and the frame cost of every glow style for an 882×471 px window at 150 % (what w2_glow.ps1 uses).
@@ -12,7 +12,7 @@ void Check(string name, bool ok, string detail = "") { Console.WriteLine($"  {(o
 // settings.json: one broken entry falls back to its default, out-of-range values are clamped, the rest kept
 var home = Path.Combine(Path.GetTempPath(), "sw42-w2-check-" + Environment.ProcessId);
 Directory.CreateDirectory(home);
-Environment.SetEnvironmentVariable("SHOWORK_HOME", home);
+Environment.SetEnvironmentVariable("ORBIT_HOME", home);
 File.WriteAllText(Path.Combine(home, "settings.json"), """
     {"v":1,"looks":{"working":{"enabled":false,"hex":"#123456","style":"aurora","speed":9,"brightness":0.1,"width":1.2},
                     "done":{"hex":5},"input":{"enabled":true,"hex":"nope","style":"ripple"}},

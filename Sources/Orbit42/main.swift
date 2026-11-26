@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
-import ShoWorkApp
-import ShoWorkCore
+import Orbit42App
+import Orbit42Core
 
 // Orbit42: the sphere is the home screen; every AI worker is a satellite with its own real terminal.
 // Web UI (Web/index.html: three.js sphere + xterm.js) talks to this host through `webkit.messageHandlers.orbit`.
@@ -93,16 +93,15 @@ final class LiftTracker: NSResponder {
     override func mouseExited(with e: NSEvent) { moved(nil) }
 }
 
-/// Orbit42 取代 ShoWorkAgent：兩個不能同時跑（播報講兩次、權限卡兩邊搶、socket 打架）。
-/// 開 Orbit42 時先停掉 launchd 的 ShoWorkAgent，結束時再把它開回來。
+/// Orbit42 內建引擎，舊的 launchd 常駐程式不能同時跑（播報講兩次、權限卡兩邊搶、socket 打架）。
+/// 開 Orbit42 時停掉它；11-26 起結束時不再把它開回來（引擎已內建，舊常駐程式停用）
 enum AgentSwap {
-    static let label = "ai.okle42.showork.agent"
+    static let label = Legacy.launchAgent
     static var plist: String { NSHomeDirectory() + "/Library/LaunchAgents/\(label).plist" }
     static func launchctl(_ args: [String]) { let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/launchctl"); p.arguments = args
-        do { try p.run() } catch { return NSLog("launchctl %@ 開不起來：%@", args.joined(separator: " "), "\(error)") }      // 記下來照常開：舊的 ShoWorkAgent 可能還在
+        do { try p.run() } catch { return NSLog("launchctl %@ 開不起來：%@", args.joined(separator: " "), "\(error)") }      // 記下來照常開：舊的 Orbit42Agent 可能還在
         p.waitUntilExit() }
     static func stop() { launchctl(["bootout", "gui/\(getuid())/\(label)"]) }
-    static func start() { if FileManager.default.fileExists(atPath: plist) { launchctl(["bootstrap", "gui/\(getuid())", plist]) } }
 }
 
 /// 測試視窗（11-24 Keng「不要跟我搶螢幕」）：有標題列的視窗排上來時，系統會把它拉回最近的螢幕（第二螢幕在左邊就拉到那裡）⇒ 不准拉、點不到、不當主視窗。
@@ -125,18 +124,19 @@ final class HiddenTestWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
+Legacy.adoptEnv()                       // 11-26 改名：舊名環境變數照讀
 let orbitEnv = ProcessInfo.processInfo.environment
 let orbitTest = orbitEnv["ORBIT_OFFSCREEN"] != nil
 if orbitEnv["ORBIT_TEST_DISKS"] != nil { print(MainActor.assumeIsolated { DiskWatch.dump() }); exit(0) }
 if !orbitTest {
+    Legacy.migrateDefaults()            // 舊設定 suite 一次性複製到新 suite（讀回比對過才記做完）
     AgentSwap.stop()
-    atexit { AgentSwap.start() }
 }
 MainActor.assumeIsolated {
     NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
         MainActor.assumeIsolated { ChromeBrowser.shared.quit(); OrbitWindow.shared.host.shutdown() }
     }
-    ShoWorkAgentMain.run(AgentOptions(regularApp: !orbitTest, waitForAccessibility: false, testOnly: orbitTest,
+    EngineMain.run(AgentOptions(regularApp: !orbitTest, waitForAccessibility: false, testOnly: orbitTest,
                                       onLaunch: {
         OrbitWindow.shared.show(test: orbitTest)
         // 11-24 外接硬碟斷線偵測：等球體載好（8 秒）再開始，開機就慢速的那句才講得出來

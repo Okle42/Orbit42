@@ -7,13 +7,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <RootNamespace>ShoWork</RootNamespace>
+    <RootNamespace>Orbit42</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\..\..\ShoWork.Win\GlowArt.cs" Link="GlowArt.cs" />
-    <Compile Include="..\..\..\ShoWork.Win\GlowSettings.cs" Link="GlowSettings.cs" />
-    <Compile Include="..\..\..\ShoWork.Win\WorkState.cs" Link="WorkState.cs" />
-    <Compile Include="..\..\..\ShoWork.Win\Log.cs" Link="Log.cs" />
+    <Compile Include="..\..\..\Orbit42.Engine.Win\GlowArt.cs" Link="GlowArt.cs" />
+    <Compile Include="..\..\..\Orbit42.Engine.Win\GlowSettings.cs" Link="GlowSettings.cs" />
+    <Compile Include="..\..\..\Orbit42.Engine.Win\WorkState.cs" Link="WorkState.cs" />
+    <Compile Include="..\..\..\Orbit42.Engine.Win\Log.cs" Link="Log.cs" />
     <Compile Include="..\..\..\Shared\Wire.cs" Link="Wire.cs" />
   </ItemGroup>
 </Project>

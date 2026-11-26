@@ -1,7 +1,7 @@
-﻿# 產生 ShoWork.Win\ShoWork42.ico：深色終端機視窗＋外圍綠色光暈，16–256 px 各一張（256 用 PNG，其餘用未壓縮 DIB，舊程式也讀得懂）。
+﻿# 產生 Orbit42.Engine.Win\Orbit42.ico：深色終端機視窗＋外圍綠色光暈，16–256 px 各一張（256 用 PNG，其餘用未壓縮 DIB，舊程式也讀得懂）。
 # 用法：powershell -ExecutionPolicy Bypass -File make_icon.ps1
 Add-Type -AssemblyName System.Drawing
-$out = Join-Path $PSScriptRoot '..\ShoWork.Win\ShoWork42.ico'
+$out = Join-Path $PSScriptRoot '..\Orbit42.Engine.Win\Orbit42.ico'
 function Rounded($g, $x, $y, $w, $h, $r) {
   $p = New-Object Drawing.Drawing2D.GraphicsPath
   $d = [float](2 * $r)
