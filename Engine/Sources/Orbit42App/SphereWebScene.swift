@@ -411,6 +411,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             var t: [String: Any] = ["name": c.head, "status": needsYou(c) ? "需要你" : c.column.title, "sessionId": c.sessionId]
             t["doing"] = c.workTitle                                         // 固定兩行：name＝職責 · 主專案、doing＝工作標題
             if c.work?.state == .done { t["faded"] = true }
+            if c.captain { t["captain"] = true }                              // 11-27 T1127061001：秘書的「需要你」只在球體畫，浮層不疊到組員衛星上
             if let p = c.report?.progress { t["progress"] = p }
             if let a = c.name { t["address"] = a }                            // 英文名：只給語音「Hana 在幹嘛」這種問法對得上
             if let s = c.report?.summary { t["summary"] = s }

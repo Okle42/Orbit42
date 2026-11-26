@@ -95,6 +95,9 @@ if args.first == "card" {
     case .failure(let e):
         FileHandle.standardError.write(Data("orbit card：\(e.message)\n".utf8)); exit(1)
     case .success(let r):
+        if let why = SelfReport.delegationProblem(r.options, isCaptain: CaptainStore.captain()?.sessionId == sid) {
+            FileHandle.standardError.write(Data("orbit card：\(why)。這張卡沒有發出，改好再發一次\n".utf8)); exit(1)
+        }
         let dir = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let e = BoardJSON.encoder

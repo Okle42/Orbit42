@@ -95,7 +95,8 @@ const typing = () => document.activeElement?.tagName === "TEXTAREA";
 
 function askUpdate(data) {
   const next = new Map();
-  for (const c of data.team || []) if (c.status === "需要你" && c.sessionId && (c.askId || c.permit?.id)) next.set(keyOf(c), c);
+  // 11-27 T1127061001：秘書的題目不進浮層（浮層疊在所有衛星上，會蓋到組員衛星）；由球體自己畫在秘書那一列
+  for (const c of data.team || []) if (c.status === "需要你" && !c.captain && c.sessionId && (c.askId || c.permit?.id)) next.set(keyOf(c), c);
   live = next;
   const fresh = [...live.keys()].filter(k => !seen.has(k)), first = !booted; booted = true;
   for (const k of fresh) seen.add(k);

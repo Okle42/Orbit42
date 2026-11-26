@@ -16,6 +16,17 @@ struct CardTests {
         #expect(SelfReport.parse(args: ["--status", "done", "--x", "1"]) == .failure(CardError("不認得的參數 --x")))
     }
 
+    @Test("組員選項不准「請秘書／交給秘書」，秘書自己的卡不受限（T1127061001）")
+    func delegation() {
+        for bad in ["請秘書幫我 push", "交給秘書決定", "好，叫 秘書 去做", "轉給秘書處理"] {
+            #expect(SelfReport.delegationProblem(["好，push", bad], isCaptain: false)?.contains("SendMessage") == true, "\(bad)")
+            #expect(SelfReport.delegationProblem([bad], isCaptain: true) == nil)
+        }
+        #expect(SelfReport.delegationProblem(["好，push|先不要", "秘書通知不疊組員已修好，要裝嗎"], isCaptain: false) == nil)
+        #expect(SelfReport.delegationProblem(nil, isCaptain: false) == nil)
+        #expect(CardRules.brief(orbit: "/x/orbit").contains("SendMessage 傳給秘書"))
+    }
+
     @Test("欄位：自報、決定、新鮮度、等你回答優先")
     func column() {
         let idle = (BoardColumn.review, "做完了，你還沒看")
