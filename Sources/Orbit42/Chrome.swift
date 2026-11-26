@@ -508,6 +508,10 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     }
     func characterIndex(for p: NSPoint) -> Int { NSNotFound }
 
+    /// 給 WebAgent（AI 操作衛星網頁）用：送一個 DevTools 指令（WebAgent.swift 只送它認得的那幾種）
+    func agentCmd(_ m: String, _ p: [String: Any] = [:], _ done: (([String: Any]) -> Void)? = nil) { cmd(m, p, done) }
+    var agentReady: Bool { session != nil }
+
     /// 測試：在頁面裡跑一段、拿回字串
     func eval(_ js: String, _ done: @escaping (String) -> Void) {
         cmd("Runtime.evaluate", ["expression": js]) { r in done(((r["result"] as? [String: Any])?["result"] as? [String: Any]).map { "\($0["value"] ?? "nil")" } ?? "\(r)") }

@@ -243,6 +243,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// 這個背景工作（job 編號）是哪一顆衛星
     func sat(job: String) -> String? { job.count < 6 ? nil : sats.values.first { $0.attachedJob.map { $0.hasPrefix(job) || job.hasPrefix($0) } ?? false }?.id }
     func has(_ id: String) -> Bool { sats[id] != nil }
+    func satName(_ id: String) -> String? { sats[id]?.name }      // WebAgent 問 Keng 時顯示是哪顆衛星
     var runningForeground: Int { sats.values.filter { $0.pty != nil && $0.attachedJob == nil }.count }
     func isAttached(_ id: String) -> Bool { sats[id]?.attachedJob != nil }
     var satCount: Int { sats.count }

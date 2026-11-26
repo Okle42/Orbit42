@@ -289,7 +289,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         if moonShown[id] == kind, let w = satWins[id], !w.isHidden, w.wantShown { tuckMoon(id) } else { showMoon(id, kind) }
     }
     /// 指定的衛星（sat 或 job）；都沒指定＝最上面那顆開著的
-    private func pickSat(sat: String, job: String) -> String? {
+    func pickSat(sat: String, job: String) -> String? {
         if !sat.isEmpty, host.has(sat) { return sat }
         if let s = host.sat(job: job) { return s }
         guard sat.isEmpty, job.isEmpty else { return nil }

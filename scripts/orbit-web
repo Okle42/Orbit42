@@ -1,0 +1,36 @@
+#!/bin/zsh
+# 讓衛星裡的 AI 操作「這顆衛星」的網頁面板（真的 Chrome，登著 Keng 的帳號）：
+#   orbit-web open <網址>          打開網頁
+#   orbit-web read                 讀標題、網址、內文，和可以操作的東西（每個有編號）
+#   orbit-web click <編號>         按一下
+#   orbit-web type <編號> <文字>   在輸入框打字
+#   orbit-web enter                在目前的輸入框按 Enter
+#   orbit-web back                 上一頁
+# 寄出／刪除／付款類的按鈕、在非搜尋框按 Enter：Orbit42 會先跳視窗問 Keng，他按「允許這一次」才會做；不同意就回報失敗。
+# 從衛星（或背景 session）裡跑；其他地方跑 ⇒ 用最上面那顆衛星。
+set -u
+op="${1:-}"; arg="${2:-}"; text="${3:-}"
+case "$op" in
+  read|back|enter) ;;
+  open|click) [[ -n "$arg" ]] || { echo "用法：orbit-web $op <$([[ $op == open ]] && echo 網址 || echo 編號)>" >&2; exit 2 } ;;
+  type) [[ -n "$arg" && -n "$text" ]] || { echo "用法：orbit-web type <編號> <文字>" >&2; exit 2 }; shift 2; text="$*" ;;
+  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+esac
+job="${CLAUDE_JOB_DIR:+${CLAUDE_JOB_DIR:t}}"
+sat=""; [[ -z "$job" ]] && sat="${ORBIT_SAT:-}"
+id=$(uuidgen | tr -d '\n')
+dir="$HOME/Library/Caches/Orbit42/web-replies"; f="$dir/$id.json"
+note="ai.okle42.orbit42.web${ORBIT_WEB_TEST:+.test}"
+O42_ID="$id" O42_OP="$op" O42_ARG="$arg" O42_TEXT="$text" O42_JOB="$job" O42_SAT="$sat" O42_NOTE="$note" osascript -l JavaScript -e 'ObjC.import("Foundation");
+  const env = $.NSProcessInfo.processInfo.environment, get = k => { const v = env.objectForKey(k); return v ? v.js : "" };
+  $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately(
+    get("O42_NOTE"), get("O42_ID"), $({op: get("O42_OP"), arg: get("O42_ARG"), text: get("O42_TEXT"), job: get("O42_JOB"), sat: get("O42_SAT")}), true)' >/dev/null
+# 等回覆：要問 Keng 的最多等兩分半
+for i in $(seq 1 300); do [[ -f "$f" ]] && break; perl -e 'select(undef,undef,undef,0.5)'; done
+[[ -f "$f" ]] || { echo "Orbit42 沒有回應（App 有開著嗎？）" >&2; exit 1; }
+/usr/bin/python3 -I -c 'import json,sys
+d=json.load(open(sys.argv[1])); print(d.get("out",""))
+sys.exit(0 if d.get("ok") else 1)' "$f"
+rc=$?
+mv "$f" "$f.done" 2>/dev/null; find "$dir" -name "*.done" -mmin +60 -delete 2>/dev/null
+exit $rc

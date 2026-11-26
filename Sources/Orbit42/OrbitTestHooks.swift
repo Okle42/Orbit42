@@ -71,6 +71,7 @@ extension OrbitWindow {
         startModels(test: test); startMoons(); startLift()
         MacWindows.shared.installMenu()
         ChromeGoogleLogin.shared.installMenu()      // 11-26：衛星 Chrome 登入 Google（App 選單，不加畫面按鈕）
+        WebAgent.shared.start()                     // 11-26：衛星裡的 AI 操作網頁（scripts/orbit-web；寄信刪檔付款先問）
         // 測試：ORBIT_TEST_MACWIN=<png 資料夾> ⇒ 列視窗、拍每個（只看不操作）、測操作會不會擋
         if let out = env["ORBIT_TEST_MACWIN"] {
             Task { @MainActor in
