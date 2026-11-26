@@ -60,7 +60,7 @@ flowchart LR
 | S2 | Brain adapters: status, resume and usage for Claude → Codex → Antigravity (Gemini) → Grok | |
 | S3 | First-run sign-in with each provider's official login | |
 | S4 | Built-in throttle gate and fan guard (from [cool42](https://github.com/Okle42/cool42)) | |
-| S5 | Replaces the ShoWork42 command center | |
+| S5 | Fully standalone: everything you need in Orbit42 alone | |
 
 ## Build and run
 

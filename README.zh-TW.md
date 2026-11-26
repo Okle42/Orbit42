@@ -60,7 +60,7 @@ flowchart LR
 | S2 | 大腦接口：Claude → Codex → Antigravity（Gemini）→ Grok 的狀態、續接、額度 | |
 | S3 | 第一次打開時用各家官方登入 | |
 | S4 | 內建降頻閘門與風扇守護（來自 [cool42](https://github.com/Okle42/cool42)） | |
-| S5 | 取代 ShoWork42 戰情中心 | |
+| S5 | 完全獨立：只開 Orbit42 就能工作 | |
 
 ## 建置與執行
 
