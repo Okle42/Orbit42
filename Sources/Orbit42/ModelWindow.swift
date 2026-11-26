@@ -152,6 +152,30 @@ enum ModelLoader {
     }
 }
 
+/// 11-26 D：磁碟上的檔被覆寫就自動重新載入（邊做邊看）。用輪詢看「路徑」的大小／修改時間／inode，
+/// 原子換檔（寫新檔再 rename）、刪掉再出現都抓得到；寫到一半的檔不載：連續 stable 秒沒變才算好；
+/// 連續快速覆寫只載最後一次（每次變動都重新計時）
+struct FileWatch {
+    struct Stamp: Equatable { let size: UInt64; let mtime: TimeInterval; let inode: UInt64 }
+    static func stamp(_ path: String) -> Stamp? {
+        var st = stat()
+        guard stat(path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { return nil }
+        return Stamp(size: UInt64(st.st_size), mtime: TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1e9, inode: UInt64(st.st_ino))
+    }
+    var stable: TimeInterval = 0.5
+    private(set) var loaded: Stamp?          // 畫面上那份（或最後試著載過的那份：讀失敗也不一直重試）
+    private var seen: Stamp?, seenAt = Date.distantPast
+    init(loaded: Stamp?, stable: TimeInterval = 0.5) { self.loaded = loaded; self.stable = stable; seen = loaded }
+    /// 每次輪詢呼叫；回 true＝該重新載入了
+    mutating func tick(_ s: Stamp?, now: Date) -> Bool {
+        guard let s, s.size > 0 else { seen = nil; return false }          // 刪掉、空檔（剛開始寫）：等它回來
+        if s != seen { seen = s; seenAt = now; return false }
+        guard s != loaded, now.timeIntervalSince(seenAt) >= stable else { return false }
+        loaded = s
+        return true
+    }
+}
+
 /// SceneKit 畫面：左鍵拖＝轉、右鍵拖＝平移（系統內建）、滾輪＝縮放（自己做，內建的滾輪是平移）、點＝選零件
 final class ModelSceneView: SCNView {
     var onPick: (SCNNode?) -> Void = { _ in }
@@ -195,6 +219,12 @@ final class ModelView: NSView {
     var onTitle: (String) -> Void = { _ in }
     var onOpenPanel: () -> Void = {}
     var onLoaded: (Bool) -> Void = { _ in }
+    /// 11-26 D：自動重新載入（輪詢間隔、穩定秒數給測試調）
+    static var watchInterval: TimeInterval = 0.25
+    static var watchStable: TimeInterval = 0.5
+    private var watch: FileWatch?, watchTimer: Timer?, reloadToken = 0, reloadProcess: Process?
+    private(set) var reloads = 0                 // 測試用：自動重新載入成功幾次
+    private(set) var reloadFailed = false        // 最近一次自動重新載入讀不了（畫面留上一版）
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -208,7 +238,10 @@ final class ModelView: NSView {
             b.tag = i; b.bezelStyle = .inline; b.font = .systemFont(ofSize: 11)
             bar.addArrangedSubview(b); if i < 5 { viewButtons.append(b) }
         }
-        files.font = .systemFont(ofSize: 11); files.controlSize = .small; files.target = self; files.action = #selector(again); files.isHidden = true
+        // 11-26 H：跟旁邊「等角／前／右⋯」同一風格（.inline 膠囊、11 點字、字色跟按鈕一樣），深淺色主題都跟著系統外觀
+        files.bezelStyle = .inline; files.isBordered = true; files.font = .systemFont(ofSize: 11)
+        (files.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+        files.target = self; files.action = #selector(again); files.isHidden = true
         shut.bezelStyle = .inline; shut.font = .systemFont(ofSize: 11); shut.target = self; shut.action = #selector(close); shut.isHidden = true
         shut.toolTip = "關掉（小衛星也不見，終端機照跑）"
         fold.bezelStyle = .inline; fold.font = .systemFont(ofSize: 11); fold.target = self; fold.action = #selector(tuckAway); fold.isHidden = true
@@ -283,6 +316,7 @@ final class ModelView: NSView {
         loaded = nil; picked = nil
         info.stringValue = ""; message.stringValue = "正在開啟 \(u.lastPathComponent)⋯"; message.isHidden = false
         onTitle(u.lastPathComponent)
+        startWatch(u)
         if img { openImage(u); return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let r = Result { try ModelLoader.load(u) { p in
@@ -305,7 +339,66 @@ final class ModelView: NSView {
         }
     }
     /// 關視窗／換檔：還在轉的就停掉
-    func cancel() { token += 1; if let p = process, p.isRunning { p.terminate() }; process = nil }
+    func cancel() {
+        token += 1; if let p = process, p.isRunning { p.terminate() }; process = nil
+        stopWatch()
+    }
+
+    // MARK: 11-26 D：自動重新載入（不搶焦點、不跳視窗、不加按鈕；保留視角）
+    private func startWatch(_ u: URL) {
+        stopWatch()
+        watch = FileWatch(loaded: FileWatch.stamp(u.path), stable: Self.watchStable)
+        let t = Timer(timeInterval: Self.watchInterval, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pollWatch() } }
+        RunLoop.main.add(t, forMode: .common)
+        watchTimer = t
+    }
+    private func stopWatch() {
+        watchTimer?.invalidate(); watchTimer = nil; watch = nil
+        reloadToken += 1; if let p = reloadProcess, p.isRunning { p.terminate() }; reloadProcess = nil
+    }
+    private func pollWatch() {
+        guard let u = url, var w = watch else { return }
+        let due = w.tick(FileWatch.stamp(u.path), now: Date())
+        watch = w
+        if due { reload(u) }
+    }
+    /// 重新讀同一個檔：成功才換掉模型（鏡頭、縮放、旋轉、線框不動）；讀失敗留上一版、不清空畫面
+    private func reload(_ u: URL) {
+        reloadToken += 1; if let p = reloadProcess, p.isRunning { p.terminate() }; reloadProcess = nil
+        let t = reloadToken
+        if ModelLoader.image.contains(u.pathExtension.lowercased()) {
+            guard let d = try? Data(contentsOf: u), let img = NSImage(data: d), img.size.width > 0 else { return reloadFail() }
+            _ = img; reloadFailed = false; reloads += 1; openImage(u); return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let r = Result { try ModelLoader.load(u) { p in
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    if let self, self.reloadToken == t { self.reloadProcess = p } else if p.isRunning { p.terminate() }
+                } }
+            } }
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                guard let self, self.reloadToken == t, self.url == u else { return }
+                self.reloadProcess = nil
+                guard case .success(let l) = r else { return self.reloadFail() }
+                let had = self.loaded != nil
+                if let (m, old) = self.picked { m.emission.contents = old; self.picked = nil }
+                self.root.childNodes.forEach { $0.removeFromParentNode() }
+                self.root.addChildNode(l.node)
+                self.loaded = l; self.phoneData = l.phone; self.phoneVer += 1
+                self.message.isHidden = true
+                self.summary(); self.baseInfo = self.info.stringValue
+                self.reloadFailed = false; self.reloads += 1
+                if !had { self.look(0) }     // 之前沒畫出東西（第一次讀失敗）才擺預設視角
+                self.onLoaded(true)
+            } }
+        }
+    }
+    private func reloadFail() {
+        reloadFailed = true
+        if loaded != nil || picture.image != nil {
+            info.stringValue = baseInfo + "   （檔案更新了但讀不了，先顯示上一版）"
+        }
+    }
 
     var summaryText: String { info.stringValue }
     var messageText: String { message.isHidden ? "" : message.stringValue }
