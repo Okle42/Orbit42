@@ -65,6 +65,7 @@ final class LoginPanel: NSObject, WKScriptMessageHandler {
                 if let d = try? JSONSerialization.data(withJSONObject: list.map(\.json)) {
                     self.web.evaluateJavaScript("window.orbitAccounts && window.orbitAccounts(\(String(decoding: d, as: UTF8.self)))")
                 }
+                self.pushOrbitAccount()
             } }
         }
     }
@@ -78,7 +79,26 @@ final class LoginPanel: NSObject, WKScriptMessageHandler {
         case "login": if let p, let cmd = p.login { runInTerminal("登入 \(p.name)", brain, cmd) }
         case "install": if let p, let cmd = p.install { runInTerminal("安裝 \(p.name)", brain, cmd) }
         case "enter": onEnter(providers)
+        case "orbitSignIn": orbitSignIn()
+        case "orbitSignOut": OrbitAccount.shared.signOut(); pushOrbitAccount()
         default: break
+        }
+    }
+
+    // 11-26：Orbit42 自己的帳號（用 Google 登入，OrbitAccount.swift）
+    func pushOrbitAccount(error: String? = nil) {
+        var o = OrbitAccount.shared.stateJSON
+        if let error { o["error"] = error }
+        if let d = try? JSONSerialization.data(withJSONObject: o) {
+            web.evaluateJavaScript("window.orbitAccount && window.orbitAccount(\(String(decoding: d, as: UTF8.self)))")
+        }
+    }
+    func orbitSignIn() {
+        OrbitAccount.shared.anchor = web.window
+        Task { @MainActor in
+            do { _ = try await OrbitAccount.shared.signIn(); pushOrbitAccount() }
+            catch OrbitAccountError.cancelled { pushOrbitAccount() }
+            catch { pushOrbitAccount(error: error.localizedDescription) }
         }
     }
 }

@@ -10,6 +10,19 @@ SW="Engine"   # 引擎和球體網頁都在這個 repo（2026-11-24 起不再抓
 rm -rf "$TMP"; mkdir -p "$TMP/Contents/MacOS" "$TMP/Contents/Resources"
 cp .build/release/Orbit42 "$TMP/Contents/MacOS/Orbit42"
 cp Support/Info.plist "$TMP/Contents/Info.plist"
+# 11-26 Orbit42 帳號（Google 登入）的金鑰和用戶端 ID 不進 repo：打包時從本機檔讀進 Info.plist
+#   檔案：~/Library/Application Support/Orbit42/secrets.plist（ORBIT_SECRETS 可換路徑），要有 OrbitFirebaseAPIKey、OrbitGoogleClientID 兩個字串
+#   沒有這個檔：照樣打包，但會清楚說明；App 的帳號頁會顯示「這版還沒設定 Google 登入」
+SECRETS="${ORBIT_SECRETS:-$HOME/Library/Application Support/Orbit42/secrets.plist}"
+if [[ -f "$SECRETS" ]]; then
+  for k in OrbitFirebaseAPIKey OrbitGoogleClientID; do
+    v=$(/usr/bin/plutil -extract "$k" raw "$SECRETS" 2>/dev/null) || { echo "錯誤：$SECRETS 少了 $k" >&2; exit 1; }
+    /usr/bin/plutil -replace "$k" -string "$v" "$TMP/Contents/Info.plist"
+  done
+  echo "已從 $SECRETS 帶入 Google 登入設定"
+else
+  echo "注意：找不到 $SECRETS ⇒ 這版沒有 Google 登入（帳號頁會顯示「還沒設定」）。要開：建這個檔放 OrbitFirebaseAPIKey、OrbitGoogleClientID" >&2
+fi
 # 11-24 圖示分深淺色：assets/Orbit42.icon（Icon Composer 格式，含深色外觀）用 actool 編成 Assets.car＋舊系統用的 Orbit42.icns
 xcrun actool "$PWD/assets/Orbit42.icon" --compile "$TMP/Contents/Resources" --platform macosx --minimum-deployment-target 14.0 \
   --app-icon Orbit42 --output-partial-info-plist "$TMP.icon.plist" --output-format human-readable-text >/dev/null

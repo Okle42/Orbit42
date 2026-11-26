@@ -15,6 +15,15 @@ final class ChromeBrowser {
     var onDead: [ObjectIdentifier: () -> Void] = [:]
     var running: Bool { pid > 0 }
 
+    /// 這台裝的 Chrome 大版本（看 App 的版本號）
+    static var major: String {
+        let v = Bundle(url: appURL ?? URL(fileURLWithPath: "/"))?.infoDictionary?["CFBundleShortVersionString"] as? String ?? "140"
+        return String(v.split(separator: ".").first ?? "140")
+    }
+    /// 一般 Mac 版 Chrome 的身分字串（不含 Headless）
+    static var desktopUA: String { "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/\(major).0.0.0 Safari/537.36" }
+    static var brands: [[String: String]] { [["brand": "Chromium", "version": major], ["brand": "Google Chrome", "version": major], ["brand": "Not.A/Brand", "version": "99"]] }
+
     static var profile: String {
         ProcessInfo.processInfo.environment["ORBIT_CHROME_PROFILE"]
             ?? NSHomeDirectory() + "/Library/Application Support/Orbit42/Chrome"
@@ -23,6 +32,7 @@ final class ChromeBrowser {
     /// 已經開著就直接回 true
     func start() -> Bool {
         if pid > 0 { return true }
+        if ChromeGoogleLogin.shared.proc?.isRunning == true { return false }     // 正在用同一個設定檔登入 Google：等那個視窗關掉
         guard let app = Self.appURL else { return false }
         try? FileManager.default.createDirectory(atPath: Self.profile, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         var a: [Int32] = [0, 0], b: [Int32] = [0, 0]
@@ -42,8 +52,9 @@ final class ChromeBrowser {
         posix_spawnattr_init(&attr)
         posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
         let exe = app.appendingPathComponent("Contents/MacOS/Google Chrome").path
+        // 11-26：無頭 Chrome 預設自稱 HeadlessChrome，Google 會擋登入 ⇒ 用一般 Chrome 的身分（頁面上再用 setUserAgentOverride 補上品牌資料）
         let args = [exe, "--headless=new", "--remote-debugging-pipe", "--user-data-dir=" + Self.profile, "--no-first-run", "--no-default-browser-check",
-                    "--hide-scrollbars=false", "--force-device-scale-factor=3", "--window-size=1000,800", "about:blank"]
+                    "--user-agent=" + Self.desktopUA, "--hide-scrollbars=false", "--force-device-scale-factor=3", "--window-size=1000,800", "about:blank"]
         var argv: [UnsafeMutablePointer<CChar>?] = args.map { strdup($0) } + [nil]
         var envp: [UnsafeMutablePointer<CChar>?] = ProcessInfo.processInfo.environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
         defer { argv.forEach { free($0) }; envp.forEach { free($0) } }
@@ -312,12 +323,12 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     /// 很多網站看瀏覽器自報的身分決定給電腦版還是手機版 ⇒ 手機在看時報 Android 的 Chrome（下一次載入才生效，不自己重新載入：Mac 上可能打字打到一半）
     private var agentSet = false
     private func agent(phone: Bool) {
-        guard session != nil, phone || agentSet else { return }
+        guard session != nil else { return }
         agentSet = phone
-        if !phone { cmd("Emulation.setUserAgentOverride", ["userAgent": ""]); return }
-        let v = Bundle(url: ChromeBrowser.appURL ?? URL(fileURLWithPath: "/"))?.infoDictionary?["CFBundleShortVersionString"] as? String ?? "140"
-        let major = String(v.split(separator: ".").first ?? "140")
-        let brands = [["brand": "Chromium", "version": major], ["brand": "Google Chrome", "version": major]]
+        let major = ChromeBrowser.major, brands = ChromeBrowser.brands
+        // 11-26 電腦版也要蓋掉：不然品牌資料（Sec-CH-UA）還是寫 HeadlessChrome，Google 登入會擋
+        if !phone { cmd("Emulation.setUserAgentOverride", ["userAgent": ChromeBrowser.desktopUA,
+            "userAgentMetadata": ["brands": brands, "fullVersion": "\(major).0.0.0", "platform": "macOS", "platformVersion": "15.0.0", "architecture": "arm", "model": "", "mobile": false]]); return }
         cmd("Emulation.setUserAgentOverride", ["userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/\(major).0.0.0 Mobile Safari/537.36",
             "userAgentMetadata": ["brands": brands, "platform": "Android", "platformVersion": "10", "architecture": "", "model": "K", "mobile": true]])
     }
