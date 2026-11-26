@@ -297,6 +297,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             .max { ($0.value.layer?.zPosition ?? 0) < ($1.value.layer?.zPosition ?? 0) }?.key
     }
     func moonViews(_ id: String) -> [String: NSView] { moons[id] ?? [:] }
+    func moonShownKind(_ id: String) -> String? { moonShown[id] }      // Host 存恢復紀錄用：現在展開的是哪種面板
     /// 手機球體用：這顆衛星有哪些小衛星
     func moonList(_ id: String) -> [[String: Any]] { (moons[id] ?? [:]).keys.sorted().map { ["kind": $0, "title": moonTitle(moons[id]![$0]!), "on": moonShown[id] == $0] } }
     private func moonTitle(_ v: NSView) -> String { (v as? ModelView)?.url?.lastPathComponent ?? (v as? WebPane)?.titleText ?? "" }
