@@ -297,6 +297,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             .max { ($0.value.layer?.zPosition ?? 0) < ($1.value.layer?.zPosition ?? 0) }?.key
     }
     func moonViews(_ id: String) -> [String: NSView] { moons[id] ?? [:] }
+    func moonShownKind(_ id: String) -> String? { moonShown[id] }      // Host 存恢復紀錄用：現在展開的是哪種面板
     /// 手機球體用：這顆衛星有哪些小衛星
     func moonList(_ id: String) -> [[String: Any]] { (moons[id] ?? [:]).keys.sorted().map { ["kind": $0, "title": moonTitle(moons[id]![$0]!), "on": moonShown[id] == $0] } }
     private func moonTitle(_ v: NSView) -> String { (v as? ModelView)?.url?.lastPathComponent ?? (v as? WebPane)?.titleText ?? "" }
@@ -471,6 +472,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         markSecretary()
         if w.isHidden || !w.wantShown { animate(w, on: true); autoArrange() } else { w.flash() }
         window.makeFirstResponder(w.content)
+        host.wakeIfHeadless(id)
     }
     /// 11-23 Keng「點左上角綠燈應該是完全關閉：按下去先跟我確認，確認後清掉整個內容再關掉」
     /// 確認 → host.end：掛斷終端機程式（Orbit42 開的 AI 會結束）、丟掉捲動紀錄與網頁視圖、從球上拿掉 → onRemoved 關小視窗。

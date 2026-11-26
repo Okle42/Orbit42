@@ -8,6 +8,20 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     // 11-23 Keng「衛星終端機只能開一個視窗，要能開多個、重疊、移動」：
     // 每顆衛星自己一個網頁視圖（index.html?term=1&sat=<id>），各自裝在自己的小視窗裡
     private(set) var views: [String: DropWebView] = [:]
+    /// 11-26 Keng「版面嚴重變形、調不回來」：沒視窗先接上的背景 session（固定 110×36、網頁標成 headless 不再量欄數）
+    /// ⇒ 衛星視窗真的顯示出來時要叫網頁照視窗重新量一次（wakeIfHeadless）
+    private(set) var headless: Set<String> = []
+    /// 測試用（HeadlessWakeTest.swift）：照背景 session 沒視窗先接上那條路，把這顆標成 headless
+    func testMakeHeadless(_ id: String) {
+        guard let v = views[id] else { return }
+        sats[id]?.localResize(cols: 110, rows: 36)
+        Self.call(v, "window.orbitHeadless", [id, 110, 36]); headless.insert(id)
+    }
+    func wakeIfHeadless(_ id: String) {
+        guard headless.remove(id) != nil, let v = views[id] else { return }
+        Self.call(v, "window.orbitOpened", [id])      // openTerm → 等大小穩定 → headless=false → 照視窗量（已開過的程式不會再開一次）
+        print("wake headless \(id)"); fflush(stdout)
+    }
     private let files: WebFiles? = Host.webDir.map { WebFiles(root: $0) }
     private var sats: [String: Satellite] = [:]
     private var order: [String] = []
@@ -99,6 +113,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 try? await Task.sleep(for: .seconds(4))
                 guard let s, self?.sats[s.id] === s else { return }
                 Self.call(v, "window.orbitHeadless", [s.id, 110, 36])
+                self?.headless.insert(s.id)
                 Self.call(v, "window.orbitReplay", [s.id, s.snapshot().base64EncodedString()])
             }
         }
@@ -556,14 +571,33 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var out: [[String: String]] = []
         for id in order {
             guard let s = sats[id], !id.hasPrefix("cmd-"), s.exited == nil else { continue }
-            if let job = s.attachedJob { out.append(["job": job, "name": s.name, "cwd": s.cwd]); continue }
+            if let job = s.attachedJob { var e = ["job": job, "name": s.name, "cwd": s.cwd]; addWeb(&e, id); out.append(e); continue }
             guard let p = s.pty else { continue }
             var e = ["brain": s.brain.rawValue, "name": s.name, "cwd": s.cwd]
             if s.brain == .claude, let r = recs.first(where: { $0.pid == p.pid || Self.parent(of: $0.pid) == p.pid }) { e["sid"] = r.sessionId; e["cwd"] = r.cwd }
+            addWeb(&e, id)
             out.append(e)
         }
         if let d = try? JSONSerialization.data(withJSONObject: out) { UserDefaults.standard.set(String(decoding: d, as: UTF8.self), forKey: Self.restoreKey) }
     }
+    /// 11-26 Keng「重開後網頁面板自動恢復」：這顆衛星上方開著網頁 ⇒ 記下網址和有沒有展開
+    private func addWeb(_ e: inout [String: String], _ id: String) {
+        guard let pane = OrbitWindow.shared.moonViews(id)["web"] as? WebPane else { return }
+        let u = pane.currentURL
+        guard !u.isEmpty, let url = URL(string: u), !url.isFileURL else { return }
+        e["web"] = u; e["webShown"] = OrbitWindow.shared.moonShownKind(id) == "web" ? "1" : "0"
+    }
+    /// 衛星開回來之後，把它的網頁也開回來（等衛星視窗建好）
+    private func reopenWeb(_ e: [String: String], sat id: String) {
+        guard let u = e["web"].flatMap(WebPane.parse), !u.isFileURL else { return }
+        let shown = e["webShown"] == "1"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { MainActor.assumeIsolated {
+            guard self.has(id) else { return }
+            if shown { OrbitWindow.shared.openWeb(u, sat: id) } else { OrbitWindow.shared.openWebQuiet(u, sat: id) }
+            print("restore web \(id) \(u.absoluteString) shown=\(shown)"); fflush(stdout)
+        } }
+    }
+
     /// 打開 Orbit42 時：把上次關掉時開著的衛星開回來（開完就清掉紀錄，下次關掉再記）
     func restore() {
         if Self.restoreBlocked { return }
@@ -574,6 +608,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let cwd = e["cwd"] ?? NSHomeDirectory()
             if let job = e["job"] {
                 userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": e["name"] ?? job, "cwd": cwd]))
+                reopenWeb(e, sat: "bg-" + job)
                 continue
             }
             let brain = Brain(rawValue: e["brain"] ?? "claude") ?? .claude
@@ -585,7 +620,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if brain == .claude, Self.useBackground { openBackground(name: name, cwd: cwd, resume: sid); continue }
             let cmd = sid.map { brain.command + " --resume " + $0 } ?? brain.command
             let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: name, brain: brain, cwd: cwd, command: cmd)
-            add(s); onOpen(s.id)
+            add(s); onOpen(s.id); reopenWeb(e, sat: s.id)
         }
     }
 
