@@ -159,6 +159,7 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     private static let zoomKey = "webZoomByHost"
     private(set) var zoom: CGFloat = 1
     private var pinch: CGFloat = 1
+    private var zoomHost: String?          // 已套用比例的網站（load() 會先改 url，不能拿 url 比，11-27 記住的比例開頁沒套上）
     private func setZoom(_ z: CGFloat, save: Bool = true) {
         let z = min(max(z, 0.5), 3)
         guard abs(z - zoom) > 0.001 else { return }
@@ -309,7 +310,7 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         case "Page.frameNavigated":
             guard let f = p["frame"] as? [String: Any], f["parentId"] == nil, let u = f["url"] as? String else { return }
             mainFrame = f["id"] as? String ?? ""
-            if u != "about:blank" { let host = url?.host; url = URL(string: u); title = ""; setEdit(""); onError(""); if url?.host != host { zoomForHost() }; onChange() }
+            if u != "about:blank" { url = URL(string: u); title = ""; setEdit(""); onError(""); if url?.host != zoomHost { zoomHost = url?.host; zoomForHost() }; onChange() }
         case "Page.navigatedWithinDocument":
             if p["frameId"] as? String == mainFrame, let u = (p["url"] as? String).flatMap(URL.init) { url = u; readTitle() }
         case "Page.loadEventFired": readTitle(); if url != nil { onLoaded() }
