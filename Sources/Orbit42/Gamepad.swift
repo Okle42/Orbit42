@@ -19,7 +19,7 @@ import Orbit42App
 //   Options（≡）       叫出 Orbit42 視窗
 //   Share（View）      截圖（等同 ⌘⇧3）
 //   燈條               呼吸燈：淺色模式紅、深色模式綠；切換終端機閃一下白光（PS4／PS5）（11-27 Keng 改：不跟狀態變色）
-//   震動               有新的答案卡、有衛星做完
+//   震動               有新的答案卡（短兩下）；有 AI 做完（進行中 → 待審／完成，長一下）
 // 移滑鼠、送按鍵要「輔助使用」權限（Orbit42 本來排終端機視窗就要這個權限）
 
 @MainActor
@@ -35,6 +35,8 @@ final class Gamepad {
     private var lastAsks = -1
     private var busy: [String: (on: Bool, since: Date)] = [:]
     private var touch: (p: CGPoint, t: Double)?, touch2At = 0.0
+    private var glide = CGPoint.zero              // 觸控板還沒走完的位移：每格畫面走一部分，不會一格一格跳
+    private var lastCol: [String: String] = [:]
     private var leftDown = false
     private var win: OrbitWindow { OrbitWindow.shared }
 
@@ -74,7 +76,7 @@ final class Gamepad {
             t.primary.valueChangedHandler = { [weak self] _, x, y in MainActor.assumeIsolated { self?.touchMoved(x, y) } }
             t.secondary.valueChangedHandler = { [weak self] _, x, y in MainActor.assumeIsolated { if x != 0 || y != 0 { self?.touch2At = CACurrentMediaTime() } } }
         }
-        poll = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sticks() } }
+        poll = Timer.scheduledTimer(withTimeInterval: 1.0 / 120, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sticks() } }
         slow = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.status() } }
         breath = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.breathe() } }
         if let h = c.haptics?.createEngine(withLocality: .default) { h.isAutoShutdownEnabled = true; haptics = h }
@@ -198,12 +200,18 @@ final class Gamepad {
         let dx = p.x - last.p.x, dy = p.y - last.p.y
         guard hypot(dx, dy) < 0.4 else { return }                   // 跳太遠＝換了一根手指
         if now - touch2At < 0.15 { scroll(dx * 600, dy * 600); return }      // 兩指：捲動
-        let speed = 1 + min(2, hypot(dx, dy) * 25)
-        move(dx * 520 * speed, -dy * 260 * speed)                   // 觸控板寬約是高的 2 倍，兩軸都正規化成 -1…1
+        // 11-27 Keng「一格一格的磁性效果」：觸控板一次回報一軸、而且回報不密，直接移會走樓梯 ⇒ 先存起來，sticks() 每 1/120 秒走一部分
+        let speed = 1 + min(1.5, hypot(dx, dy) * 12)
+        glide.x += dx * 560 * speed; glide.y -= dy * 280 * speed     // 觸控板寬約是高的 2 倍，兩軸都正規化成 -1…1
     }
 
     private func sticks() {
         guard let g = pad?.extendedGamepad else { return }
+        if abs(glide.x) + abs(glide.y) > 0.05 {
+            let step = CGPoint(x: glide.x * 0.3, y: glide.y * 0.3)
+            glide.x -= step.x; glide.y -= step.y
+            move(step.x, step.y)
+        } else { glide = .zero }
         func curve(_ v: Float) -> CGFloat { let a = abs(v); return a < 0.15 ? 0 : CGFloat(copysign(pow((a - 0.15) / 0.85, 2), v)) }
         let lx = curve(g.leftThumbstick.xAxis.value), ly = curve(g.leftThumbstick.yAxis.value)
         if lx != 0 || ly != 0 { move(lx * 18, -ly * 18) }
@@ -250,14 +258,33 @@ final class Gamepad {
             let n = o["n"] as? Int ?? 0
             if self.lastAsks >= 0, n > self.lastAsks { self.buzz(0.7, twice: true) }       // 新的答案卡
             self.lastAsks = n
+            self.watchDone()
         }
+    }
+
+    /// 11-27 Keng「工作完成要用搖桿震動提示」：看球體資料的狀態欄，有人從「進行中」變成待審／完成／需要你 ⇒ 長震一下
+    private func watchDone() {
+        guard let d = SphereEmbed.latestSphere, let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let team = o["team"] as? [[String: Any]] else { return }
+        var now: [String: String] = [:]
+        for t in team { if let sid = t["sessionId"] as? String, let st = t["status"] as? String { now[sid] = st } }
+        let first = lastCol.isEmpty
+        let finished = now.contains { sid, st in lastCol[sid] == "進行中" && ["待審", "完成", "需要你"].contains(st) }
+        lastCol = now
+        if !first && finished { buzzDone() }
+    }
+    private func buzzDone() {
+        guard let h = haptics else { return }
+        let ev = [CHHapticEvent(eventType: .hapticContinuous, parameters: [CHHapticEventParameter(parameterID: .hapticIntensity, value: 1)], relativeTime: 0, duration: 0.45)]
+        guard let pat = try? CHHapticPattern(events: ev, parameters: []), let p = try? h.makePlayer(with: pat) else { return }
+        try? h.start(); try? p.start(atTime: CHHapticTimeImmediate)
     }
 
     private func noteBusy(_ id: String, _ on: Bool) {
         let was = busy[id]
         guard was?.on != on else { return }
         busy[id] = (on, Date())
-        if let was, was.on, !on, Date().timeIntervalSince(was.since) > 10 { buzz(0.4) }    // 做了一陣子停下來＝做完
+
     }
 
     /// 呼吸燈：3 秒一輪，淺色模式紅、深色模式綠；切換終端機後 0.25 秒白光
