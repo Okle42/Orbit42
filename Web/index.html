@@ -408,7 +408,12 @@ new ResizeObserver(() => {
 function fitPhone(t) {
   const box = $("terms"), w = box.clientWidth - 14, h = box.clientHeight - 12, p = t.phone;
   const base = t.baseFont || (t.baseFont = t.term.options.fontSize), lh = t.term.options.lineHeight || 1.15;
-  t.term.options.fontSize = Math.max(5, Math.min(base, Math.floor(Math.min(w / (p.cols * 0.6), h / (p.rows * lh * 1.08)) * 10) / 10));
+  // 11-27 Keng 截圖「手機上跳來跳去，下面的視窗顯示不正常」：衛星上半開了 3D，終端機只剩下半小塊，
+  // 手機的行數全部硬塞進去，字縮到 5～6px 看不清 ⇒ 字級有下限（MIN）；塞不下的話只露出最下面（輸入框、狀態列、最新內容），
+  // 上面較舊的行切掉（手機那邊照樣看得到全部）
+  const MIN = LOWDPI ? 10 : 9, fW = w / (p.cols * 0.6), fH = h / (p.rows * lh * 1.08);
+  t.phoneClip = fH < MIN && fW > fH;
+  t.term.options.fontSize = Math.max(5, Math.min(base, Math.floor(Math.min(fW, Math.max(MIN, fH)) * 10) / 10));
   if (t.term.cols !== p.cols || t.term.rows !== p.rows) t.term.resize(p.cols, p.rows);
   try { t.term.clearTextureAtlas(); } catch {}      // 換字級後 WebGL 字形快取會殘留（3:48 錄影「Ran」變「R n」）
   t.term.scrollToBottom();          // 11-24 Keng 3:40 截圖：改行數後畫面停在往上捲約 10 行，最下面的輸入框、狀態列被切掉
@@ -419,14 +424,15 @@ function fitPhone(t) {
     const sc = t.el.querySelector(".xterm-screen"); if (!sc) return;
     const r = sc.getBoundingClientRect();
     // 估的字高不準（3:48 錄影＋測試：最下面 3 行、輸入框和狀態列被切掉）⇒ 量實際畫出來的大小，超出就照比例再縮
-    if ((r.height > h + 1 || r.width > w + 1) && tries++ < 4) {
-      const k = Math.min(h / r.height, w / r.width);
+    if ((r.width > w + 1 || (!t.phoneClip && r.height > h + 1)) && tries++ < 4) {
+      const k = t.phoneClip ? w / r.width : Math.min(h / r.height, w / r.width);
       t.term.options.fontSize = Math.max(4, Math.floor(t.term.options.fontSize * k * 10 - 1) / 10);
       try { t.term.clearTextureAtlas(); } catch {}
       t.centerT = setTimeout(center, 80); return;
     }
     t.el.style.paddingLeft = Math.max(0, Math.floor((w - r.width) / 2)) + "px";
     t.el.style.paddingTop = Math.max(0, Math.floor((h - r.height) / 2)) + "px";
+    const x = t.el.querySelector(".xterm"); if (x) x.style.marginTop = r.height > h + 1 ? Math.floor(h - r.height) + "px" : "";   // 塞不下：往上推，對齊最下面
   };
   t.centerT = setTimeout(center, 80);
 }
@@ -434,7 +440,8 @@ window.orbitPhoneSize = (id, cols, rows) => {
   const t = terms.get(id); if (!t || MIRROR) return;
   if (cols) { t.phone = { cols, rows }; return fitPhone(t); }
   if (!t.phone) return;
-  t.phone = null; clearTimeout(t.centerT); t.el.style.paddingLeft = t.el.style.paddingTop = "";
+  t.phone = null; t.phoneClip = false; clearTimeout(t.centerT); t.el.style.paddingLeft = t.el.style.paddingTop = "";
+  const x = t.el.querySelector(".xterm"); if (x) x.style.marginTop = "";
   if (t.baseFont) t.term.options.fontSize = t.baseFont;
   try { t.term.clearTextureAtlas(); } catch {}
   setTimeout(() => { t.fit.fit(); t.term.scrollToBottom(); post({ action: "resize", id, cols: t.term.cols, rows: t.term.rows }); }, 50);
