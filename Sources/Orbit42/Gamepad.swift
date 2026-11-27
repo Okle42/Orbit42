@@ -18,7 +18,7 @@ import Orbit42App
 //   右類比             捲動
 //   Options（≡）       叫出 Orbit42 視窗
 //   Share（View）      截圖（等同 ⌘⇧3）
-//   燈條               現在這顆衛星：等你回答＝橘、工作中＝藍、閒著＝綠（PS4／PS5）
+//   燈條               呼吸燈：淺色模式紅、深色模式綠；切換終端機閃一下白光（PS4／PS5）（11-27 Keng 改：不跟狀態變色）
 //   震動               有新的答案卡、有衛星做完
 // 移滑鼠、送按鍵要「輔助使用」權限（Orbit42 本來排終端機視窗就要這個權限）
 
@@ -26,7 +26,7 @@ import Orbit42App
 final class Gamepad {
     static let shared = Gamepad()
     private var pad: GCController?
-    private var poll: Timer?, slow: Timer?
+    private var poll: Timer?, slow: Timer?, breath: Timer?
     private var held = Set<String>()          // 現在按著的鍵
     private var chord = false                 // 這次 □＋✕ 已經算關閉了：兩顆都放開前不再當單鍵
     private var listener: SphereListener?
@@ -76,13 +76,14 @@ final class Gamepad {
         }
         poll = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sticks() } }
         slow = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.status() } }
+        breath = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.breathe() } }
         if let h = c.haptics?.createEngine(withLocality: .default) { h.isAutoShutdownEnabled = true; haptics = h }
         buzz(0.5)
     }
 
     private func detach() {
         print("orbit: 搖桿拔掉了"); fflush(stdout)
-        poll?.invalidate(); slow?.invalidate(); poll = nil; slow = nil
+        poll?.invalidate(); slow?.invalidate(); breath?.invalidate(); poll = nil; slow = nil; breath = nil
         if leftDown { mouse(.leftMouseUp) }
         listener?.stop(); listener = nil
         pad = nil; haptics = nil; held = []; chord = false; touch = nil
@@ -137,7 +138,7 @@ final class Gamepad {
         let next = ids[((i ?? (d > 0 ? -1 : 0)) + d + ids.count) % ids.count]
         bringFront()
         win.showSat(next)
-        paint()
+        flashUntil = CACurrentMediaTime() + 0.25
     }
 
     // MARK: 語音輸入（△ 按住講、放開打進去）
@@ -150,7 +151,6 @@ final class Gamepad {
         }
         l.inputDevice = Self.padMic()
         listener = l
-        setLight(.purple)
         buzz(0.3)
         l.start()
     }
@@ -162,7 +162,6 @@ final class Gamepad {
         if let err { print("orbit: 搖桿語音 \(err)"); fflush(stdout) }
         if !t.isEmpty, let id = voiceSat { win.host.type(id, t) } else { buzz(0.3) }
         voiceSat = nil
-        paint()
     }
 
     /// 搖桿自己的麥克風（PS5 DualSense／PS4 插耳機，USB 接才有）；沒有就用系統預設
@@ -245,15 +244,12 @@ final class Gamepad {
 
     // MARK: 燈條與震動
 
-    private var askSids: Set<String> = []
     private func status() {
         win.askFloat?.pad("state") { [weak self] r in
             guard let self, let d = r.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return }
             let n = o["n"] as? Int ?? 0
-            self.askSids = Set(o["sids"] as? [String] ?? [])
             if self.lastAsks >= 0, n > self.lastAsks { self.buzz(0.7, twice: true) }       // 新的答案卡
             self.lastAsks = n
-            self.paint()
         }
     }
 
@@ -264,16 +260,15 @@ final class Gamepad {
         if let was, was.on, !on, Date().timeIntervalSince(was.since) > 10 { buzz(0.4) }    // 做了一陣子停下來＝做完
     }
 
-    private func paint() {
-        guard listener == nil else { return }
-        guard let id = win.currentSatID else { return setLight(.white) }
-        if let sid = win.host.sessionId(id), askSids.contains(sid) { return setLight(.orange) }
-        setLight(busy[id]?.on == true ? .blue : .green)
-    }
-
-    private func setLight(_ c: NSColor) {
-        guard let l = pad?.light, let rgb = c.usingColorSpace(.deviceRGB) else { return }
-        l.color = GCColor(red: Float(rgb.redComponent), green: Float(rgb.greenComponent), blue: Float(rgb.blueComponent))
+    /// 呼吸燈：3 秒一輪，淺色模式紅、深色模式綠；切換終端機後 0.25 秒白光
+    private var flashUntil = 0.0, lastLight: [Float] = []
+    private func breathe() {
+        let t = CACurrentMediaTime()
+        let k = Float(0.12 + 0.88 * (0.5 - 0.5 * cos(t * 2 * .pi / 3)))
+        let c: [Float] = t < flashUntil ? [1, 1, 1] : win.themeNow == "light" ? [k, 0, 0] : [0, k, 0]
+        if c == lastLight { return }
+        lastLight = c
+        pad?.light?.color = GCColor(red: c[0], green: c[1], blue: c[2])
     }
 
     private func buzz(_ strength: Float, twice: Bool = false) {
