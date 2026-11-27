@@ -444,6 +444,16 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         }
     }
 
+    /// 11-27 搖桿：畫面上開著的衛星，由左到右、同一欄由上到下
+    var shownSatIDs: [String] {
+        satWins.filter { !$0.value.isHidden && $0.value.wantShown }
+            .sorted { a, b in abs(a.value.frame.minX - b.value.frame.minX) > 40 ? a.value.frame.minX < b.value.frame.minX : a.value.frame.maxY > b.value.frame.maxY }
+            .map(\.key)
+    }
+    /// 現在操作中的衛星：正在打字的那顆，不然最上面那顆
+    var currentSatID: String? { typingSat ?? frontSat.flatMap { f in satWins.first { $0.value === f }?.key } }
+    /// 搖桿 □＋✕：跟按叉叉一樣（會先跳確認）
+    func requestClose(_ id: String) { confirmEnd(id) }
     /// 打開（或叫回）一顆衛星的小視窗；新開的從上一個位置往右下錯開一點，像 macOS 開新視窗
     func showSat(_ id: String) {
         guard let root = window.contentView else { return }

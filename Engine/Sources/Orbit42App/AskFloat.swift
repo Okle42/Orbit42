@@ -413,6 +413,11 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
             return b.contains(q)
         }
     }
+    /// 11-27 搖桿（Gamepad.swift）：up／down／go／undo／state，回傳 ask.html window.askPad 的結果
+    public func pad(_ cmd: String, _ done: @escaping @MainActor (String) -> Void) {
+        guard ready, ["up", "down", "go", "undo", "state"].contains(cmd) else { return done("none") }
+        webView.evaluateJavaScript("window.askPad ? window.askPad('\(cmd)') : 'none'") { r, _ in MainActor.assumeIsolated { done(r as? String ?? "none") } }
+    }
     private func js(_ s: String) { webView.evaluateJavaScript(s, completionHandler: nil) }
     private func call(_ fn: String, _ args: [Any]) {
         guard let d = try? JSONSerialization.data(withJSONObject: args) else { return }

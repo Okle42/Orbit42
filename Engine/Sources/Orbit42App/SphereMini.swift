@@ -284,8 +284,8 @@ enum DeskChrome {
 /// ②辨識器在停頓時直接給 isFinal／沒聽到聲音的錯誤 ⇒ 收進 committed、馬上接一個新的辨識繼續聽；
 /// ③放開（finish）才整段送出；中間每次回報的都是「按住以來的全部文字」，畫面上看得到完整內容。
 /// 測試：環境變數 ORBIT_TEST_LISTEN_FILE＝音檔路徑 ⇒ 不開麥克風，照真實速度把音檔餵給辨識器，播完自動 finish。
-final class SphereListener: @unchecked Sendable {
-    typealias Report = @Sendable (_ text: String, _ final: Bool, _ error: String?) -> Void
+public final class SphereListener: @unchecked Sendable {
+    public typealias Report = @Sendable (_ text: String, _ final: Bool, _ error: String?) -> Void
     private let report: Report
     private let engine = AVAudioEngine()
     private var recognizer: SFSpeechRecognizer?
@@ -304,11 +304,13 @@ final class SphereListener: @unchecked Sendable {
     private let spectrum = SphereSpectrum()
     private var lastLevel = Date.distantPast
 
-    init(_ report: @escaping Report) { self.report = report }
+    public init(_ report: @escaping Report) { self.report = report }
+    /// 11-27 搖桿語音輸入：指定收音裝置（搖桿的麥克風）；nil＝系統預設
+    public var inputDevice: UInt32?
 
     static var testFile: String? { ProcessInfo.processInfo.environment["ORBIT_TEST_LISTEN_FILE"] }
 
-    func start() {
+    public func start() {
         SFSpeechRecognizer.requestAuthorization { st in
             if Self.testFile != nil { print("listen auth \(st.rawValue)"); fflush(stdout) }
             guard st == .authorized else {
@@ -349,6 +351,7 @@ final class SphereListener: @unchecked Sendable {
         newTask()
         if let path = Self.testFile { return feed(path) }
         let input = engine.inputNode
+        if let id = inputDevice { try? input.auAudioUnit.setDeviceID(id) }
         let fmt = input.outputFormat(forBus: 0)
         guard fmt.sampleRate > 0 else { return report("", true, "找不到麥克風。") }
         input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { [weak self] buf, _ in
@@ -420,7 +423,7 @@ final class SphereListener: @unchecked Sendable {
     }
 
     /// 放開球：停止收音，等辨識器給最後結果（最多 2 秒）
-    func finish() {
+    public func finish() {
         lock.lock(); finishing = true; lock.unlock()
         if engine.isRunning { engine.inputNode.removeTap(onBus: 0); engine.stop() }
         request?.endAudio()
@@ -436,7 +439,7 @@ final class SphereListener: @unchecked Sendable {
         }
     }
 
-    func stop() {
+    public func stop() {
         lock.lock(); done = true; lock.unlock()
         teardown()
     }

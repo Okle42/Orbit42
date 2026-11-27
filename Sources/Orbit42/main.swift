@@ -162,6 +162,7 @@ MainActor.assumeIsolated {
         // 11-24 外接硬碟斷線偵測：等球體載好（8 秒）再開始，開機就慢速的那句才講得出來
         if !orbitTest { GuardPause.shared.start { OrbitWindow.shared.toast($0) } }
         DockIcon.shared.start()               // 11-24 Dock 圖示跟著深淺色換
+        if !orbitTest { Gamepad.shared.start() }      // 11-27 PS4／PS5／Xbox 搖桿（Gamepad.swift）
         DiskWatch.shared.say = { OrbitWindow.shared.toast($0) }
         DispatchQueue.main.asyncAfter(deadline: .now() + (orbitEnv["ORBIT_TEST_DISKWATCH"].flatMap(Double.init) ?? 8)) {
             MainActor.assumeIsolated { DiskWatch.shared.start() }

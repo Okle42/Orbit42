@@ -56,6 +56,7 @@
   .opt b { font-weight: 600; font-size: 11px; color: var(--ink-dim); margin-right: 6px; }
   .opt i { display: block; font-style: normal; font-size: 10.5px; letter-spacing: .12em; color: var(--acc); }
   .opt.rec { border-color: var(--acc); background: var(--rec); color: var(--acc); }
+  .opt.pad { outline: 2px solid var(--acc); outline-offset: 2px; }          /* 11-27 搖桿：十字鍵選到的那顆 */
   :root[data-theme="light"] .opt.rec { color: var(--ink); }
   .free { margin-top: 8px; display: flex; gap: 6px; align-items: flex-end; }
   .free textarea { flex: 1; min-width: 0; resize: none; min-height: 4.9em; max-height: 9em; background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; outline: none; -webkit-user-select: text; user-select: text; cursor: text; }
@@ -201,7 +202,7 @@ function drawCard(list) {
   const el = $("card");
   if (el.dataset.key !== cur) {
     if (el.dataset.key) disarm();
-    el.dataset.key = cur; el.dataset.sig = ""; lock();
+    el.dataset.key = cur; el.dataset.sig = ""; lock(); padSel = -1;
     el.innerHTML = `<div class="top"><span class="tag">需要你</span><span class="nm" data-jump></span><span class="ago"></span><span class="nav"></span></div>
       <div class="sum"></div><div class="q" data-jump></div><div class="d"></div><div class="opts"></div>
       <div class="free"><textarea rows="2" placeholder="補充說明，選了選項會一起送（⌘Enter 送出）" aria-label="自己打補充說明"></textarea><button tabindex="-1" data-go>送出</button></div>`;
@@ -243,6 +244,7 @@ function patch(list) {
   const xs = items(c), many = c.permit?.kind === "ask" && !c.askId && !xs.length;
   const d = !c.askId && c.permit?.kind === "tool" ? c.permit.summary || "" : many ? "這是多題選擇題，到它的終端機回答比較清楚。" : "";
   set(".d", d).style.display = d ? "" : "none";
+  padSel = -1;
   el.querySelector(".opts").innerHTML = xs.map((o, k) => `<button class="opt${o.rec ? " rec" : ""}" tabindex="-1" data-k="${k}">${o.rec ? "<i>建議</i>" : ""}${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o.label)}</button>`).join("");
   el.querySelector(".free").style.display = c.askId ? "" : "none";
 }
@@ -353,6 +355,30 @@ function size() {
   if (s !== sized) { sized = s; shifted(); post(o); }
 }
 window.askUpdate = askUpdate;
+/* 11-27 Keng 搖桿：十字鍵 ↑↓ 選、✕ 送、○ 復原。第一下 ✕ 只框起建議那顆，再按一次才送；送出照舊走 3 秒復原。
+   回傳字串給原生端：none／opened／moved／chose／blocked／undone；state 回 JSON（燈條、震動用） */
+let padSel = -1;
+const padMark = () => document.querySelectorAll("#card .opt").forEach((b, i) => b.classList.toggle("pad", i === padSel));
+window.askPad = cmd => {
+  if (cmd === "state") return JSON.stringify({ n: visible().length, sids: visible().map(k => live.get(k).sessionId), open });
+  if (cmd === "undo") {
+    const u = [...undos.values()].at(-1); if (!u) return "none";
+    clearTimeout(u.t); undos.delete(u.key); sent.delete(u.key); if (u.draft) drafts.set(u.key, u.draft);
+    if (ghost) { clearTimeout(ghost.t); ghost = null; } cur = u.key; disarm(); lock(); $("card").dataset.key = "";
+    if (!open) expand(); else render(); return "undone";
+  }
+  if (!visible().length) return "none";
+  if (!open) { if (cmd === "up" || cmd === "down" || cmd === "go") { cur = visible().includes(cur) ? cur : visible()[0]; expand(); return "opened"; } return "none"; }
+  const c = live.get(cur), xs = c ? items(c) : []; if (!xs.length) return "none";
+  const rec = Math.max(0, xs.findIndex(o => o.rec));
+  if (cmd === "up" || cmd === "down") { padSel = padSel < 0 ? rec : (padSel + (cmd === "down" ? 1 : -1) + xs.length) % xs.length; padMark(); return "moved"; }
+  if (cmd === "go") {
+    if (padSel < 0 || padSel >= xs.length) { padSel = rec; padMark(); return "moved"; }
+    const k = padSel, key = cur; choose(k, false);
+    if (undos.has(key)) { padSel = -1; return "chose"; } return "blocked";
+  }
+  return "none";
+};
 window.askTheme = n => { document.documentElement.dataset.theme = n; };
 window.askMax = (w, h) => { shifted(); document.documentElement.classList.toggle("narrow", w <= 340); document.documentElement.style.setProperty("--w", Math.min(560, w) + "px"); document.documentElement.style.setProperty("--maxh", Math.max(120, h) + "px"); size(); };
 window.askBlur = disarm;
