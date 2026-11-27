@@ -1,7 +1,7 @@
 import Foundation
 
 // 11-25 Keng：終端機滑過浮起（T1125035226）。純判斷，畫面在 Orbit42 的 main.swift。
-// 只決定「誰畫在最上面、誰變暗」，從不碰焦點、打字目標、位置大小。
+// 11-28 起：滑進哪顆就立刻浮到最上、輸入點也換過去（Keng 改口，以 11-28 為準）。只決定「換誰」，不碰位置大小。
 
 /// 疊放順序（最底 → 最上）：照排列順序（打開先後），秘書最後；點過／打字的那顆在上面，滑過浮起的在最上面
 public enum SatStack {
@@ -20,6 +20,14 @@ public enum SatStack {
     }
     /// 滑鼠底下看得到的那顆：照現在的疊放從上往下找 ⇒ 浮起來的那顆蓋住別顆時就是它，不會兩顆來回跳
     public static func hit(_ p: CGPoint, order: [String], frames: [String: CGRect]) -> String? { order.last { frames[$0]?.contains(p) == true } }
+    /// 11-28 Keng「視窗大小可以再大一點，只要我方便切換視窗就行」：多顆斜對角排開時每顆的大小（不含 420×260 下限）。
+    /// 最多 寬 80%、高 88%；越多顆越小，保證每顆往右下錯開至少 44 × (標題列＋4) ⇒ 每條標題列完整露出、滑鼠瞄得到
+    public static let minStep = CGSize(width: 44, height: 4)
+    public static func size(count n: Int, area: CGSize, bar: CGFloat) -> (CGFloat, CGFloat) {
+        guard n > 1 else { return (area.width, area.height) }
+        let k = CGFloat(n - 1)
+        return (min(area.width * 0.80, area.width - k * minStep.width), min(area.height * 0.88, area.height - k * (bar + minStep.height)))
+    }
     /// 浮起時誰要變暗：浮起那顆和正在打字那顆以外
     public static func dimmed(_ order: [String], lifted: String?, typing: String?) -> Set<String> {
         guard let l = lifted else { return [] }
@@ -27,37 +35,25 @@ public enum SatStack {
     }
 }
 
+/// 11-28 Keng「滑鼠移過去要立刻反應，滑過去輸入點就在那個視窗上」：滑進哪顆就立刻換它（浮到最上＋拿輸入點），不等、不用點。
+/// 離開所有衛星（球體、空白、答案卡）不歸位：輸入點留在最後那顆。拖曳、選單、組字中不換。
 public struct HoverLift: Equatable, Sendable {
-    public static let dwell = 0.15, grace = 0.2
+    /// 最後滑進（或點過、打字）的那顆：畫在最上面、鍵盤輸入點在它身上
     public private(set) var lifted: String?
-    private var cand: String?, candAt = 0.0, leaveAt: Double?
-    private var mute: String??                // 打字／點擊時滑鼠停在這顆：要先移到別處才會再浮起
+    private var mute: String??                // 輸入點被別的方式換走（開新衛星、在別顆打字）時滑鼠停在這顆：要先移到別處才會換
     public init() {}
-    /// 還有事情在等（要排下一次檢查）；幾秒後
-    public func due(_ now: Double) -> Double? {
-        if let t = leaveAt { return max(0, t + Self.grace - now) }
-        if cand != nil { return max(0, candAt + Self.dwell - now) }
-        return nil
-    }
     /// hover＝滑鼠底下那顆（nil＝空白處）；inside＝滑鼠在 Orbit42 視窗裡而且視窗有焦點；paused＝拖曳、捲動、組字、選單開著⋯
-    public mutating func step(_ now: Double, hover: String?, inside: Bool, paused: Bool) {
-        if !inside { self = HoverLift(); return }                      // 離開視窗、失焦：馬上歸位
-        if paused { cand = nil; leaveAt = nil; return }                // 凍結：不浮起也不歸位，結束後重新計時
-        if let m = mute { if m == hover { return }; mute = nil }
-        guard let h = hover else {
-            cand = nil
-            guard lifted != nil else { leaveAt = nil; return }
-            if leaveAt == nil { leaveAt = now }
-            if now - leaveAt! >= Self.grace - 1e-9 { lifted = nil; leaveAt = nil }
-            return
-        }
-        leaveAt = nil
-        if h == lifted { cand = nil; return }
-        if cand != h { cand = h; candAt = now }
-        if now - candAt >= Self.dwell - 1e-9 { lifted = h; cand = nil }
+    /// 回傳：這一步要換過去（浮起＋聚焦）的那顆；nil＝不用動
+    @discardableResult
+    public mutating func step(hover: String?, inside: Bool, paused: Bool) -> String? {
+        guard inside, !paused else { return nil }                       // 離開視窗、失焦、凍結：什麼都不動（輸入點留著）
+        if let m = mute { if m == hover { return nil }; mute = nil }
+        guard let h = hover, h != lifted else { return nil }            // 空白處：留在最後那顆
+        lifted = h
+        return h
     }
-    /// 點了一顆、或在某顆裡打字：浮起取消（那顆改由 pinned 留在上面）；滑鼠不移到別處就不再浮
-    public mutating func settle(hover: String?) { self = HoverLift(); mute = .some(hover) }
+    /// 輸入點已經在 id 上（點了、在裡面打字、程式開新衛星）；滑鼠停在 hover：沒移出 hover 之前不搶回去
+    public mutating func settle(_ id: String?, hover: String?) { lifted = id; mute = hover == id ? nil : .some(hover) }
     /// 視窗不在了
-    public mutating func drop(_ id: String) { if lifted == id { lifted = nil }; if cand == id { cand = nil } }
+    public mutating func drop(_ id: String) { if lifted == id { lifted = nil }; if mute == .some(id) { mute = nil } }
 }

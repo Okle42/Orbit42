@@ -11,6 +11,42 @@ extension OrbitWindow {
         runReadmeShot(env, test: test)      // ReadmeShotHook.swift：README 用的衛星 Chrome 截圖
         runAccountTest(env, test: test)     // AccountTestHook.swift：真的登一次 Google
         runHeadlessWakeTest(env, test: test) // HeadlessWakeTest.swift：卡 110 欄的衛星顯示後要重新量
+        // 測試（11-28）：ORBIT_TEST_ARRANGE_SHOT="<個數>@<png>" ⇒ 開 n 顆衛星（最後一顆當秘書）→ 自動排版截圖 →
+        // 假滑鼠滑進第 2 顆露出的地方（不點）截圖，印每顆位置大小、疊放、輸入點在哪顆
+        if let spec = env["ORBIT_TEST_ARRANGE_SHOT"], let at = spec.firstIndex(of: "@"), let n = Int(spec[..<at]), test {
+            let out = String(spec[spec.index(after: at)...])
+            @MainActor func after(_ s: Double, _ f: @escaping @MainActor () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { f() } } }
+            after(3) { [weak self] in
+                guard let self else { return }
+                self.login.web.isHidden = true; self.liftTest = true
+                self.applyTheme(env["ORBIT_TEST_THEME"] ?? "dark")
+                (self.sphereView as? WKWebView)?.evaluateJavaScript("window.karaTheme('\(self.themeNow)')", completionHandler: nil)
+                let ids = (1...n).map { i in self.host.runCommand(name: i == n ? "秘書（測試）" : "測試 \(i)", brain: .claude,
+                    command: "for k in $(seq 1 30); do echo 衛星 \(i) 第 $k 行 ── 滑過去輸入點就在這顆; done; sleep 90") }
+                if let s = ids.last { self.satWins[s]?.secretary = true }
+                func num(_ id: String?) -> String { id.flatMap { ids.firstIndex(of: $0) }.map { "\($0 + 1)" } ?? "-" }
+                @MainActor func shot(_ tag: String) {
+                    guard let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
+                    root.cacheDisplay(in: root.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out + "." + tag + ".png"))
+                    let order = root.subviews.compactMap { v in ids.firstIndex { self.satWins[$0] === v }.map { "\($0 + 1)" } }.joined()
+                    print("arrange \(tag) root=\(Int(root.bounds.width))x\(Int(root.bounds.height)) order=\(order) typing=\(num(self.typingSat)) "
+                          + ids.map { let f = self.satWins[$0]!.frame; return "#\(num($0)) \(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))" }.joined(separator: " | ")); fflush(stdout)
+                }
+                after(6) {
+                    self.window.setContentSize(NSSize(width: 1440, height: 900))
+                    after(1) { self.pinned = nil; self.autoArrange()
+                    after(1.5) { shot("1自動排版")
+                        let f = self.satWins[ids[1]]!.frame; self.mouse = NSPoint(x: f.minX + 20, y: f.maxY - 14)
+                        let t = CACurrentMediaTime(); self.liftStep(); let dt = (CACurrentMediaTime() - t) * 1000
+                        print(String(format: "arrange hover 2 → typing=%@ top=%@ step=%.2fms", num(self.typingSat), num(self.pinned), dt))
+                    after(0.4) { shot("2滑過第2顆")
+                        self.mouse = NSPoint(x: 5, y: 5); self.liftStep()
+                        print("arrange leave → typing=\(num(self.typingSat))（要留在 2）"); fflush(stdout)
+                        self.host.shutdown(); exit(0) } } }
+                }
+            }
+        }
         // 測試：ORBIT_TEST_ASK="<題目 json>@<png>" ⇒ 開 3 顆印字的衛星＋假題目，整個主視窗截圖（展開、縮成一條），印位置後結束
         if let spec = env["ORBIT_TEST_ASK"], let at = spec.lastIndex(of: "@"), test {
             let out = String(spec[spec.index(after: at)...])

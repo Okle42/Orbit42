@@ -151,7 +151,8 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         runTestHooks(env, test: test)      // OrbitTestHooks.swift；沒有 ORBIT_TEST_* 環境變數就什麼都不做
         if test {
             window.ignoresMouseEvents = true; window.isExcludedFromWindowsMenu = true; window.collectionBehavior = [.transient, .ignoresCycle]
-            if let s = HiddenTestWindow.freeScreen() { window.setFrameOrigin(NSPoint(x: s.visibleFrame.minX, y: s.visibleFrame.minY)) }
+            // ORBIT_TEST_FAR=1：一律放螢幕外（不借用空的那個螢幕）
+            if env["ORBIT_TEST_FAR"] == nil, let s = HiddenTestWindow.freeScreen() { window.setFrameOrigin(NSPoint(x: s.visibleFrame.minX, y: s.visibleFrame.minY)) }
             else { window.alphaValue = 0; window.setFrameOrigin(NSPoint(x: -30000, y: -30000)) }
             window.orderBack(nil)
         } else {
@@ -394,8 +395,11 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         let base = TermWindowView.fit(wins[0].restoredFrame(in: root.bounds), in: root.bounds)
         let n = CGFloat(wins.count)
         // 11-23 審查 #9：範圍再窄，衛星也不小於 420×260（TermWindow 自己的下限），寧可超出範圍也要看得到字
-        let w = max(min(420, root.bounds.width - 32), min(base.width, n > 1 ? area.width * 0.62 : area.width))
-        let h = max(min(260, root.bounds.height - 80), min(base.height, n > 1 ? area.height * 0.78 : area.height))
+        // 11-28 Keng「位置是對的但視窗大小可以再大一點，只要我方便切換視窗就行」：多顆時依個數放大（最多 寬 80%、高 88%），
+        // 但每顆都要露出完整標題列＋一點（往下錯開 ≥ 標題列＋4、往右錯開 ≥ 44），滑鼠才瞄得到下一顆
+        let (wMax, hMax) = SatStack.size(count: wins.count, area: area.size, bar: TermWindowView.barHeight)
+        let w = max(min(420, root.bounds.width - 32), n > 1 ? wMax : min(base.width, area.width))
+        let h = max(min(260, root.bounds.height - 80), n > 1 ? hMax : min(base.height, area.height))
         let dx = n > 1 ? max(0, area.width - w) / (n - 1) : 0, dy = n > 1 ? max(0, area.height - h) / (n - 1) : 0
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.32; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
@@ -575,8 +579,8 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         for id in open { if let w = satWins[id] { animate(w, on: false) } }
     }
 
-    // MARK: 疊放與滑過浮起（11-25 Keng）：平常照排列順序疊，滑過 0.15 秒浮起（只改畫的順序，不動焦點、位置、打字目標）
-    var pinned: String?                 // 點過／在裡面打字的那顆：留在上面，點別顆才換
+    // MARK: 疊放與滑過即聚焦（11-25 Keng 滑過浮起 → 11-28 改口）：滑進哪顆就立刻浮到最上、輸入點也換過去，不等、不用點
+    var pinned: String?                 // 最後滑進／點過／在裡面打字的那顆：畫在最上面、輸入點在它身上
     var lift = HoverLift()
     var mouse: NSPoint?                 // 主視窗座標；nil＝不在視窗裡
     var lastScroll = 0.0, menuOpen = 0, liftTimer: Timer?
@@ -588,9 +592,9 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         return satWins.first { v.isDescendant(of: $0.value.content) }?.key
     }
     private func raise(_ w: NSView) {
-        pinned = id(of: w); lift.settle(hover: hoverSat()); restack()
+        pinned = id(of: w); lift.settle(pinned, hover: hoverSat()); restack()
     }
-    private var stackOrder: [String] { SatStack.order(stackWins, pinned: pinned, lifted: lift.lifted) }
+    private var stackOrder: [String] { SatStack.order(stackWins, pinned: pinned, lifted: nil) }
     private func hoverSat() -> String? {
         guard let p = mouse else { return nil }
         if askFloat?.covers(p) == true { return nil }       // 在答案卡上：不算碰到底下的終端機
@@ -601,20 +605,24 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         NSEvent.pressedMouseButtons != 0 || CACurrentMediaTime() - lastScroll < 0.3 || menuOpen > 0 || window.attachedSheet != nil || NSApp.modalWindow != nil
             || host.composing.contains { satWins[$0]?.isHidden == false } || askFloat?.dragging == true
     }
+    /// 每次滑鼠移動跑一次：滑進別顆 ⇒ 同一個事件裡就浮到最上＋拿輸入點（沒有計時、沒有動畫）
     func liftStep() {
-        let now = CACurrentMediaTime(), was = lift.lifted
-        lift.step(now, hover: hoverSat(), inside: mouse != nil && (window.isKeyWindow || liftTest), paused: liftPaused)
-        if lift.lifted != was { restack() }
+        let hover = hoverSat(), paused = liftPaused
+        if let id = lift.step(hover: hover, inside: mouse != nil && (window.isKeyWindow || liftTest), paused: paused), let w = satWins[id] {
+            pinned = id; restack()
+            if typingSat != id { window.makeFirstResponder(w.content) }      // 已經在它裡面（例如它的網頁位址列）就不搶
+        }
         liftTimer?.invalidate(); liftTimer = nil
-        // 有事在等（停留、歸位緩衝）才排下一次；暫停中有浮起或滑鼠在視窗裡時 0.1 秒再看，沒事就完全不跑
-        let next = lift.due(now) ?? (liftPaused && mouse != nil && !satWins.isEmpty ? 0.1 : nil)
-        if let t = next { liftTimer = Timer.scheduledTimer(withTimeInterval: max(0.01, t), repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.liftStep() } } }
+        // 拖曳／組字／捲動中滑到別顆：結束後要補換 ⇒ 0.1 秒再看；沒事就完全不跑
+        if paused, mouse != nil, hover != nil, hover != lift.lifted {
+            liftTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.liftStep() } }
+        }
     }
     var liftTest = false
     /// 照順序設 zPosition、重排 subview（不把視圖拿下來重放，終端機不會失焦）；變暗與打字標記一起更新
     func restack() {
         guard let root = window.contentView else { return }
-        let order = stackOrder, typing = lift.lifted == nil ? nil : typingSat, dim = SatStack.dimmed(order, lifted: lift.lifted, typing: typing)
+        let order = stackOrder, typing: String? = nil, dim = Set<String>()      // 11-28：滑過就換輸入點，最上面那顆就是打字那顆 ⇒ 不用變暗、不用另外標打字
         let move = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         var changed = false
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -643,9 +651,9 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .keyDown]) { [weak self] e in
             MainActor.assumeIsolated {
                 guard let self, e.window === self.window else { return }
-                if e.type == .scrollWheel { self.lastScroll = CACurrentMediaTime(); if self.lift.lifted != nil || self.lift.due(0) != nil { self.liftStep() } }
-                else if !e.modifierFlags.contains(.command), let s = self.typingSat, self.pinned != s || self.lift.lifted != nil {      // 在裡面打字：那顆留在上面
-                    self.pinned = s; self.lift.settle(hover: self.hoverSat()); self.restack()
+                if e.type == .scrollWheel { self.lastScroll = CACurrentMediaTime(); self.liftStep() }
+                else if !e.modifierFlags.contains(.command), let s = self.typingSat, self.pinned != s || self.lift.lifted != s {      // 在裡面打字：那顆留在上面
+                    self.pinned = s; self.lift.settle(s, hover: self.hoverSat()); self.restack()
                 }
             }
             return e
