@@ -2,42 +2,62 @@ import XCTest
 @testable import Orbit42App
 
 final class HoverLiftTests: XCTestCase {
-    func run(_ h: inout HoverLift, _ xs: [(Double, String?)], inside: Bool = true, paused: Bool = false) -> [String?] {
-        xs.map { h.step($0.0, hover: $0.1, inside: inside, paused: paused); return h.lifted }
+    /// 每一步回傳「要換過去的那顆」（nil＝不動）
+    func run(_ h: inout HoverLift, _ xs: [String?], inside: Bool = true, paused: Bool = false) -> [String?] {
+        xs.map { h.step(hover: $0, inside: inside, paused: paused) }
     }
-    func testDwellAndSweep() {
+    /// 11-28：滑進去那一下就浮起＋聚焦，不用等、不用點
+    func testEnterLiftsAndFocusesAtOnce() {
         var h = HoverLift()
-        XCTAssertEqual(run(&h, [(0, "a"), (0.1, "a"), (0.14, "a"), (0.15, "a")]), [nil, nil, nil, "a"])
-        h = HoverLift()      // 快速掃過 7 顆：一顆都不跳
-        XCTAssertTrue(run(&h, (0..<7).map { (Double($0) * 0.08, "w\($0)") }).allSatisfy { $0 == nil })
-        h = HoverLift()      // 浮起後掃過別顆不到 0.15 秒又回來：不換
-        XCTAssertEqual(run(&h, [(0, "a"), (0.2, "a"), (0.3, "b"), (0.4, "b"), (0.42, "a"), (0.6, "a")]), [nil, "a", "a", "a", "a", "a"])
-        XCTAssertEqual(run(&h, [(1.0, "b"), (1.16, "b")]), ["a", "b"])       // 停夠久才換，中間不會先歸位（不閃）
+        XCTAssertEqual(run(&h, ["a"]), ["a"]); XCTAssertEqual(h.lifted, "a")
+        XCTAssertEqual(run(&h, ["a", "a"]), [nil, nil])                       // 停在同一顆：不重複聚焦
+        h = HoverLift()                                                         // 快速掃過 7 顆：每顆都立刻換（不再等 0.15 秒）
+        XCTAssertEqual(run(&h, (0..<7).map { "w\($0)" }), (0..<7).map { "w\($0)" }); XCTAssertEqual(h.lifted, "w6")
     }
-    func testLeaveHasGrace() {
+    /// 離開所有衛星（球體、空白、答案卡）：輸入點留在最後那顆
+    func testLeaveKeepsLast() {
         var h = HoverLift()
-        XCTAssertEqual(run(&h, [(0, "a"), (0.2, "a"), (0.3, nil), (0.45, nil), (0.48, "a"), (1, nil), (1.1, nil), (1.21, nil)]), [nil, "a", "a", "a", "a", "a", "a", nil])
-        XCTAssertNil(h.due(2))                                                // 沒事就不再排檢查
-        h.step(3, hover: "a", inside: true, paused: false); XCTAssertEqual(h.due(3)!, 0.15, accuracy: 0.001)
+        XCTAssertEqual(run(&h, ["a", nil, nil, "a"]), ["a", nil, nil, nil]); XCTAssertEqual(h.lifted, "a")
+        h.step(hover: "b", inside: false, paused: false); XCTAssertEqual(h.lifted, "a")      // 視窗失焦：不搶、不掉
+        XCTAssertEqual(run(&h, [nil, "b"]), [nil, "b"])
     }
-    func testOutsideOrBlurRestoresNow() {
-        var h = HoverLift(); _ = run(&h, [(0, "a"), (0.2, "a")])
-        h.step(0.21, hover: "a", inside: false, paused: false); XCTAssertNil(h.lifted)
-        _ = run(&h, [(1, "a"), (1.2, "a")]); h.step(1.3, hover: "a", inside: false, paused: true); XCTAssertNil(h.lifted)      // 暫停中失焦也歸位
+    /// 拖曳中、選單開著、輸入法組字中（paused）：不換；結束後滑鼠還在別顆上才補換
+    func testPausedDoesNotSwitch() {
+        var h = HoverLift(); _ = run(&h, ["a"])
+        XCTAssertEqual(run(&h, ["b", "c", nil], paused: true), [nil, nil, nil]); XCTAssertEqual(h.lifted, "a")   // 組字／拖曳中：輸入點留在 a
+        XCTAssertEqual(run(&h, ["c"]), ["c"])                                   // 放開／組完字：馬上換到滑鼠底下那顆
     }
-    func testPausedFreezes() {
-        var h = HoverLift()
-        XCTAssertEqual(run(&h, [(0, "a"), (0.5, "a"), (2, "a")], paused: true), [nil, nil, nil])                               // 拖曳中不浮
-        XCTAssertEqual(run(&h, [(2.1, "a"), (2.2, "a"), (2.26, "a")]), [nil, nil, "a"])                                        // 放開後重新計時
-        XCTAssertEqual(run(&h, [(3, "b"), (5, nil), (9, nil)], paused: true), ["a", "a", "a"])                                 // 拖曳中也不歸位
-        XCTAssertEqual(run(&h, [(9.1, nil), (9.2, nil), (9.31, nil)]), ["a", "a", nil])
+    func testComposingKeepsFocus() {
+        var h = HoverLift(); _ = run(&h, ["a"])
+        for x in ["b", "b", "c", nil, "b"] { XCTAssertNil(h.step(hover: x, inside: true, paused: true)) }
+        XCTAssertEqual(h.lifted, "a")
     }
-    func testTypingSettles() {
-        var h = HoverLift(); _ = run(&h, [(0, "b"), (0.2, "b")]); XCTAssertEqual(h.lifted, "b")
-        h.settle(hover: "b")                                                  // 在 a 打字，滑鼠還停在 b：b 收回去、不再自己浮起
-        XCTAssertEqual(run(&h, [(0.3, "b"), (1, "b"), (5, "b")]), [nil, nil, nil])
-        XCTAssertEqual(run(&h, [(5.1, "c"), (5.2, "b"), (5.36, "b")]), [nil, nil, "b"])      // 滑鼠移到別處再回來才算
-        h.drop("b"); XCTAssertNil(h.lifted)
+    func testDragKeepsFocus() {
+        var h = HoverLift(); _ = run(&h, ["a"])
+        XCTAssertEqual(run(&h, ["a", "b", "b"], paused: true), [nil, nil, nil]); XCTAssertEqual(h.lifted, "a")
+    }
+    /// 輸入點被別的方式換走（開新衛星、在別顆打字）時滑鼠停在 b：沒移出 b 前不搶回去；點擊的那顆不受影響
+    func testSettle() {
+        var h = HoverLift(); _ = run(&h, ["b"])
+        h.settle("a", hover: "b"); XCTAssertEqual(h.lifted, "a")
+        XCTAssertEqual(run(&h, ["b", "b"]), [nil, nil])
+        XCTAssertEqual(run(&h, [nil, "b"]), [nil, "b"])                         // 移出去再回來才換
+        h.settle("c", hover: "c"); XCTAssertEqual(run(&h, ["c", "d"]), [nil, "d"])          // 點了 c：滑到 d 照樣立刻換
+        h.drop("d"); XCTAssertNil(h.lifted)
+    }
+    /// 放大後每顆都還露出完整標題列＋一點，3 顆照 80%／88%，越多顆越小
+    func testArrangeSize() {
+        let area = CGSize(width: 760, height: 640), bar: CGFloat = 34
+        let (w3, h3) = SatStack.size(count: 3, area: area, bar: bar)
+        XCTAssertEqual(w3, 608, accuracy: 0.5); XCTAssertEqual(h3, 563.2, accuracy: 0.5)
+        XCTAssertGreaterThan(w3, area.width * 0.62); XCTAssertGreaterThan(h3, area.height * 0.78)     // 比 11-23 的 62%×78% 大
+        for n in 2...8 {
+            let (w, h) = SatStack.size(count: n, area: area, bar: bar), k = CGFloat(n - 1)
+            XCTAssertGreaterThanOrEqual((area.height - h) / k, bar + 4 - 1e-6, "\(n) 顆：標題列要露出")
+            XCTAssertGreaterThanOrEqual((area.width - w) / k, 44 - 1e-6, "\(n) 顆：左邊要露出一條")
+            XCTAssertLessThanOrEqual(w, area.width * 0.80 + 1e-6); XCTAssertLessThanOrEqual(h, area.height * 0.88 + 1e-6)
+        }
+        XCTAssertEqual(SatStack.size(count: 1, area: area, bar: bar).0, 760)
     }
     let ws = [SatStack.Win(id: "s", seq: 1, secretary: true), .init(id: "c", seq: 4), .init(id: "a", seq: 2), .init(id: "b", seq: 3)]
     func testOrder() {
@@ -56,12 +76,15 @@ final class HoverLiftTests: XCTestCase {
         XCTAssertEqual(SatStack.hit(over, order: SatStack.order(ws, pinned: nil, lifted: nil), frames: fr), "s")
         XCTAssertEqual(SatStack.hit(over, order: SatStack.order(ws, pinned: nil, lifted: "a"), frames: fr), "a")
         XCTAssertNil(SatStack.hit(CGPoint(x: 5000, y: 0), order: ["a"], frames: fr))
-        var h = HoverLift(), seen: [String?] = [], t = 0.0
-        for _ in 0..<200 {                                                    // 滑鼠停在重疊處 10 秒：只會有一顆
-            let o = SatStack.order(ws, pinned: nil, lifted: h.lifted)
-            h.step(t, hover: SatStack.hit(over, order: o, frames: fr), inside: true, paused: false); seen.append(h.lifted); t += 0.05
+        var h = HoverLift(), seen: [String?] = []
+        for _ in 0..<200 {                                                    // 滑鼠停在重疊處：只會換一次、不會兩顆來回跳
+            let o = SatStack.order(ws, pinned: h.lifted, lifted: nil)
+            seen.append(h.step(hover: SatStack.hit(over, order: o, frames: fr), inside: true, paused: false))
         }
-        XCTAssertEqual(Set(seen.compactMap { $0 }), ["s"])
+        XCTAssertEqual(seen.compactMap { $0 }, ["s"])
+        _ = h.step(hover: "a", inside: true, paused: false)                    // 滑到 a 露出的地方：a 浮起後，同一點還是 a
+        let o = SatStack.order(ws, pinned: h.lifted, lifted: nil)
+        XCTAssertEqual(SatStack.hit(over, order: o, frames: fr), "a")
     }
     func testDim() {
         let o = ["a", "b", "c", "s"]
