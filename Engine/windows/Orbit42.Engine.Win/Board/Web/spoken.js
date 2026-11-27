@@ -46,6 +46,7 @@
       .replace(/\*\*|__|[#*>]/g, "");
     s = s.replace(/放行[！!]/g, "放行");                                // 「放行！單號」是指令，念成句尾的驚嘆聽起來怪
     s = s.replace(/https?:\/\/\S+/gi, " ")                          // 網址
+      .replace(/(^|[\s「『（(：:，,])\/([A-Za-z][\w-]*)(?=[\s，。！？、」』）)]|$)/g, "$1$2 ")   // 斜線指令 /clear 念成 clear（不是路徑，拿掉會漏字）
       .replace(/(^|[\s「『（(：:，,])(?:~|\.{1,2})?\/[^\s，。！？、；：「」『』（）()]*/g, "$1 ")   // 路徑 ~/.claude/x、/Users/…、./a/b（含中文檔名）
       .replace(/(^|[^\w/])[\w.\-]+(?:\/[^\s，。！？、；：「」『』（）()/]+){2,}\/?/g, "$1 ")   // Engine/Sources/Orbit42App（相對路徑，兩層以上）
       .replace(/(^|[^\w/])[\w.\-]+\/[\w.\-]*\.[A-Za-z]{1,6}\b/g, "$1 ")   // board/history.jsonl（一層＋副檔名；Cartesia/Eleven 這種不算）
@@ -95,16 +96,23 @@
     s = String(s || "");
     const chars = Array.from(s);
     if (chars.length <= n) return s;
-    const head = chars.slice(0, n + 1).join("");
-    let cut = -1;
-    for (const ch of "。！？") cut = Math.max(cut, head.lastIndexOf(ch));
-    if (cut >= Math.floor(n * 0.4)) return head.slice(0, cut + 1);
-    let soft = -1;
-    for (const ch of "，、") soft = Math.max(soft, head.lastIndexOf(ch));
-    if (soft >= Math.floor(n * 0.4)) return head.slice(0, soft) + "。";
-    let k = n;                                   // 硬切：不切在英文字、數字中間（「Carte。」）
-    while (k > Math.floor(n * 0.4) && /[A-Za-z0-9]/.test(chars[k - 1]) && /[A-Za-z0-9]/.test(chars[k] || "")) k--;
-    if (k <= Math.floor(n * 0.4)) k = n;
+    // 11-28 秘書複核：一律停在句號或逗號，不切在詞中間（「本機跟 GitHub。」「用付費的。」）。
+    // 順序：n 字內最後一個句號 → 稍微超過（到 1.5n）把這句講完 → n 字內最後一個逗號 → 稍微超過到下一個逗號
+    const lo = Math.floor(n * 0.4), hi = Math.floor(n * 1.5);
+    const at = (set) => chars.map((c, i) => set.includes(c) ? i : -1).filter((i) => i >= 0);
+    const ends = at("。！？"), soft = at("，、；");
+    const lastIn = (xs, a, b) => xs.filter((i) => i >= a && i <= b).pop();
+    const firstIn = (xs, a, b) => xs.find((i) => i >= a && i <= b);
+    let i = lastIn(ends, lo, n);
+    if (i == null) i = firstIn(ends, n + 1, hi);
+    if (i != null) return chars.slice(0, i + 1).join("");
+    i = lastIn(soft, lo, n);
+    if (i == null) i = firstIn(soft, n + 1, n * 2);          // 前面只有很短一截（「比完了，」）：寧可多念到下一個逗號
+    if (i == null && chars.length <= hi) return s;          // 後面沒有標點、也不算太長：整句念完
+    if (i == null) i = lastIn(soft, 2, n);
+    if (i != null) return chars.slice(0, i).join("") + "。";
+    let k = n;                                              // 最後手段：不切在英文字、數字中間
+    while (k > lo && /[A-Za-z0-9]/.test(chars[k - 1]) && /[A-Za-z0-9]/.test(chars[k] || "")) k--;
     return chars.slice(0, k).join("").replace(/[\s，、]+$/, "") + "。";
   }
   const end = (s) => !s ? "" : /[。！？]$/.test(s) ? s : s + "。";
@@ -134,12 +142,13 @@
     const who = speaker(f.name), d = topic(f.doing);
     const tail = (x, n) => { const g = gist(x, n); return g && (!d || !g.startsWith(d)) ? g : ""; };
     switch (kind) {
-      case "review": return (d ? `${who}做完了${d}，等你看。` : `${who}這一輪做完了，等你看。`) + tail(f.result);
-      case "done": return (d ? `${who}的${d}做好了。` : `${who}做好了。`) + tail(f.result);
-      case "ask": return (d ? `${who}做${d}，有事問你。` : `${who}有事問你。`) + tail(f.ask, 30);
-      case "quiet": return `${who}${d ? "做" + d + "，" : ""}已經 ${f.minutes} 分鐘沒動靜，可能卡住了。`;
+      // 標題常是動詞片語（「修秘書卡片放行無效」），前面不能再接「做」：一律說「X 那邊，<標題>那件…」
+      case "review": return (d ? `${who}，${d}那件做完了，等你看。` : `${who}這一輪做完了，等你看。`) + tail(f.result);
+      case "done": return (d ? `${who}，${d}那件做好了。` : `${who}做好了。`) + tail(f.result);
+      case "ask": return (d ? `${who}，${d}那件有事問你。` : `${who}有事問你。`) + tail(f.ask, 30);
+      case "quiet": return `${who}${d ? "，" + d + "那件" : ""}已經 ${f.minutes} 分鐘沒動靜，可能卡住了。`;
       case "wait": return `${who}在等外面的事。` + tail(f.result, 24);
-      case "stuck": return `${who}${d ? "做" + d + "，" : ""}卡住了。` + tail(f.why, 24);
+      case "stuck": return `${who}${d ? "，" + d + "那件" : ""}卡住了。` + tail(f.why, 24);
       default: return say(f.result || f.ask || "");
     }
   }

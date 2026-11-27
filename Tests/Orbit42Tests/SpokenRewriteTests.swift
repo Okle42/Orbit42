@@ -86,15 +86,37 @@ final class SpokenRewriteTests: XCTestCase {
 
     func testShortenAtClause() {
         XCTAssertEqual(call("shorten", "資安體檢已裝好，黃燈也修了，放行改成在秘書卡片按也能放別人的單", 14), "資安體檢已裝好，黃燈也修了。")
-        XCTAssertEqual(call("shorten", "比完了，OpenJarvis 好聽是因為用付費的 Cartesia 聲音", 30), "比完了，OpenJarvis 好聽是因為用付費的。")
+        XCTAssertEqual(call("shorten", "比完了，OpenJarvis 好聽是因為用付費的 Cartesia 聲音", 30), "比完了，OpenJarvis 好聽是因為用付費的 Cartesia 聲音", "沒標點又不算太長：整句念完，不切在半路")
         XCTAssertFalse(call("say", String(repeating: "很長的一句話", count: 30), 40).contains("⋯"))
+    }
+
+    /// 11-28 秘書複核對照表挑出的 5 句：截斷要停在句號或逗號、不漏字、「做」後面不直接接標題
+    func testSecretaryFlaggedLines() {
+        // #14 斷在一半 → 多念幾個字把這句講完
+        XCTAssertEqual(card("ask", ["name": "秘書 · Orbit42", "doing": "待命", "ask": "已推上 GitHub，Orbit42 本機跟 GitHub 同步了。我 continue 之後再看零件顏色"]),
+                       "秘書有事問你。已推上 GitHub，Orbit42 本機跟 GitHub 同步了。")
+        // #15 漏字：/clear 是斜線指令，不是路徑
+        XCTAssertEqual(clean("等你 /clear 後說換哨"), "等你 clear 後說換哨")
+        // #16 前面只有「比完了，」一小截：念到下一個逗號，不切在「用付費的。」
+        XCTAssertEqual(card("ask", ["name": "秘書 · Orbit42", "ask": "比完了：OpenJarvis 好聽是因為用付費的 Cartesia／ElevenLabs 聲音，再加上先叫 AI 改寫成口語稿，我們用的是免費的微軟／Mac 聲音"]),
+                       "秘書有事問你。比完了，OpenJarvis 好聽是因為用付費的 Cartesia或ElevenLabs 聲音。")
+        // #1／#3 標題是動詞片語，前面不再接「做」
+        let l = card("stuck", ["name": "修改 · Orbit42", "doing": "修秘書卡片放行無效", "why": "驗收（1）通過"])
+        XCTAssertEqual(l, "Orbit42 那邊，修秘書卡片放行無效那件卡住了。驗收通過。")
+        XCTAssertFalse(l.contains("做修"))
+        // 不管多長都不切在英文字中間
+        for n in [10, 20, 30, 40] {
+            let out = call("shorten", "第一句很長很長很長很長很長很長，然後 OpenJarvis Cartesia ElevenLabs Microsoft 一路講下去沒有停頓的地方真的很長很長很長很長很長很長很長很長", n)
+            XCTAssertFalse(out.range(of: "[A-Za-z]。", options: .regularExpression) != nil && !out.hasSuffix("s。") && !out.hasSuffix("t。"), "n=\(n) 切在字中間：\(out)")
+            XCTAssertTrue(out.hasSuffix("。"))
+        }
     }
 
     // MARK: 卡片播報：像人在講
 
     func testReviewLine() {
         XCTAssertEqual(card("review", ["name": "修改 · Orbit42", "doing": "資安體檢", "result": "9 項都跑過（0.2 秒），commit 4a6ac92"]),
-                       "Orbit42 那邊做完了資安體檢，等你看。9 項都跑過。")
+                       "Orbit42 那邊，資安體檢那件做完了，等你看。9 項都跑過。")
         XCTAssertEqual(card("review", ["name": "秘書 · Orbit42", "doing": "待命", "result": ""]), "秘書這一輪做完了，等你看。")
     }
     func testAskLine() {
@@ -103,9 +125,9 @@ final class SpokenRewriteTests: XCTestCase {
     }
     func testDoneAndStuckLines() {
         XCTAssertEqual(card("done", ["name": "修改 · Hotline42", "doing": "縮短接電話暫停時間", "result": "已併進主線、電話服務已重開（03:49 啟動正常）"]),
-                       "Hotline42 那邊的縮短接電話暫停時間做好了。已併進主線、電話服務已重開。")
+                       "Hotline42 那邊，縮短接電話暫停時間那件做好了。已併進主線、電話服務已重開。")
         XCTAssertEqual(card("quiet", ["name": "修改 · Orbit42", "doing": "球體播報", "minutes": "12"]),
-                       "Orbit42 那邊做球體播報，已經 12 分鐘沒動靜，可能卡住了。")
+                       "Orbit42 那邊，球體播報那件已經 12 分鐘沒動靜，可能卡住了。")
         XCTAssertEqual(card("stuck", ["name": "秘書 · Orbit42", "doing": "", "why": "放行毛病已派給 Milo（單號 T1128035638）"]),
                        "秘書卡住了。放行毛病已派給 Milo。")
     }
