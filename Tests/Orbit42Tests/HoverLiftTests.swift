@@ -14,6 +14,24 @@ final class HoverLiftTests: XCTestCase {
         h = HoverLift()                                                         // 快速掃過 7 顆：每顆都立刻換（不再等 0.15 秒）
         XCTAssertEqual(run(&h, (0..<7).map { "w\($0)" }), (0..<7).map { "w\($0)" }); XCTAssertEqual(h.lifted, "w6")
     }
+    /// 11-28：快速掃過別顆不換，停下或慢下來才換（移向某顆的叉叉時不會被路過的那顆蓋住）
+    func testFastSweepDoesNotSwitch() {
+        var h = HoverLift(); _ = run(&h, ["c"])
+        for x in ["a", "b", "a"] { XCTAssertNil(h.step(hover: x, inside: true, paused: false, fast: true)) }
+        XCTAssertEqual(h.lifted, "c")
+        XCTAssertEqual(h.step(hover: "c", inside: true, paused: false, fast: true), nil)        // 停在自己那顆：不用換
+        XCTAssertEqual(h.step(hover: "b", inside: true, paused: false, fast: false), "b")       // 在 b 上慢下來：換
+    }
+    func testMouseSpeed() {
+        var m = MouseSpeed()
+        for i in 0...6 { m.add(Double(i) * 0.008, CGPoint(x: Double(i) * 16, y: 0)) }          // 每 8 毫秒 16 點 ⇒ 2000 點／秒
+        XCTAssertTrue(m.isFast(0.048)); XCTAssertEqual(m.speed(0.048), 2000, accuracy: 1)
+        XCTAssertFalse(m.isFast(0.048 + MouseSpeed.still + 0.001))                              // 停住 0.03 秒：算停下來
+        var s = MouseSpeed()
+        for i in 0...6 { s.add(Double(i) * 0.016, CGPoint(x: Double(i) * 4, y: 0)) }           // 250 點／秒：慢
+        XCTAssertFalse(s.isFast(0.096))
+        XCTAssertEqual(MouseSpeed().speed(1), 0)
+    }
     /// 離開所有衛星（球體、空白、答案卡）：輸入點留在最後那顆
     func testLeaveKeepsLast() {
         var h = HoverLift()

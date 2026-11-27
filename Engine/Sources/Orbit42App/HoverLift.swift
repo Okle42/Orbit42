@@ -3,6 +3,19 @@ import Foundation
 // 11-25 Keng：終端機滑過浮起（T1125035226）。純判斷，畫面在 Orbit42 的 main.swift。
 // 11-28 起：滑進哪顆就立刻浮到最上、輸入點也換過去（Keng 改口，以 11-28 為準）。只決定「換誰」，不碰位置大小。
 
+/// 滑鼠速度（點／秒）：看最近 0.06 秒內移了多遠；超過 0.03 秒沒動就算停下來
+public struct MouseSpeed: Sendable {
+    public static let span = 0.06, still = 0.03, fast = 500.0
+    private var pts: [(t: Double, p: CGPoint)] = []
+    public init() {}
+    public mutating func add(_ t: Double, _ p: CGPoint) { pts.append((t, p)); pts.removeAll { t - $0.t > Self.span } }
+    public func speed(_ now: Double) -> Double {
+        guard let b = pts.last, now - b.t <= Self.still, let a = pts.first(where: { now - $0.t <= Self.span }), b.t > a.t else { return 0 }
+        return hypot(b.p.x - a.p.x, b.p.y - a.p.y) / (b.t - a.t)
+    }
+    public func isFast(_ now: Double) -> Bool { speed(now) > Self.fast }
+}
+
 /// 疊放順序（最底 → 最上）：照排列順序（打開先後），秘書最後；點過／打字的那顆在上面，滑過浮起的在最上面
 public enum SatStack {
     public struct Win: Equatable, Sendable {
@@ -49,11 +62,13 @@ public struct HoverLift: Equatable, Sendable {
     public init() {}
     /// hover＝滑鼠底下那顆（nil＝空白處）；inside＝滑鼠在 Orbit42 視窗裡而且視窗有焦點；paused＝拖曳、捲動、組字、選單開著⋯
     /// 回傳：這一步要換過去（浮起＋聚焦）的那顆；nil＝不用動
+    /// fast＝滑鼠正在快速移動（11-28 Keng：快速掃過別顆不換，停下或慢下來才換 ⇒ 移向某顆的叉叉時不會被路過的那顆蓋住）
     @discardableResult
-    public mutating func step(hover: String?, inside: Bool, paused: Bool) -> String? {
+    public mutating func step(hover: String?, inside: Bool, paused: Bool, fast: Bool = false) -> String? {
         guard inside, !paused else { return nil }                       // 離開視窗、失焦、凍結：什麼都不動（輸入點留著）
         if let m = mute { if m == hover { return nil }; mute = nil }
         guard let h = hover, h != lifted else { return nil }            // 空白處：留在最後那顆
+        if fast { return nil }                                          // 路過：先不換（停下來會再看一次）
         lifted = h
         return h
     }

@@ -56,13 +56,47 @@ extension OrbitWindow {
                     after(1.5) { shot("1自動排版"); if let cg = grab() { closeup(cg, "字特寫-放大前") }
                         let termBefore = NSStringFromRect(self.satWins[ids[1]]!.content.convert(self.satWins[ids[1]]!.content.bounds, to: root))
                         let f = self.satWins[ids[1]]!.frame; self.mouse = NSPoint(x: f.minX + 20, y: f.maxY - 14)
+                        let w2 = self.satWins[ids[1]]!, w0 = w2.chromeNow.width
                         let t = CACurrentMediaTime(); self.liftStep(); let dt = (CACurrentMediaTime() - t) * 1000
+                        for ms in [40, 80, 160, 300] { after(Double(ms) / 1000) { let c = w2.chromeNow; print("arrange anim \(ms)ms 外框寬=\(Int(c.width))（起 \(Int(w0))） 透明度=\(String(format: "%.2f", c.opacity))") } }
                         print(String(format: "arrange hover 2 → typing=%@ top=%@ step=%.2fms", num(self.typingSat), num(self.pinned), dt))
                     after(0.6) { shot("2滑過第2顆"); if let cg = grab() { closeup(cg, "字特寫-放大後") }
+                        // 11-28 Keng「放大的情況下按不到叉叉」：在每顆的紅綠燈中心點模擬點擊，看點到的是誰
+                        @MainActor func lights(_ v: NSView) -> [TrafficLight] { v.subviews.flatMap { ($0 as? TrafficLight).map { [$0] } ?? lights($0) } }
+                        for (i, id) in ids.enumerated() {
+                            let w = self.satWins[id]!
+                            let r = lights(w).map { l -> String in
+                                let c = l.convert(NSPoint(x: l.bounds.midX, y: l.bounds.midY), to: root), hit = root.hitTest(c)
+                                return "\(l.kind)@\(Int(c.x)),\(Int(c.y))→\(hit === l ? "✓" : hit.map { "✗\(type(of: $0))" } ?? "✗nil")"
+                            }
+                            print("arrange light #\(i + 1) raised=\(w.raised) \(r.joined(separator: " "))")
+                        }
                         print("arrange raised=\(ids.filter { self.satWins[$0]?.raised == true }.map { num($0) }.joined()) outset=\(self.satWins[ids[1]]!.liftOutset) term=\(NSStringFromRect(self.satWins[ids[1]]!.content.convert(self.satWins[ids[1]]!.content.bounds, to: root))) 放大前 term=\(termBefore)")
                         self.mouse = NSPoint(x: 5, y: 5); self.liftStep()
                         print("arrange leave → typing=\(num(self.typingSat))（要留在 2）"); fflush(stdout)
-                        self.host.shutdown(); exit(0) } } }
+                        // 11-28：先選最後一顆，再從左邊把滑鼠移向它的叉叉（路上經過別顆）：快速 vs 慢慢
+                        let last = ids[n - 1]
+                        @MainActor func closeOf(_ id: String) -> (NSPoint, TrafficLight) { let l = lights(self.satWins[id]!).first { $0.kind == .close }!; return (l.convert(NSPoint(x: l.bounds.midX, y: l.bounds.midY), to: root), l) }
+                        @MainActor func sweep(_ k: Int, _ steps: Int, _ dt: Double, _ from: NSPoint, _ to: NSPoint, _ seen: [String], _ done: @escaping @MainActor ([String]) -> Void) {
+                            guard k <= steps else { return done(seen) }
+                            let f = CGFloat(k) / CGFloat(steps), p = NSPoint(x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f)
+                            self.mouse = p; self.mouseSpeed.add(CACurrentMediaTime(), p); self.liftStep()
+                            let s2 = seen.last == num(self.lift.lifted) ? seen : seen + [num(self.lift.lifted)]
+                            after(dt) { sweep(k + 1, steps, dt, from, to, s2, done) }
+                        }
+                        @MainActor func trial(_ name: String, _ steps: Int, _ dt: Double, then: @escaping @MainActor () -> Void) {
+                            self.mouse = nil; self.pinned = last; self.lift.settle(last, hover: nil); self.restack(); self.mouseSpeed = MouseSpeed()
+                            let (c, l) = closeOf(last), from = NSPoint(x: 200, y: c.y)
+                            after(0.2) { sweep(0, steps, dt, from, c, [num(self.lift.lifted)]) { seen in
+                                after(0.15) {
+                                    let hit = root.hitTest(closeOf(last).0)
+                                    print("arrange \(name) 經過=\(seen.joined(separator: "→")) 停下後選到=\(num(self.lift.lifted)) 點叉叉=\(hit === l ? "✓ 點得到" : "✗ 被別顆蓋住")"); fflush(stdout)
+                                    then()
+                                }
+                            } }
+                        }
+                        trial("快速移向最後一顆的叉叉", 20, 0.008) { trial("慢慢移向最後一顆的叉叉", 30, 0.06) { self.host.shutdown(); exit(0) } }
+                        } } }
                 }
             }
         }

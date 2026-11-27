@@ -90,13 +90,19 @@ final class TermWindowView: NSView {
     // 11-28 Keng「選到的那一個終端機視窗要浮上來，並放大一點點」→「外框放大、字不動」：
     // 外框（毛玻璃、標題列、邊框、影子）往四周多長 3%，終端機大小和位置完全不動 ⇒ 字維持原尺寸、不糊、不重排。
     // frame 也不變 ⇒ 排版、拖曳、記住的大小、滑鼠判斷都照原本範圍（多出來那圈不搶鄰居露出的那條）
-    static let liftGrow: CGFloat = 0.03, liftDuration = 0.15
+    static let liftGrow: CGFloat = 0.03, liftDuration = 0.22
     private(set) var raised = false
     /// 外框每邊多長多少（寬高各 3% ⇒ 每邊 1.5%）
     var liftOutset: NSSize { raised ? NSSize(width: (bounds.width * Self.liftGrow / 2).rounded(), height: (bounds.height * Self.liftGrow / 2).rounded()) : .zero }
+    /// 測試用：外框畫面上現在的寬度、整顆的透明度（動畫中途）
+    var chromeNow: (width: CGFloat, opacity: Float) { (clip.layer?.presentation()?.bounds.width ?? clip.frame.width, layer?.presentation()?.opacity ?? 1) }
     func setRaised(_ on: Bool, animate: Bool) {
         guard on != raised else { return }
         raised = on
+        if animate, on, let l = layer {                   // 浮上來那一下：從稍微透明淡進來，蓋上別顆時不是硬切
+            let f = CABasicAnimation(keyPath: "opacity"); f.fromValue = 0.72; f.toValue = 1
+            f.duration = Self.liftDuration; f.timingFunction = CAMediaTimingFunction(name: .easeOut); l.add(f, forKey: "liftFade")
+        }
         if animate {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = Self.liftDuration; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)

@@ -584,6 +584,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     var lift = HoverLift()
     var mouse: NSPoint?                 // 主視窗座標；nil＝不在視窗裡
     var lastScroll = 0.0, menuOpen = 0, liftTimer: Timer?
+    var mouseSpeed = MouseSpeed()        // 11-28：快速掃過別顆不換
     private var liftTrack: LiftTracker?
     private var stackWins: [SatStack.Win] { satWins.map { SatStack.Win(id: $0.key, seq: $0.value.seq, secretary: $0.value.secretary) } }
     private func id(of w: NSView) -> String? { satWins.first { $0.value === w }?.key }
@@ -605,17 +606,18 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         NSEvent.pressedMouseButtons != 0 || CACurrentMediaTime() - lastScroll < 0.3 || menuOpen > 0 || window.attachedSheet != nil || NSApp.modalWindow != nil
             || host.composing.contains { satWins[$0]?.isHidden == false } || askFloat?.dragging == true
     }
-    /// 每次滑鼠移動跑一次：滑進別顆 ⇒ 同一個事件裡就浮到最上＋拿輸入點（沒有計時、沒有動畫）
+    /// 每次滑鼠移動跑一次：滑進別顆而且滑鼠慢下來／停下來 ⇒ 浮到最上＋拿輸入點；快速路過不換
     func liftStep() {
-        let hover = hoverSat(), paused = liftPaused
-        if let id = lift.step(hover: hover, inside: mouse != nil && (window.isKeyWindow || liftTest), paused: paused), let w = satWins[id] {
+        let hover = hoverSat(), paused = liftPaused, fast = mouseSpeed.isFast(CACurrentMediaTime())
+        if let id = lift.step(hover: hover, inside: mouse != nil && (window.isKeyWindow || liftTest), paused: paused, fast: fast), let w = satWins[id] {
             pinned = id; restack()
             if typingSat != id { window.makeFirstResponder(w.content) }      // 已經在它裡面（例如它的網頁位址列）就不搶
         }
         liftTimer?.invalidate(); liftTimer = nil
         // 拖曳／組字／捲動中滑到別顆：結束後要補換 ⇒ 0.1 秒再看；沒事就完全不跑
-        if paused, mouse != nil, hover != nil, hover != lift.lifted {
-            liftTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.liftStep() } }
+        // 快速路過被擋下：滑鼠停住就不會再有移動事件 ⇒ 0.035 秒後自己再看一次
+        if mouse != nil, hover != nil, hover != lift.lifted, paused || fast {
+            liftTimer = Timer.scheduledTimer(withTimeInterval: paused ? 0.1 : MouseSpeed.still + 0.005, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.liftStep() } }
         }
     }
     var liftTest = false
@@ -633,9 +635,10 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             w.wantsLayer = true; let z = CGFloat(10 + i)
             if w.layer?.zPosition != z { w.layer?.zPosition = z; changed = true }
             w.setLift(dim: dim.contains(id), typing: typing == id && lift.lifted != id, animate: move)
-            w.setRaised(id == up, animate: move)
         }
         CATransaction.commit()
+        // 11-28 Keng「過渡動畫看起來像瞬間完成」：浮起放大要在上面那段「關掉動畫」之外做，不然直接跳到終點
+        for id in order { satWins[id]?.setRaised(id == up, animate: move) }
         guard changed else { return }
         root.sortSubviews({ a, b, _ in
             let za = a.layer?.zPosition ?? 0, zb = b.layer?.zPosition ?? 0
@@ -648,6 +651,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         t.moved = { [weak self] e in
             guard let self, let root = self.window.contentView else { return }
             self.mouse = e.map { root.convert($0.locationInWindow, from: nil) }
+            if let m = self.mouse { self.mouseSpeed.add(CACurrentMediaTime(), m) }
             self.liftStep()
         }
         root.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect, .enabledDuringMouseDrag], owner: t))
