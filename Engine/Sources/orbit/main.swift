@@ -12,6 +12,7 @@
 //   orbit task add --to <英文名，例如 Chris> --text "…"   建派工單，印出要用 SendMessage 送的全文
 //   orbit task cancel <單號>    orbit tasks [--all]
 //   orbit web enable [--port N] | disable | status | rotate   Orbit42 網頁版（只綁 Tailscale；要本人在終端機跑）
+//   orbit seccheck [--card] [--json] [--wait] [--accept-network] [--open]   本機資安體檢（只看不改，SecCheck.swift）
 //
 // Contract with the AI tools that call us (hooks): this must NEVER slow them down or fail them.
 //   • always exits 0, prints nothing on success
@@ -415,6 +416,10 @@ if args.first == "web" {
 
 if args.first == "b1" {
     exit(B1CLI.run(args))
+}
+
+if args.first == "seccheck" {
+    exit(SecCheckCLI.run(args, orbit: URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path))
 }
 
 if ["captain", "roster", "task", "tasks", "release"].contains(args.first ?? "") {

@@ -148,6 +148,7 @@ Legacy.adoptEnv()                       // 11-26 改名：舊名環境變數照�
 let orbitEnv = ProcessInfo.processInfo.environment
 let orbitTest = orbitEnv["ORBIT_OFFSCREEN"] != nil
 if orbitEnv["ORBIT_TEST_DISKS"] != nil { print(MainActor.assumeIsolated { DiskWatch.dump() }); exit(0) }
+if let dir = orbitEnv["ORBIT_TEST_SECCHECK_SHOT"] { MainActor.assumeIsolated { SecCheckShot.run(dir) } }    // 11-28 資安體檢小視窗深淺色截圖
 if !orbitTest {
     Legacy.migrateDefaults()            // 舊設定 suite 一次性複製到新 suite（讀回比對過才記做完）
     AgentSwap.stop()
