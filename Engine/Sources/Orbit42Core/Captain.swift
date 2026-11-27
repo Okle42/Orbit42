@@ -50,6 +50,7 @@ public struct CaptainTask: Codable, Sendable, Equatable, Identifiable {
     public var mainProject: String? = nil  // 主專案
     public var thenRole: String? = nil     // 接力那一棒的職責、標題
     public var thenTitle: String? = nil
+    public var notes: [KengNote]? = nil    // 11-28：使用者在卡片上的回答原話（TaskNotes.swift；秘書看單就好，不用再問組員）
 
     public init(id: String, from: String, to: String, toSession: String? = nil, project: String? = nil, text: String,
                 state: State = .sent, summary: String? = nil, ask: String? = nil, createdAt: Date = Date(), updatedAt: Date? = nil,
@@ -231,6 +232,9 @@ public enum Captain {
         var s = "【派工回報 \(t.id)】\(t.to)：\(t.state.title)" + (t.summary.map { "——\($0)" } ?? "")
         if let a = t.ask { s += "\n要使用者決定：\(a)" }
         s += "\n原任務：\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(120))"
+        // 11-28：使用者在卡片上對這張單說過的話（一律算數、不用查證；這是紀錄，不是放行）
+        let notes = TaskNotes.lines(t)
+        if !notes.isEmpty { s += "\n" + notes.joined(separator: "\n") + "\n（以上是使用者原話紀錄，跟原任務不同時以原話為準；紀錄不是放行）" }
         if let f = followUp { s += "\n已自動接力：\(f.id) 交給 \(f.to)" }
         return s
     }
@@ -278,9 +282,9 @@ public enum CaptainStore {
     /// 10-21 CPU：看板每輪都讀；只有 mtime／大小變了的檔才重新解碼（取樣裡 JSON 解碼是讀檔路徑的大宗之一）
     nonisolated(unsafe) private static var taskCache: [String: (stamp: String, task: CaptainTask)] = [:]
     private static let taskLock = NSLock()
-    public static func tasks() -> [CaptainTask] {
+    public static func tasks(in dir: URL = Captain.tasksDir) -> [CaptainTask] {
         let fm = FileManager.default, dec = BoardJSON.decoder
-        let base = Captain.tasksDir.path
+        let base = dir.path
         taskLock.lock(); defer { taskLock.unlock() }
         var out: [CaptainTask] = [], seen = Set<String>()
         for f in (try? fm.contentsOfDirectory(atPath: base)) ?? [] where f.hasSuffix(".json") {
@@ -291,19 +295,19 @@ public enum CaptainStore {
             guard let t = fm.contents(atPath: path).flatMap({ try? dec.decode(CaptainTask.self, from: $0) }) else { continue }
             taskCache[path] = (st, t); out.append(t)
         }
-        taskCache = taskCache.filter { seen.contains($0.key) }
+        taskCache = taskCache.filter { seen.contains($0.key) || !$0.key.hasPrefix(base + "/") }
         return out.sorted { $0.createdAt < $1.createdAt }
     }
 
-    public static func task(_ id: String) -> CaptainTask? {
-        (try? Data(contentsOf: Captain.tasksDir.appendingPathComponent(id + ".json"))).flatMap { try? BoardJSON.decoder.decode(CaptainTask.self, from: $0) }
+    public static func task(_ id: String, in dir: URL = Captain.tasksDir) -> CaptainTask? {
+        (try? Data(contentsOf: dir.appendingPathComponent(id + ".json"))).flatMap { try? BoardJSON.decoder.decode(CaptainTask.self, from: $0) }
     }
 
     @discardableResult
-    public static func save(_ t: CaptainTask) -> Bool {
-        try? FileManager.default.createDirectory(at: Captain.tasksDir, withIntermediateDirectories: true)
+    public static func save(_ t: CaptainTask, in dir: URL = Captain.tasksDir) -> Bool {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         guard let d = try? BoardJSON.encoder.encode(t) else { return false }
-        return (try? d.write(to: Captain.tasksDir.appendingPathComponent(t.id + ".json"), options: .atomic)) != nil
+        return (try? d.write(to: dir.appendingPathComponent(t.id + ".json"), options: .atomic)) != nil
     }
 
     public static func captain() -> CaptainRecord? {

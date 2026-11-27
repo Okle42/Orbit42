@@ -188,11 +188,16 @@ public enum AskQueue {
     /// 使用者在這個 session 的終端機打字回答 ⇒ 這個 session 的待答題全部拿掉、卡片上的 --ask 清掉；
     /// 秘書卡片／佇列掛著同一題的也清掉（不轉【使用者已答】：答案在組員那邊，秘書巡檢看得到，不為這個叫醒秘書）。回傳拿掉的題
     @discardableResult
+    /// 11-28：答的這個 session 有進行中的派工單 ⇒ 原話記進單（TaskNotes），秘書看單就知道，不用再問組員
     public static func answeredInTerminal(sid: String, prompt: String?, captain: String? = nil,
-                                          cardsDir: URL = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true)) -> [PendingAsk] {
+                                          cardsDir: URL = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true),
+                                          tasksDir: URL = Captain.tasksDir, name: String? = nil, now: Date = Date()) -> [PendingAsk] {
         guard isTerminalAnswer(prompt) else { return [] }
         let xs: [PendingAsk] = locked { let xs = load(sid); if !xs.isEmpty { save(sid, []) }; return xs }
         guard !xs.isEmpty else { return [] }
+        TaskNotes.record(sid: sid, name: name ?? NicknameStore.get(sid)?.name, cardTask: nil,
+                         question: xs.map(\.ask).joined(separator: "／"), answer: prompt ?? "", via: "終端機",
+                         at: now, captain: captain, asks: sid == captain ? nil : [:], dir: tasksDir)
         for q in xs {
             Answered.clearCaptainCard(sid: sid, question: q.ask, dir: cardsDir)
             if let cap = captain, cap != sid {
