@@ -283,7 +283,7 @@ if args.first == "guard-push" {
     let sid = o["session_id"] as? String
     let kw = PushGuard.list(PushGuard.dir.appendingPathComponent("keywords.txt"))
     let strict = PushGuard.list(PushGuard.dir.appendingPathComponent("strict-repos.txt"))
-    var evs: [PushEvent] = []
+    var evs: [PushEvent] = [], gated: [String] = []
     for c in calls {
         var e = PushGuard.check(c, git: git, keywords: kw, strict: strict)
         e.session = sid; e.name = sid.flatMap { NicknameStore.get($0)?.name }
@@ -292,8 +292,30 @@ if args.first == "guard-push" {
             let rest = PushGuard.apply(&e, allows: xs, now: Date())
             if rest != xs { PushGuard.saveAllows(rest) }
         }
+        // 11-28 資安體檢第 12 項：內容被擋（金鑰、客戶資料）⇒ 走動作預告的放行單，Keng 打「放行！單號」才推
+        if e.verdict == .block, let sid {
+            let now = Date(), repo = e.repo, name = e.name ?? String(sid.prefix(8))
+            let project = CaptainStore.roster()?.entries.first { $0.sessionId == sid }?.project
+            let why = PushGuard.gate(&e, consume: { CaptainInbox.consume(sid: sid, fingerprint: $0, now: now) }, open: { fp, text in
+                var item = CaptainInbox.waiting(sid: sid, fingerprint: fp, now: now)
+                    ?? CaptainInboxItem(id: CaptainInbox.newID(.block), kind: .block, at: now, sid: sid, name: name, project: project,
+                                        kinds: ["push 掃到密鑰／客戶資料"], text: "\(repo)：\(text)", fingerprint: fp)
+                if !item.delivered, CaptainLink.pushNow(item), let cap = CaptainStore.captain(), let to = Peer.find(cap.sessionId),
+                   case .success = Peer.send(to: to, text: CaptainLink.blockText(item), fromName: "Orbit42（push 保全）") { item.delivered = true }
+                CaptainInbox.save(item)
+                return item.id
+            })
+            if let why { gated.append(why) }
+        }
         PushGuard.append(e)
         evs.append(e)
+    }
+    if !gated.isEmpty {
+        let other = evs.filter { $0.verdict == .block && $0.contentOnly != true }.flatMap(\.reasons)
+        let text = gated.joined(separator: "\n\n") + (other.isEmpty ? "" : "\n另外還有不能用放行解決的：\n" + other.map { "・" + $0 }.joined(separator: "\n"))
+        let o: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": text]]
+        print(String(decoding: (try? JSONSerialization.data(withJSONObject: o)) ?? Data(), as: UTF8.self))
+        exit(0)
     }
     if let out = PushGuard.hookOutput(evs) { print(out) }
     exit(0)

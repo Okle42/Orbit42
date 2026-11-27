@@ -90,12 +90,12 @@ struct PushGuardTests {
         #expect(f.check([]).verdict == .block)
     }
 
-    @Test("關鍵字：一般 repo 只提醒，公開／公司 repo 擋")
+    @Test("關鍵字：11-28 起一般 repo 也擋（資安體檢第 12 項：掃到就擋、等放行）")
     func keywords() {
         let r = Repo(name: "cool42")
         r.commit("README.md", "這是機密詞客戶的案子\n")
         let w = r.check([], keywords: ["機密詞"])
-        #expect(w.verdict == .warn && (PushGuard.hookOutput([w]) ?? "").contains("additionalContext"))
+        #expect(w.verdict == .block && w.contentOnly == true)
         #expect(r.check([], keywords: ["機密詞"], strict: ["cool42"]).verdict == .block)
         #expect(r.check([], keywords: ["別的詞"]).verdict == .ok)
     }

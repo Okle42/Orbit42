@@ -29,6 +29,8 @@ public struct PushEvent: Codable, Sendable, Equatable {
     public var reasons: [String]
     public var secret = false        // 擋下的原因裡有金鑰（保全亮紅燈）
     public var head: String? = nil   // 檢查時的 HEAD（保全面板「放行一次」認這個）
+    /// 11-28 資安體檢第 12 項：擋下的原因全是「內容」（金鑰、客戶關鍵字、私人資料檔）⇒ 可以走「放行！單號」；force push、ghosts 這類結構問題不行
+    public var contentOnly: Bool? = nil
     public init(at: Date, session: String? = nil, name: String? = nil, repo: String, dir: String, refs: [String], commits: Int,
                 verdict: Verdict, reasons: [String], secret: Bool = false) {
         self.at = at; self.session = session; self.name = name; self.repo = repo; self.dir = dir; self.refs = refs
@@ -251,7 +253,7 @@ public enum PushGuard {
         }
 
         // 要推出去的 commit 與內容
-        var commits = 0
+        var commits = 0, contentBlocks = 0
         if !srcs.isEmpty {
             let not = isURL ? ["--not", "--remotes"] : ["--not", "--remotes=\(remote)"]
             let revs = git(c.dir, ["rev-list", "--max-count=500"] + srcs + not)
@@ -260,25 +262,29 @@ public enum PushGuard {
                 let paths = git(c.dir, ["log", "--format=", "--name-only", "--diff-filter=AM", "--max-count=500"] + srcs + not).out
                     .split(separator: "\n").map(String.init)
                 if LocalConfig.current.isPrivateDataRepo(short), let p = paths.first(where: { $0.hasPrefix("data/") }) {
+                    contentBlocks += 1
                     block.append("\(short) 的 data/ 是私人內容（本機設定 privateDataRepos），不進 git：\(p)")
                 }
                 if let p = paths.first(where: { (($0 as NSString).lastPathComponent).lowercased().hasPrefix("finance") && $0.hasSuffix(".json") }) {
+                    contentBlocks += 1
                     block.append("財務資料檔不進 git：\(p)")
                 }
                 let patch = git(c.dir, ["log", "-p", "--format=", "--no-color", "-U0", "--no-ext-diff", "--max-count=500"] + srcs + not).out
                 let (sec, words) = scan(patch: patch, keywords: keywords)
-                if !sec.isEmpty { secret = true; block.append("像金鑰的字串：" + sec.prefix(5).joined(separator: "、") + (sec.count > 5 ? " 等 \(sec.count) 處" : "")) }
+                if !sec.isEmpty { secret = true; contentBlocks += 1; block.append("像金鑰的字串：" + sec.prefix(5).joined(separator: "、") + (sec.count > 5 ? " 等 \(sec.count) 處" : "")) }
                 if !words.isEmpty {
+                    // 11-28 規格第 12 項：客戶資料掃到就擋、等放行（以前私人 repo 只提醒）
                     let w = "客戶／機密關鍵字：" + words.prefix(5).joined(separator: "、") + (words.count > 5 ? " 等 \(words.count) 處" : "")
-                    if strict.contains(where: { $0.caseInsensitiveCompare(repo) == .orderedSame || $0.caseInsensitiveCompare(short) == .orderedSame }) {
-                        block.append(w + "（\(repo) 是公開或公司 repo）")
-                    } else { warn.append(w) }
+                    let isStrict = strict.contains(where: { $0.caseInsensitiveCompare(repo) == .orderedSame || $0.caseInsensitiveCompare(short) == .orderedSame })
+                    block.append(w + (isStrict ? "（\(repo) 是公開或公司 repo）" : ""))
+                    contentBlocks += 1
                 }
             }
         }
         let verdict: PushEvent.Verdict = !block.isEmpty ? .block : !warn.isEmpty ? .warn : .ok
         var e = PushEvent(at: now, repo: repo, dir: c.dir, refs: refs, commits: commits, verdict: verdict, reasons: block + warn, secret: secret)
         e.head = git(c.dir, ["rev-parse", "HEAD"]).out.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !block.isEmpty { e.contentOnly = contentBlocks == block.count }
         return e
     }
 
@@ -303,6 +309,27 @@ public enum PushGuard {
         } else { return nil }
         let d = (try? JSONSerialization.data(withJSONObject: ["hookSpecificOutput": o])) ?? Data()
         return String(decoding: d, as: UTF8.self)
+    }
+
+    // MARK: 放行！單號（11-28 資安體檢第 12 項：內容被擋 ⇒ 走動作預告的放行流程，Keng 打「放行！單號」才推）
+
+    /// 同一個資料夾、同一個 HEAD 才認同一張單（改了 commit 就要重新放行）
+    public static func releaseFingerprint(_ e: PushEvent) -> String { "push-scan|\(e.dir)|\(e.head ?? "")" }
+
+    /// 內容被擋的 push：有放行就用掉並改成放行；沒有就開單（或沿用同一張）並回傳擋下的說明。
+    /// consume／open 由呼叫端接 CaptainInbox（測試用假的，不碰真的收件匣）
+    public static func gate(_ e: inout PushEvent, consume: (String) -> Bool, open: (String, String) -> String) -> String? {
+        guard e.verdict == .block, e.contentOnly == true, let h = e.head, !h.isEmpty else { return nil }
+        let fp = releaseFingerprint(e)
+        if consume(fp) {
+            e.verdict = .ok
+            e.reasons = [LocalConfig.current.ownerName + "打「放行！」放行：" + e.reasons.joined(separator: "；")]
+            return nil
+        }
+        let id = open(fp, e.reasons.joined(separator: "；"))
+        return "🛡️ push 前掃到密鑰或客戶資料，已擋下（單號 \(id)）。\n原因：\n" + e.reasons.map { "・" + $0 }.joined(separator: "\n")
+            + "\n能處理的先處理（改寫那幾個 commit、移掉金鑰或檔案）再推；不要換個寫法繞過。"
+            + "確定要推，請\(LocalConfig.current.ownerName)在這個 session 打：放行！\(id)（要有驚嘆號），放行後再推一次（30 分鐘內有效、只能用一次；改了 commit 要重新放行）。"
     }
 
     // MARK: 放行一次（Kang 在保全面板按）
