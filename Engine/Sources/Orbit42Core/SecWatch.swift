@@ -47,7 +47,7 @@ public extension SecCheck {
         if !added.isEmpty {
             return SecItem(no: 10, title: t, level: .bad,
                            detail: "比上次多了 \(added.count) 個：\(added.prefix(8).joined(separator: "、"))" + (gone.isEmpty ? "" : "；少了 \(gone.count) 個"),
-                           why: "多出來的開機項目每次開機都會自己跑，惡意程式常這樣常駐。是你剛裝的軟體就按「這些是我裝的」；不認得就先別動，跟 Keng 或 AI 確認後再刪。")
+                           why: "多出來的開機項目每次開機都會自己跑，惡意程式常這樣常駐。是你剛裝的軟體就按「這些是我裝的」；不認得就先別動，確認後再刪。")
         }
         return SecItem(no: 10, title: t, level: .ok, detail: "跟上次一樣 \(now.count) 個" + (gone.isEmpty ? "" : "（少了 \(gone.count) 個：\(gone.prefix(5).joined(separator: "、"))）"))
     }

@@ -55,9 +55,9 @@ enum SecInk {
     static func gray(_ d: Bool) -> NSColor { d ? NSColor(srgbRed: 0.541, green: 0.541, blue: 0.561, alpha: 1) : NSColor(white: 0.55, alpha: 1) }
     /// TermWindow 邊框（clip.borderColor）
     static func hairline(_ d: Bool) -> NSColor { d ? NSColor(white: 1, alpha: 0.10) : NSColor(white: 0, alpha: 0.12) }
-    /// 燈號色：正常綠、注意／危險紅（注意畫空心、危險畫實心）、列出／檢查中灰
+    /// 燈號色：正常綠、注意黃（11-28 Keng：跟危險紅一眼分開）、危險紅、列出／檢查中灰
     static func level(_ l: SecLevel, _ d: Bool) -> NSColor {
-        switch l { case .ok: Palette.green; case .warn, .bad: Palette.red; case .info, .pending: gray(d) }
+        switch l { case .ok: Palette.green; case .warn: Palette.amber; case .bad: Palette.red; case .info, .pending: gray(d) }
     }
     static func isDark(_ v: NSView) -> Bool { v.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 }
@@ -302,8 +302,8 @@ final class SecCheckView: NSView {
     // MARK: 畫
     func render(_ r: SecReport) {
         let d = dark
-        // 摘要兼圖例：危險實心紅、注意空心紅、正常綠、列出灰
-        let parts: [(String, NSColor, String, Int)] = [("●", Palette.red, "危險", r.count(.bad)), ("○", Palette.red, "注意", r.count(.warn)),
+        // 摘要兼圖例：危險紅、注意黃、正常綠、列出灰
+        let parts: [(String, NSColor, String, Int)] = [("●", Palette.red, "危險", r.count(.bad)), ("●", Palette.amber, "注意", r.count(.warn)),
                                                        ("●", Palette.green, "正常", r.count(.ok)), ("●", SecInk.gray(d), "列出", r.count(.info))]
             + (r.count(.pending) > 0 ? [("○", SecInk.gray(d), "檢查中", r.count(.pending))] : [])
         let s = NSMutableAttributedString()
@@ -382,14 +382,14 @@ final class SecCheckView: NSView {
     }
 }
 
-/// 燈號點：正常綠實心、危險紅實心、注意紅空心、列出灰實心、檢查中灰空心
+/// 燈號點：正常綠、危險紅、注意黃（都實心）、列出灰實心、檢查中灰空心
 final class LevelDot: NSView {
     let level: SecLevel
     init(level: SecLevel) { self.level = level; super.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError() }
     override func draw(_ r: NSRect) {
         let d = SecInk.isDark(self), c = SecInk.level(level, d)
-        if level == .warn || level == .pending {
+        if level == .pending {
             let p = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1)); p.lineWidth = 2; c.setStroke(); p.stroke()
         } else {
             c.setFill(); NSBezierPath(ovalIn: bounds).fill()
@@ -397,7 +397,7 @@ final class LevelDot: NSView {
     }
 }
 
-/// 燈號文字標籤：危險＝紅底白字；注意＝紅框；正常＝綠框；列出／檢查中＝灰框（框內字都用主文字色，深色底上才讀得清）
+/// 燈號文字標籤：危險＝紅底白字；注意＝黃底深色字；正常＝綠框；列出／檢查中＝灰框（框內字都用主文字色，深色底上才讀得清）
 final class LevelTag: NSView {
     let level: SecLevel
     init(level: SecLevel) { self.level = level; super.init(frame: .zero); setAccessibilityLabel(level.label); setAccessibilityRole(.staticText) }
@@ -412,6 +412,7 @@ final class LevelTag: NSView {
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
         let ink: NSColor
         if level == .bad { c.setFill(); path.fill(); ink = .white }
+        else if level == .warn { c.setFill(); path.fill(); ink = NSColor(white: 0.08, alpha: 1) }      // 黃底白字對比不夠，用深色字
         else {
             path.lineWidth = 1; (level == .info || level == .pending ? c : c.withAlphaComponent(0.9)).setStroke(); path.stroke()
             ink = level == .info || level == .pending ? SecInk.secondary(d) : SecInk.primary(d)

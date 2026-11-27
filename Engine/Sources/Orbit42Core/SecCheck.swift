@@ -356,7 +356,7 @@ public enum SecCheck {
         let fwOff = sh("/usr/libexec/ApplicationFirewall/socketfilterfw", ["--getglobalstate"]).out.contains("disabled")
         var i = portsItem(net, firewallOff: fwOff)
         if partial { i.detail += "（這次只看得到你自己帳號的程式，系統服務另見第 9 項）" }
-        if net.isEmpty && partial { i.level = .warn; i.detail = "讀不到連接埠清單"; i.why = "這次讀不到哪些程式開著連接埠；終端機跑 orbit seccheck 再看一次。" }
+        if net.isEmpty && partial { i.level = .warn; i.detail = "讀不到連接埠清單"; i.why = "這次讀不到哪些程式開著連接埠；按「重新檢查」再看一次。" }
         return i
     }
     public static func portsItem(_ net: [Listener], firewallOff: Bool) -> SecItem {
