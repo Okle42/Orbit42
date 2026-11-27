@@ -84,8 +84,21 @@ public enum AskQueue {
             if r.options != nil, out[i].action == nil { out[i].options = r.options }      // 看板發的題不給 AI 改選項
             return out
         }
+        // 11-28（Hana 同一題 --ask 發 3 次，等你回答排了 3 筆）：換句話重發、選項一樣 ⇒ 併成一筆，用最新的說法，排隊位置不變
+        if let opts = r.options, !opts.isEmpty,
+           let i = out.firstIndex(where: { $0.action == nil && sameOptions($0.options, opts) && Answered.similar($0.ask, q) }) {
+            if out[i].sendingAt == nil, out[i].unsureAt == nil { out[i].ask = q }      // 正在送的題不改字
+            return out
+        }
         out.append(PendingAsk(id: id(), ask: q, options: r.options, at: r.at, doing: r.doing))
         return out
+    }
+
+    /// 選項一樣（不管順序、「（建議）」標記、空白與標點）
+    static func sameOptions(_ a: [String]?, _ b: [String]?) -> Bool {
+        func key(_ xs: [String]?) -> [String] { (xs ?? []).map { Answered.normal(AnswerPick.bare($0)) }.filter { !$0.isEmpty }.sorted() }
+        let x = key(a)
+        return !x.isEmpty && x == key(b)
     }
 
     /// 還有效的（沒過期），最早的在前

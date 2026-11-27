@@ -96,8 +96,15 @@ if args.first == "card" {
     case .failure(let e):
         FileHandle.standardError.write(Data("orbit card：\(e.message)\n".utf8)); exit(1)
     case .success(let r):
-        if let why = SelfReport.delegationProblem(r.options, isCaptain: CaptainStore.captain()?.sessionId == sid) {
+        let isCaptain = CaptainStore.captain()?.sessionId == sid
+        if let why = SelfReport.delegationProblem(r.options, isCaptain: isCaptain) {
             FileHandle.standardError.write(Data("orbit card：\(why)。這張卡沒有發出，改好再發一次\n".utf8)); exit(1)
+        }
+        // 11-28：派出去的事只在組員卡片問使用者；秘書重問組員同一張單的題 ⇒ 擋下（TaskNotes.captainDuplicate）
+        if isCaptain, r.ask != nil, let d = TaskNotes.captainDuplicate(captain: sid, report: r, tasks: CaptainStore.tasks(), asks: AskQueue.all()) {
+            let who = NicknameStore.get(d.sid)?.name ?? String(d.sid.prefix(8))
+            let me = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path
+            FileHandle.standardError.write(Data("orbit card：\(TaskNotes.duplicateMessage(d, name: who, orbit: me))。這張卡沒有發出\n".utf8)); exit(1)
         }
         let dir = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
