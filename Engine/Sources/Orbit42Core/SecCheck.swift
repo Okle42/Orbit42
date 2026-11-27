@@ -228,14 +228,17 @@ public enum SecCheck {
     /// 手動設的 DNS（每個網路服務）＋系統代理設定；DHCP 給的 DNS 換 Wi-Fi 就會變，不算
     static func networkSnapshot() -> [String] {
         var v: [String] = []
-        let svcs = sh("/usr/sbin/networksetup", ["-listallnetworkservices"]).out.split(separator: "\n").dropFirst()
-            .map(String.init).filter { !$0.hasPrefix("*") && !$0.isEmpty }
-        for s in svcs {
+        for s in services() {
             let d = sh("/usr/sbin/networksetup", ["-getdnsservers", s]).out
             if !d.contains("aren't any") { v.append("DNS[\(s)]=" + d.split(separator: "\n").joined(separator: ",")) }
         }
         v += proxyValues(sh("/usr/sbin/scutil", ["--proxy"]).out)
         return v.sorted()
+    }
+    /// 啟用中的網路服務（Wi-Fi、Ethernet⋯；停用的前面有 *）
+    static func services() -> [String] {
+        sh("/usr/sbin/networksetup", ["-listallnetworkservices"]).out.split(separator: "\n").dropFirst()
+            .map(String.init).filter { !$0.hasPrefix("*") && !$0.isEmpty }
     }
     public static func proxyValues(_ out: String) -> [String] {
         var kv: [String: String] = [:]

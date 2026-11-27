@@ -100,6 +100,35 @@ struct SecCheckTests {
         #expect(r.level == .info && r.detail.contains("螢幕共享") && !r.detail.contains("SSH"))
     }
 
+    @Test("修正按鈕：綠燈沒有；紅燈有；DNS 黃燈不給修正（用確認）")
+    func fixes() {
+        #expect(SecFixer.fix(for: SecCheck.fileVaultItem("FileVault is On.")) == nil)
+        #expect(SecFixer.fix(for: SecCheck.fileVaultItem("FileVault is Off."))?.needsAdmin == false)
+        let fw = SecFixer.fix(for: SecCheck.firewallItem(global: "Firewall is disabled.", stealth: ""))
+        #expect(fw?.kind == .firewallOn && fw?.needsAdmin == true)
+        #expect(SecFixer.fix(for: SecCheck.networkItem(now: [], base: nil)) == nil)
+        let gk = SecFixer.fix(for: SecCheck.integrityItem(sip: "status: enabled.", gk: "assessments disabled"))
+        #expect(gk?.kind == .gatekeeperOn)
+    }
+
+    @Test("改回基準：DNS 設回、多的代理關掉、基準沒手動 DNS 就改回自動")
+    func revert() {
+        let c = SecFixer.revertCommands(now: ["DNS[Wi-Fi]=6.6.6.6", "代理[HTTP]=evil:8080"], base: [], services: ["Wi-Fi", "Ethernet"])
+        #expect(c.contains(["/usr/sbin/networksetup", "-setdnsservers", "Wi-Fi", "Empty"]))
+        #expect(c.contains(["/usr/sbin/networksetup", "-setwebproxystate", "Ethernet", "off"]))
+        #expect(!c.contains { $0.contains("-setdnsservers") && $0.contains("Ethernet") })
+        let back = SecFixer.revertCommands(now: [], base: ["DNS[Wi-Fi]=1.1.1.1,8.8.8.8"], services: ["Wi-Fi"])
+        #expect(back == [["/usr/sbin/networksetup", "-setdnsservers", "Wi-Fi", "1.1.1.1", "8.8.8.8"]])
+        #expect(SecFixer.revertCommands(now: ["DNS[Wi-Fi]=1.1.1.1"], base: ["DNS[Wi-Fi]=1.1.1.1"], services: ["Wi-Fi"]).isEmpty)
+    }
+
+    @Test("引號：Wi-Fi 名字有單引號、雙引號也不會跑掉")
+    func quoting() {
+        #expect(SecFixer.shQuote("Demo’s iphone") == "'Demo’s iphone'")
+        #expect(SecFixer.shQuote("a'b") == #"'a'\''b'"#)
+        #expect(SecFixer.asQuote(#"x "y" \z"#) == #""x \"y\" \\z""#)
+    }
+
     @Test("卡片摘要：綠燈只寫數量，黃紅燈附白話")
     func summary() {
         let r = SecReport(items: [SecCheck.fileVaultItem("FileVault is On."), SecCheck.wifiItem(rawSecurity: 0)], at: Date(), seconds: 1)
