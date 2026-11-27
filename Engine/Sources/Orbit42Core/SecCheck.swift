@@ -53,7 +53,7 @@ public enum SecCheck {
         let (net, partial) = Listeners.current()
         let checks: [@Sendable () -> SecItem] = [
             fileVault, firewall, integrity, updates, { wifi() }, savedWifi, networkSettings,
-            { ports(net, partial: partial) }, { remote(net) },
+            { ports(net, partial: partial) }, { remote(net) }, startup, permissionsCheck,
         ]
         let box = Box(count: checks.count)
         DispatchQueue.concurrentPerform(iterations: checks.count) { i in box.set(i, checks[i]()) }

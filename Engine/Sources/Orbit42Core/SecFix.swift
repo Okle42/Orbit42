@@ -13,13 +13,15 @@ public struct SecFix: Sendable, Equatable {
         case gatekeeperOn
         case removeOpenWifi([String])
         case revertNetwork
+        case acceptStartup                     // 第 10 項：這些開機項目是我裝的（只改 Orbit42 的基準檔）
+        case acceptPermissions                 // 第 11 項：這些權限是我給的
     }
     public var item: Int
     public var label: String                    // 按鈕上的字
     public var confirm: String                  // 按下去先問的那句話
     public var kind: Kind
     public var needsAdmin: Bool {
-        switch kind { case .openSettings: false; default: true }
+        switch kind { case .openSettings, .acceptStartup, .acceptPermissions: false; default: true }
     }
 }
 
@@ -31,7 +33,8 @@ public enum SecFixer {
         wifi: "x-apple.systempreferences:com.apple.wifi-settings-extension",
         firewall: "x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall",
         network: "x-apple.systempreferences:com.apple.Network-Settings.extension",
-        sharing: "x-apple.systempreferences:com.apple.Sharing-Settings.extension"
+        sharing: "x-apple.systempreferences:com.apple.Sharing-Settings.extension",
+        fullDisk: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles"
     )
 
     /// 這一項有沒有修正按鈕（綠燈沒有）
@@ -57,6 +60,12 @@ public enum SecFixer {
         case 8:
             if i.level == .bad { return SecFix(item: 8, label: "打開防火牆", confirm: "會把 macOS 防火牆打開（要輸入 Mac 密碼），沒允許的程式就連不進來。原本的狀態先備份。", kind: .firewallOn) }
             return SecFix(item: 8, label: "打開防火牆選項", confirm: "會打開「系統設定 → 網路 → 防火牆 → 選項」，把用不到的程式設成「阻擋連入連線」。", kind: .openSettings(pane.firewall))
+        case 10:
+            guard i.level == .bad else { return nil }
+            return SecFix(item: 10, label: "這些是我裝的", confirm: "會把目前的開機項目記成新的基準，之後只有再多出來的才會亮紅燈。不會刪任何東西、不動系統設定。", kind: .acceptStartup)
+        case 11:
+            if i.level == .bad { return SecFix(item: 11, label: "這些是我給的", confirm: "會把目前的權限清單記成新的基準，之後只有再多出來的才會亮紅燈。不動系統設定。", kind: .acceptPermissions) }
+            return SecFix(item: 11, label: "給 Orbit42 讀取權限", confirm: "這是 Orbit42 要的權限（不是別的 App）：會打開「系統設定 → 隱私權與安全性 → 完全取用磁碟」，把 Orbit42 打開。給了之後才讀得到哪些 App 有錄螢幕、輔助使用、完全取用磁碟權限；Orbit42 只讀不改。", kind: .openSettings(pane.fullDisk))
         case 9: return SecFix(item: 9, label: "打開共享設定", confirm: "會打開「系統設定 → 一般 → 共享」，用不到的遠端登入、螢幕共享可以在那裡關掉。", kind: .openSettings(pane.sharing))
         default: return nil
         }
@@ -84,6 +93,10 @@ public enum SecFixer {
                                                   "restore": names.map { "networksetup -addpreferredwirelessnetworkatindex \(ifname) '\($0)' 0 OPEN" }.joined(separator: "\n")],
                            commands: cmds.map { $0.joined(separator: " ") })
             return admin(cmds, why: "刪掉 \(names.count) 個沒加密的已知 Wi-Fi", backup: b)
+        case .acceptStartup:
+            SecCheck.acceptStartup(); return Outcome(ok: true, message: "已把目前的開機項目記成基準", backup: nil)
+        case .acceptPermissions:
+            SecCheck.acceptPermissions(); return Outcome(ok: true, message: "已把目前的權限清單記成基準", backup: nil)
         case .revertNetwork:
             guard let base = try? BoardJSON.decoder.decode(SecCheck.NetBaseline.self, from: Data(contentsOf: SecCheck.baselineFile)) else {
                 return Outcome(ok: false, message: "沒有基準值可以改回", backup: nil)

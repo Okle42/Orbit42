@@ -73,6 +73,7 @@ extension OrbitWindow {
         MacWindows.shared.installMenu()
         ChromeGoogleLogin.shared.installMenu()      // 11-26：衛星 Chrome 登入 Google（App 選單，不加畫面按鈕）
         SecCheckWindow.shared.installMenu()         // 11-28：本機資安體檢小視窗（App 選單／orbit seccheck --open）
+        if !test { SecSchedule.shared.start() }     // 11-28：每週＋換 Wi-Fi 自動體檢，有變化才通知
         WebAgent.shared.start()                     // 11-26：衛星裡的 AI 操作網頁（scripts/orbit-web；寄信刪檔付款先問）
         // 測試：ORBIT_TEST_MACWIN=<png 資料夾> ⇒ 列視窗、拍每個（只看不操作）、測操作會不會擋
         if let out = env["ORBIT_TEST_MACWIN"] {
