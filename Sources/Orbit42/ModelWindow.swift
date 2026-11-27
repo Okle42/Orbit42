@@ -407,11 +407,20 @@ final class ModelView: NSView {
         guard let l = loaded else { return }
         info.stringValue = "\(n(l.size.x)) × \(n(l.size.y)) × \(n(l.size.z))\(l.unit.isEmpty ? "（檔案單位）" : " " + l.unit)   \(l.parts) 個零件   \(l.triangles) 面"
     }
+    /// 11-27 Keng：淺色模式點零件卻亮綠色（綠是深色模式的強調色）。跟 TermWindow.accent 同一套：深色＝暗綠、淺色＝暗紅（Palette.red 壓暗當自發光）
+    private func pickGlow() -> NSColor {
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return dark ? NSColor(srgbRed: 0.10, green: 0.35, blue: 0.16, alpha: 1) : NSColor(srgbRed: 0.42, green: 0.07, blue: 0.05, alpha: 1)
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if let (m, _) = picked { m.emission.contents = pickGlow() }   // 選著零件時切深淺色，標示色跟著換
+    }
     private func pick(_ node: SCNNode?) {
         if let (m, old) = picked { m.emission.contents = old; picked = nil }
         guard let node, let m = node.geometry?.firstMaterial, let l = loaded else { summary(); return }
         picked = (m, m.emission.contents)
-        m.emission.contents = NSColor(srgbRed: 0.10, green: 0.35, blue: 0.16, alpha: 1)
+        m.emission.contents = pickGlow()
         let (lo, hi) = node.boundingBox
         info.stringValue = "\(node.name ?? "零件")   \(n(hi.x - lo.x)) × \(n(hi.y - lo.y)) × \(n(hi.z - lo.z)) \(l.unit)"
     }
