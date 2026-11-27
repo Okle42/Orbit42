@@ -14,6 +14,7 @@ import Orbit42App
 //   □＋✕ 同時按        關閉現在這顆衛星（跟按叉叉一樣，會先跳確認）
 //   △（Y）按住         語音輸入：放開後把聽到的字打進現在這顆衛星（不按 Enter）；搖桿有麥克風（USB 接）就用搖桿的
 //   觸控板             滑鼠；按下＝左鍵；兩指滑＝捲動（PS4／PS5）
+//                      答案卡展開時有磁吸：游標靠近選項就吸到選項中間，要多推一段才離開（只管搖桿移的，實體滑鼠不吸）
 //   左類比             滑鼠（Xbox 沒有觸控板也能用）；L3＝左鍵、R3＝右鍵
 //   右類比             捲動
 //   Options（≡）       叫出 Orbit42 視窗
@@ -26,7 +27,7 @@ import Orbit42App
 final class Gamepad {
     static let shared = Gamepad()
     private var pad: GCController?
-    private var poll: Timer?, slow: Timer?, breath: Timer?
+    private var poll: Timer?, slow: Timer?, breath: Timer?, rects: Timer?
     private var held = Set<String>()          // 現在按著的鍵
     private var chord = false                 // 這次 □＋✕ 已經算關閉了：兩顆都放開前不再當單鍵
     private var listener: SphereListener?
@@ -37,6 +38,8 @@ final class Gamepad {
     private var touch: (p: CGPoint, t: Double)?, touch2At = 0.0
     private var glide = CGPoint.zero              // 觸控板還沒走完的位移：每格畫面走一部分，不會一格一格跳
     private var lastCol: [String: String] = [:]
+    private var magnets: [CGRect] = []            // 答案卡選項（CG 全域座標），每 0.25 秒更新
+    private var snapped: Int?, escape = CGPoint.zero
     private var leftDown = false
     private var win: OrbitWindow { OrbitWindow.shared }
 
@@ -79,13 +82,14 @@ final class Gamepad {
         poll = Timer.scheduledTimer(withTimeInterval: 1.0 / 120, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.sticks() } }
         slow = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.status() } }
         breath = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.breathe() } }
+        rects = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.refreshMagnets() } }
         if let h = c.haptics?.createEngine(withLocality: .default) { h.isAutoShutdownEnabled = true; haptics = h }
         buzz(0.5)
     }
 
     private func detach() {
         print("orbit: 搖桿拔掉了"); fflush(stdout)
-        poll?.invalidate(); slow?.invalidate(); breath?.invalidate(); poll = nil; slow = nil; breath = nil
+        poll?.invalidate(); slow?.invalidate(); breath?.invalidate(); rects?.invalidate(); poll = nil; slow = nil; breath = nil; rects = nil
         if leftDown { mouse(.leftMouseUp) }
         listener?.stop(); listener = nil
         pad = nil; haptics = nil; held = []; chord = false; touch = nil
@@ -219,10 +223,40 @@ final class Gamepad {
         if rx != 0 || ry != 0 { scroll(-rx * 30, ry * 30) }
     }
 
+    private func refreshMagnets() {
+        guard let f = win.askFloat else { magnets = []; return }
+        f.optionRects { [weak self] rs in
+            guard let self else { return }
+            let m = rs.map(Self.cgRect)
+            if m != self.magnets { self.magnets = m; self.snapped = nil }
+        }
+    }
+
+    /// 磁吸：吸住時位移先累積，推超過 36pt 才離開；沒吸住時游標進到選項（含外圍 14pt）就吸到中間
+    private func magnet(from loc: CGPoint, to p: CGPoint, _ dx: CGFloat, _ dy: CGFloat) -> CGPoint {
+        guard !magnets.isEmpty, !leftDown else { snapped = nil; return p }
+        if let i = snapped, i >= magnets.count || !magnets[i].insetBy(dx: -20, dy: -20).contains(loc) { snapped = nil }      // 被實體滑鼠移走了
+        if let i = snapped, i < magnets.count {
+            escape.x += dx; escape.y += dy
+            if hypot(escape.x, escape.y) < 36 { return CGPoint(x: magnets[i].midX, y: magnets[i].midY) }
+            snapped = nil
+            let out = CGPoint(x: magnets[i].midX + escape.x, y: magnets[i].midY + escape.y)
+            escape = .zero
+            return out
+        }
+        if let i = magnets.firstIndex(where: { $0.insetBy(dx: -14, dy: -14).contains(p) }) {
+            snapped = i; escape = .zero
+            return CGPoint(x: magnets[i].midX, y: magnets[i].midY)
+        }
+        return p
+    }
+
     private func move(_ dx: CGFloat, _ dy: CGFloat) {
         guard let loc = CGEvent(source: nil)?.location else { return }
         let all = NSScreen.screens.reduce(CGRect.null) { $0.union(Self.cgRect($1.frame)) }
-        let p = CGPoint(x: min(max(loc.x + dx, all.minX), all.maxX - 1), y: min(max(loc.y + dy, all.minY), all.maxY - 1))
+        var p = CGPoint(x: min(max(loc.x + dx, all.minX), all.maxX - 1), y: min(max(loc.y + dy, all.minY), all.maxY - 1))
+        p = magnet(from: loc, to: p, dx, dy)
+        if p == loc { return }
         CGEvent(mouseEventSource: nil, mouseType: leftDown ? .leftMouseDragged : .mouseMoved, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
     }
     /// NSScreen 座標（左下原點）→ CG 全域座標（主螢幕左上原點）

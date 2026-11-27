@@ -360,6 +360,7 @@ window.askUpdate = askUpdate;
 let padSel = -1;
 const padMark = () => document.querySelectorAll("#card .opt").forEach((b, i) => b.classList.toggle("pad", i === padSel));
 window.askPad = cmd => {
+  if (cmd === "rects") return JSON.stringify(open && document.body.classList.contains("open") ? [...document.querySelectorAll("#card .opt")].map(b => { const r = b.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }) : []);      // 搖桿磁吸用
   if (cmd === "state") return JSON.stringify({ n: visible().length, sids: visible().map(k => live.get(k).sessionId), open });
   if (cmd === "undo") {
     const u = [...undos.values()].at(-1); if (!u) return "none";

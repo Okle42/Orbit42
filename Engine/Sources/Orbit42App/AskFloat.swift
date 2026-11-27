@@ -415,8 +415,21 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     }
     /// 11-27 搖桿（Gamepad.swift）：up／down／go／undo／state，回傳 ask.html window.askPad 的結果
     public func pad(_ cmd: String, _ done: @escaping @MainActor (String) -> Void) {
-        guard ready, ["up", "down", "go", "undo", "state"].contains(cmd) else { return done("none") }
+        guard ready, ["up", "down", "go", "undo", "state", "rects"].contains(cmd) else { return done("none") }
         webView.evaluateJavaScript("window.askPad ? window.askPad('\(cmd)') : 'none'") { r, _ in MainActor.assumeIsolated { done(r as? String ?? "none") } }
+    }
+    /// 11-27 搖桿磁吸：答案卡上每個選項在螢幕上的位置（NSScreen 座標，左下原點）；卡片縮著或藏著回空陣列
+    public func optionRects(_ done: @escaping @MainActor ([NSRect]) -> Void) {
+        guard !webView.isHidden, let w = webView.window else { return done([]) }
+        pad("rects") { [weak self] r in
+            guard let self, let d = r.data(using: .utf8), let a = try? JSONSerialization.jsonObject(with: d) as? [[Double]] else { return done([]) }
+            let z = self.webView.pageZoom, h = self.webView.bounds.height
+            done(a.filter { $0.count == 4 }.map { v in
+                let x = v[0] * z, y = v[1] * z, ww = v[2] * z, hh = v[3] * z
+                let local = self.webView.isFlipped ? NSRect(x: x, y: y, width: ww, height: hh) : NSRect(x: x, y: h - y - hh, width: ww, height: hh)
+                return w.convertToScreen(self.webView.convert(local, to: nil))
+            })
+        }
     }
     private func js(_ s: String) { webView.evaluateJavaScript(s, completionHandler: nil) }
     private func call(_ fn: String, _ args: [Any]) {
