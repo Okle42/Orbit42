@@ -93,18 +93,26 @@ final class AskFloatTests: XCTestCase {
         for s in [NSSize(width: 500, height: 400), NSSize(width: 1920, height: 1080)] { r.setFrameSize(s); f.layout(); XCTAssertTrue(inside(f.view.frame, s)); XCTAssertEqual(f.view.frame.midX, s.width / 2, accuracy: 1) }
         ud.set([1444.0, 33.0], forKey: "orbit.askCorner"); f.layout(); XCTAssertEqual(f.view.frame.midX, 960, accuracy: 1)                        // 舊版記住的左下角不再作用
     }
-    /// T1125120137：打字中先不展開、停 2 秒才展開、不搶焦點；位置拉回；展開閃開輸入框；拖條不改卡片
+    /// 11-27 Keng「戰情小視窗裡不要有四份答案卡」：秘書的題（captain）也進浮層（羅盤），不再只畫在球體秘書那一列
+    func testCaptainAskGoesToFloat() async throws {
+        let (_, _, f, _, _) = try make(); try await waitReady(f); f.lastKey = -100
+        f.update(Data(#"{"team":[{"status":"需要你","captain":true,"sessionId":"sCAP","askId":"Q1","name":"秘書","ask":"要嗎","options":["好","不要"]}]}"#.utf8))
+        for _ in 0..<60 where f.mode != "card" { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(f.mode, "card")
+        let cur = (try? await f.webView.evaluateJavaScript("askState().cur")).map { "\($0)" } ?? ""; XCTAssertEqual(cur, "sCAP|a:Q1")
+    }
+    /// T1125120137：打字中先不展開、停 30 秒才展開（11-27 從 2 秒改）、不搶焦點；位置拉回；展開閃開輸入框；拖條不改卡片
     func testAutoExpandWaitsForTyping() async throws {
         let (w, r, f, term, ud) = try make(); try await waitReady(f); w.makeFirstResponder(term)
         func js(_ s: String) async -> String { (try? await f.webView.evaluateJavaScript(s)).map { "\($0)" } ?? "" }
         func until(_ m: String) async throws { for _ in 0..<60 where f.mode != m { try await Task.sleep(for: .milliseconds(50)) } }
         func q(_ ids: [String]) -> Data { Data(("{\"team\":[" + ids.map { "{\"status\":\"需要你\",\"sessionId\":\"s\($0)\",\"askId\":\"\($0)\",\"name\":\"甲\",\"ask\":\"要嗎\",\"options\":[\"好\",\"不要\"]}" }.joined(separator: ",") + "]}").utf8) }
         f.update(q(["A"])); try await until("card"); _ = await js("collapse(false),0"); try await until("strip"); XCTAssertEqual(f.mode, "strip")
-        XCTAssertFalse(f.mayExpand(now: f.lastKey + 1.9)); XCTAssertTrue(f.mayExpand(now: f.lastKey + 2))
+        XCTAssertFalse(f.mayExpand(now: f.lastKey + 29.9)); XCTAssertTrue(f.mayExpand(now: f.lastKey + 30))
         f.composing = { true }; XCTAssertFalse(f.mayExpand(now: f.lastKey + 99)); f.composing = { false }
-        f.lastKey = ProcessInfo.processInfo.systemUptime; let t0 = f.lastKey
+        f.lastKey = ProcessInfo.processInfo.systemUptime - 28; let t0 = f.lastKey      // 11-27 等 30 秒：假裝 28 秒前打過字，再 2 秒才該展開
         f.update(q(["A", "B"])); try await Task.sleep(for: .milliseconds(1200)); XCTAssertEqual(f.mode, "strip"); XCTAssertNotNil(f.wantTimer)      // 正在打字：不展開
-        try await until("card"); XCTAssertEqual(f.mode, "card"); XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - t0, 2)
+        try await until("card"); XCTAssertEqual(f.mode, "card"); XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - t0, 30)
         XCTAssertTrue(w.firstResponder === term); let cur = await js("askState().cur"); XCTAssertEqual(cur, "sB|a:B"); let armed = await js("askState().armed"); XCTAssertEqual(armed, "0")
         _ = await js("collapse(false),0"); try await until("strip"); f.lastKey = -100
         f.update(q(["B", "A"])); try await Task.sleep(for: .milliseconds(400)); XCTAssertEqual(f.mode, "strip")                                       // 看過的不再彈
