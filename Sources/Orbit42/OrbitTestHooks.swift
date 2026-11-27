@@ -57,10 +57,18 @@ extension OrbitWindow {
                         let termBefore = NSStringFromRect(self.satWins[ids[1]]!.content.convert(self.satWins[ids[1]]!.content.bounds, to: root))
                         let f = self.satWins[ids[1]]!.frame; self.mouse = NSPoint(x: f.minX + 20, y: f.maxY - 14)
                         let w2 = self.satWins[ids[1]]!, w0 = w2.chromeNow.width
+                        // 11-28 Keng「閃一下」：ORBIT_TEST_FRAMES=<資料夾> ⇒ 選到前拍一張，之後每 8 毫秒拍一張、拍 0.3 秒（逐格找閃的那格）
+                        if let dir = env["ORBIT_TEST_FRAMES"] {
+                            let f2 = w2.frame, f3 = self.satWins[ids[2]]!.frame, H = root.bounds.height
+                            print("arrange frames root=\(Int(root.bounds.width))x\(Int(H)) w2=\(Int(f2.minX)),\(Int(H - f2.maxY)),\(Int(f2.width)),\(Int(f2.height)) w3=\(Int(f3.minX)),\(Int(H - f3.maxY))")
+                            if let cg = grab() { try? NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(dir)/f000.png")) }
+                            let t0 = CACurrentMediaTime()
+                            for k in 1...38 { after(Double(k) * 0.008) { if let cg = grab() { try? NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: String(format: "%@/f%03d-%03dms.png", dir, k, Int((CACurrentMediaTime() - t0) * 1000)))) } } }
+                        }
                         let t = CACurrentMediaTime(); self.liftStep(); let dt = (CACurrentMediaTime() - t) * 1000
                         for ms in [40, 80, 160, 300] { after(Double(ms) / 1000) { let c = w2.chromeNow; print("arrange anim \(ms)ms 外框寬=\(Int(c.width))（起 \(Int(w0))） 透明度=\(String(format: "%.2f", c.opacity))") } }
                         print(String(format: "arrange hover 2 → typing=%@ top=%@ step=%.2fms", num(self.typingSat), num(self.pinned), dt))
-                    after(0.6) { shot("2滑過第2顆"); if let cg = grab() { closeup(cg, "字特寫-放大後") }
+                    after(env["ORBIT_TEST_FRAMES"] != nil ? 1.2 : 0.6) { shot("2滑過第2顆"); if let cg = grab() { closeup(cg, "字特寫-放大後") }
                         // 11-28 Keng「放大的情況下按不到叉叉」：在每顆的紅綠燈中心點模擬點擊，看點到的是誰
                         @MainActor func lights(_ v: NSView) -> [TrafficLight] { v.subviews.flatMap { ($0 as? TrafficLight).map { [$0] } ?? lights($0) } }
                         for (i, id) in ids.enumerated() {

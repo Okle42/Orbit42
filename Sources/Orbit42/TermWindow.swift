@@ -99,13 +99,10 @@ final class TermWindowView: NSView {
     func setRaised(_ on: Bool, animate: Bool) {
         guard on != raised else { return }
         raised = on
-        if animate, on, let l = layer {                   // 浮上來那一下：從稍微透明淡進來，蓋上別顆時不是硬切
-            let f = CABasicAnimation(keyPath: "opacity"); f.fromValue = 0.72; f.toValue = 1
-            f.duration = Self.liftDuration; f.timingFunction = CAMediaTimingFunction(name: .easeOut); l.add(f, forKey: "liftFade")
-        }
+        // 11-28 Keng「閃一下」：原本浮上來時從 72% 透明淡進來 ⇒ 逐格量到正在看的那顆字先暗 20% 再亮回來（約 0.2 秒），看起來就是閃 ⇒ 拿掉，只留外框長大＋影子
         if animate {
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = Self.liftDuration; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+                ctx.duration = Self.liftDuration; ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)     // 11-28：原本的曲線前 40 毫秒就走完 95%，看起來像瞬間 ⇒ 慢慢開始、慢慢停
                 ctx.allowsImplicitAnimation = true
                 needsLayout = true; layoutSubtreeIfNeeded()
             }
