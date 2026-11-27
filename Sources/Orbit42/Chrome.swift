@@ -153,7 +153,40 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     private var mainFrame = ""
     private let picture = CALayer()
     private var marked = NSMutableAttributedString()
-    private var lastMetrics = NSSize.zero
+    private var lastMetrics = NSSize.zero, lastZoom: CGFloat = 1
+    // MARK: 縮放（⌘＋／⌘－／⌘0、觸控板雙指；每個網站各記各的，像 Chrome）
+    private static let zoomSteps: [CGFloat] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    private static let zoomKey = "webZoomByHost"
+    private(set) var zoom: CGFloat = 1
+    private var pinch: CGFloat = 1
+    private func setZoom(_ z: CGFloat, save: Bool = true) {
+        let z = min(max(z, 0.5), 3)
+        guard abs(z - zoom) > 0.001 else { return }
+        zoom = z
+        if save, let h = url?.host {
+            var d = UserDefaults.standard.dictionary(forKey: Self.zoomKey) as? [String: Double] ?? [:]
+            d[h] = abs(z - 1) < 0.001 ? nil : Double(z)
+            UserDefaults.standard.set(d, forKey: Self.zoomKey)
+        }
+        metrics()
+    }
+    private func zoomStep(_ dir: Int) {
+        if dir == 0 { setZoom(1); return }
+        let next = dir > 0 ? Self.zoomSteps.first { $0 > zoom + 0.01 } : Self.zoomSteps.last { $0 < zoom - 0.01 }
+        if let n = next { setZoom(n) }
+    }
+    private func zoomForHost() {
+        let d = UserDefaults.standard.dictionary(forKey: Self.zoomKey) as? [String: Double] ?? [:]
+        setZoom(url?.host.flatMap { d[$0] }.map { CGFloat($0) } ?? 1, save: false)
+    }
+    override func magnify(with e: NSEvent) {
+        guard phoneSize == nil else { return }
+        switch e.phase {
+        case .began: pinch = zoom
+        case .changed: pinch = min(max(pinch * (1 + e.magnification), 0.5), 3)
+        default: setZoom((pinch * 20).rounded() / 20)        // 放手才重排，不然每一格都整頁重排會卡
+        }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -231,10 +264,12 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); if window == nil, phoneSize == nil { uncast() } else { metrics(); cast() } }
     override func layout() { super.layout(); picture.bounds = CGRect(origin: .zero, size: bounds.size); picture.position = .zero; metrics() }
     private func metrics() {
-        let s = phoneSize ?? NSSize(width: bounds.width.rounded(), height: bounds.height.rounded())
-        guard session != nil, s.width > 50, s.height > 50, s != lastMetrics else { return }
-        lastMetrics = s
-        cmd("Emulation.setDeviceMetricsOverride", ["width": Int(s.width), "height": Int(s.height), "deviceScaleFactor": Double(castScale), "mobile": phoneSize != nil])
+        // 縮放跟 Chrome 一樣：排版寬度除以倍率、像素密度乘上倍率 ⇒ 文字重新排版、不是把圖拉大（手機在看時不縮放）
+        let z = phoneSize == nil ? zoom : 1
+        let s = phoneSize ?? NSSize(width: (bounds.width / z).rounded(), height: (bounds.height / z).rounded())
+        guard session != nil, s.width > 50, s.height > 50, s != lastMetrics || z != lastZoom else { return }
+        lastMetrics = s; lastZoom = z
+        cmd("Emulation.setDeviceMetricsOverride", ["width": Int(s.width), "height": Int(s.height), "deviceScaleFactor": Double(castScale * z), "mobile": phoneSize != nil])
         if casting { casting = false; cmd("Page.stopScreencast"); cast() }
     }
     private func cast() {
@@ -256,7 +291,7 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         case "Page.frameNavigated":
             guard let f = p["frame"] as? [String: Any], f["parentId"] == nil, let u = f["url"] as? String else { return }
             mainFrame = f["id"] as? String ?? ""
-            if u != "about:blank" { url = URL(string: u); title = ""; setEdit(""); onError(""); onChange() }
+            if u != "about:blank" { let host = url?.host; url = URL(string: u); title = ""; setEdit(""); onError(""); if url?.host != host { zoomForHost() }; onChange() }
         case "Page.navigatedWithinDocument":
             if p["frameId"] as? String == mainFrame, let u = (p["url"] as? String).flatMap(URL.init) { url = u; readTitle() }
         case "Page.loadEventFired": readTitle(); if url != nil { onLoaded() }
@@ -415,7 +450,7 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     }
     /// Mac 這邊的點 → 頁面座標（手機在看時畫面是縮放置中的）
     private func onPage(_ p: NSPoint) -> NSPoint {
-        guard let s = phoneSize, bounds.width > 0, bounds.height > 0 else { return p }
+        guard let s = phoneSize, bounds.width > 0, bounds.height > 0 else { return NSPoint(x: p.x / lastZoom, y: p.y / lastZoom) }
         let k = min(bounds.width / s.width, bounds.height / s.height)
         return NSPoint(x: (p.x - (bounds.width - s.width * k) / 2) / k, y: (p.y - (bounds.height - s.height * k) / 2) / k)
     }
@@ -474,6 +509,9 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         case "a": edit("selectAll", 65)
         case "z": edit(e.modifierFlags.contains(.shift) ? "redo" : "undo", 90)
         case "r": reload()
+        case "=", "+": zoomStep(1)
+        case "-": zoomStep(-1)
+        case "0": zoomStep(0)
         default: return super.performKeyEquivalent(with: e)
         }
         return true
