@@ -54,11 +54,12 @@ extension OrbitWindow {
                     self.window.setContentSize(NSSize(width: 1440, height: 900))
                     after(1) { self.pinned = nil; self.autoArrange()
                     after(1.5) { shot("1自動排版"); if let cg = grab() { closeup(cg, "字特寫-放大前") }
+                        let termBefore = NSStringFromRect(self.satWins[ids[1]]!.content.convert(self.satWins[ids[1]]!.content.bounds, to: root))
                         let f = self.satWins[ids[1]]!.frame; self.mouse = NSPoint(x: f.minX + 20, y: f.maxY - 14)
                         let t = CACurrentMediaTime(); self.liftStep(); let dt = (CACurrentMediaTime() - t) * 1000
                         print(String(format: "arrange hover 2 → typing=%@ top=%@ step=%.2fms", num(self.typingSat), num(self.pinned), dt))
                     after(0.6) { shot("2滑過第2顆"); if let cg = grab() { closeup(cg, "字特寫-放大後") }
-                        print("arrange raised=\(ids.filter { self.satWins[$0]?.raised == true }.map { num($0) }.joined()) scale=\(self.satWins[ids[1]]!.layer.map { CATransform3DGetAffineTransform($0.transform).a } ?? 0)")
+                        print("arrange raised=\(ids.filter { self.satWins[$0]?.raised == true }.map { num($0) }.joined()) outset=\(self.satWins[ids[1]]!.liftOutset) term=\(NSStringFromRect(self.satWins[ids[1]]!.content.convert(self.satWins[ids[1]]!.content.bounds, to: root))) 放大前 term=\(termBefore)")
                         self.mouse = NSPoint(x: 5, y: 5); self.liftStep()
                         print("arrange leave → typing=\(num(self.typingSat))（要留在 2）"); fflush(stdout)
                         self.host.shutdown(); exit(0) } } }

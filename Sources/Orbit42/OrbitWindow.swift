@@ -695,7 +695,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.26; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
                 w.animator().alphaValue = 1
-                layer.transform = w.restTransform                 // 選到的那顆打開後停在放大 3%
+                layer.setAffineTransform(.identity)
             }
             w.flash()                                 // 邊框亮一下紅光
             then?()

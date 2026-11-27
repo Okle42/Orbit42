@@ -48,6 +48,7 @@ final class TermWindowView: NSView {
         clip.layer?.masksToBounds = true
         clip.layer?.borderWidth = 1
         clip.autoresizingMask = [.width, .height]
+        clip.autoresizesSubviews = false       // 11-28：裡面全部由 layout() 擺（外框放大時終端機不能被跟著拉大）
         addSubview(clip)
 
         // 11-23 Keng「衛星終端機也要毛玻璃半透明」：最底層是 macOS 原生模糊材質，透出後面的球體；標題列和終端機底色都半透明
@@ -86,29 +87,25 @@ final class TermWindowView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
     private var grip: ResizeGrip!
-    // 11-28 Keng「選到的那一個終端機視窗要浮上來，並放大一點點」：以中心放大 3%，0.15 秒過渡。
-    // 只改畫出來的比例（layer transform），不改 frame ⇒ 終端機不重排、Claude 畫面不閃，滑鼠判斷照原本的範圍（不搶鄰居露出的那條）
-    static let liftScale: CGFloat = 1.03, liftDuration = 0.15
+    // 11-28 Keng「選到的那一個終端機視窗要浮上來，並放大一點點」→「外框放大、字不動」：
+    // 外框（毛玻璃、標題列、邊框、影子）往四周多長 3%，終端機大小和位置完全不動 ⇒ 字維持原尺寸、不糊、不重排。
+    // frame 也不變 ⇒ 排版、拖曳、記住的大小、滑鼠判斷都照原本範圍（多出來那圈不搶鄰居露出的那條）
+    static let liftGrow: CGFloat = 0.03, liftDuration = 0.15
     private(set) var raised = false
-    /// 平常該有的 transform（開／收動畫結束時回到這個，不是 identity）
-    var restTransform: CATransform3D {
-        guard raised, let l = layer else { return CATransform3DIdentity }
-        let c = CGPoint(x: l.bounds.width * (0.5 - l.anchorPoint.x), y: l.bounds.height * (0.5 - l.anchorPoint.y)), s = Self.liftScale
-        return CATransform3DConcat(CATransform3DConcat(CATransform3DMakeTranslation(-c.x, -c.y, 0), CATransform3DMakeScale(s, s, 1)), CATransform3DMakeTranslation(c.x, c.y, 0))
-    }
+    /// 外框每邊多長多少（寬高各 3% ⇒ 每邊 1.5%）
+    var liftOutset: NSSize { raised ? NSSize(width: (bounds.width * Self.liftGrow / 2).rounded(), height: (bounds.height * Self.liftGrow / 2).rounded()) : .zero }
     func setRaised(_ on: Bool, animate: Bool) {
-        guard on != raised, let l = layer else { return }
+        guard on != raised else { return }
         raised = on
-        let to = restTransform
-        if animate {                                       // 從現在畫面上的樣子接著變：快速掃過好幾顆也不排隊、不跳
-            let a = CABasicAnimation(keyPath: "transform")
-            a.fromValue = NSValue(caTransform3D: l.presentation()?.transform ?? l.transform); a.toValue = NSValue(caTransform3D: to)
-            a.duration = Self.liftDuration; a.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
-            l.add(a, forKey: "lift")
-        }
-        CATransaction.begin(); CATransaction.setDisableActions(true); l.transform = to; CATransaction.commit()
+        if animate {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = Self.liftDuration; ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+                ctx.allowsImplicitAnimation = true
+                needsLayout = true; layoutSubtreeIfNeeded()
+            }
+        } else { needsLayout = true }
         CATransaction.begin(); CATransaction.setDisableActions(!animate); CATransaction.setAnimationDuration(Self.liftDuration)
-        l.shadowRadius = on ? 34 : 24; l.shadowOffset = CGSize(width: 0, height: on ? -14 : -8)       // 浮起來：影子拉長一點
+        layer?.shadowRadius = on ? 34 : 24; layer?.shadowOffset = CGSize(width: 0, height: on ? -14 : -8)       // 浮起來：影子拉長一點
         CATransaction.commit()
     }
 
@@ -148,10 +145,7 @@ final class TermWindowView: NSView {
     // 11-23 Keng「這個終端機的字還是好糊」：拖動／調大小用的是滑鼠的小數位移，小視窗常停在 x=186.5 這種半個像素上，
     // 1x 螢幕會把整個視窗內容（終端機的字）內插拉糊。位置和大小一律對齊到整數像素
     override func setFrameOrigin(_ p: NSPoint) { super.setFrameOrigin(NSPoint(x: p.x.rounded(), y: p.y.rounded())) }
-    override func setFrameSize(_ s: NSSize) {
-        super.setFrameSize(NSSize(width: s.width.rounded(), height: s.height.rounded()))
-        if raised, layer?.animation(forKey: "lift") == nil { CATransaction.begin(); CATransaction.setDisableActions(true); layer?.transform = restTransform; CATransaction.commit() }      // 大小變了：放大中心跟著移
-    }
+    override func setFrameSize(_ s: NSSize) { super.setFrameSize(NSSize(width: s.width.rounded(), height: s.height.rounded())) }
 
     /// 11-23 Keng「怎麼還有紅色」：強調色跟三顆燈一致＝深色護眼綠、淺色紅（閃框、拖檔外框都用這個）
     func accent(alpha: CGFloat = 1) -> CGColor {
@@ -310,29 +304,30 @@ final class TermWindowView: NSView {
 
     override func layout() {
         super.layout()
-        clip.frame = bounds
-        bar.frame = NSRect(x: 0, y: bounds.height - Self.barHeight, width: bounds.width, height: Self.barHeight)
+        let o = liftOutset, chrome = bounds.insetBy(dx: -o.width, dy: -o.height)     // 外框（選到時往外長 3%）；終端機照 bounds 擺
+        clip.frame = chrome; glass.frame = clip.bounds
+        bar.frame = NSRect(x: 0, y: chrome.height - Self.barHeight, width: chrome.width, height: Self.barHeight)
         let side: CGFloat = secretary ? 128 : 80
         badge.frame = NSRect(x: 80, y: 8, width: 38, height: 18)
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        stroke.frame = bounds
-        if bounds.width > 24, bounds.height > 24 { stroke.path = CGPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), cornerWidth: 10.5, cornerHeight: 10.5, transform: nil) }
+        ring.frame = chrome; stroke.frame = ring.bounds
+        if chrome.width > 24, chrome.height > 24 { stroke.path = CGPath(roundedRect: ring.bounds.insetBy(dx: 1.5, dy: 1.5), cornerWidth: 10.5, cornerHeight: 10.5, transform: nil) }
         CATransaction.commit()
-        shade.frame = bounds; ring.frame = bounds; glow.frame = bounds.insetBy(dx: -Self.glowPad, dy: -Self.glowPad)
-        titleLabel.frame = NSRect(x: side, y: 9, width: max(0, bounds.width - side * 2), height: 16)
-        let area = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - Self.barHeight)
+        shade.frame = chrome; glow.frame = chrome.insetBy(dx: -Self.glowPad, dy: -Self.glowPad)
+        titleLabel.frame = NSRect(x: side, y: 9, width: max(0, chrome.width - side * 2), height: 16)
+        let area = NSRect(x: o.width, y: o.height, width: bounds.width, height: bounds.height - Self.barHeight)      // clip 裡的座標：跟沒放大時同一個畫面位置
         if let pane {
             let line: CGFloat = 6
             if sideBySide {
                 let w = (area.width * paneShare).rounded()
-                content.frame = NSRect(x: 0, y: 0, width: area.width - w - line, height: area.height)
-                splitter.frame = NSRect(x: area.width - w - line, y: 0, width: line, height: area.height)
-                pane.frame = NSRect(x: area.width - w, y: 0, width: w, height: area.height)
+                content.frame = NSRect(x: area.minX, y: area.minY, width: area.width - w - line, height: area.height)
+                splitter.frame = NSRect(x: area.minX + area.width - w - line, y: area.minY, width: line, height: area.height)
+                pane.frame = NSRect(x: area.minX + area.width - w, y: area.minY, width: w, height: area.height)
             } else {
                 let h = (area.height * paneShare).rounded()
-                content.frame = NSRect(x: 0, y: 0, width: area.width, height: area.height - h - line)
-                splitter.frame = NSRect(x: 0, y: area.height - h - line, width: area.width, height: line)
-                pane.frame = NSRect(x: 0, y: area.height - h, width: area.width, height: h)
+                content.frame = NSRect(x: area.minX, y: area.minY, width: area.width, height: area.height - h - line)
+                splitter.frame = NSRect(x: area.minX, y: area.minY + area.height - h - line, width: area.width, height: line)
+                pane.frame = NSRect(x: area.minX, y: area.minY + area.height - h, width: area.width, height: h)
             }
             splitter.vertical = sideBySide
         } else { content.frame = area }
