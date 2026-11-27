@@ -39,7 +39,7 @@ extension CaptainLinkTests {
         }
         #expect(say("放行！").contains("沒有單可放"))
         block("BAAAA"); block("BCCCC", "z")
-        #expect(say("放行！BCCCC").contains("找不到單號") && say("放行！BZZZZ").contains("找不到單號"))      // 別的 session 的、沒有的：不可退成放最近一張
+        #expect(say("放行！BZZZZ").contains("找不到單號"))      // 沒有的單：不可退成放最近一張
         #expect(say("放行！", .phone).contains("手機傳話不能放行單號") && say("放行！BAAAA", .phone).hasPrefix("missed") && say("放行！", .none) == "none")
         for s in ["放行", "放行 BAAAA", "好，部署", "push"] { #expect(say(s) == "none") }
         block("BBBBB")
@@ -47,6 +47,19 @@ extension CaptainLinkTests {
         #expect(CaptainInbox.all().allSatisfy { $0.released == nil } && CaptainInbox.loadPreapprovals().isEmpty)
         #expect(say("放行！baaaa", .card) == "released BAAAA" && say("放行！") == "released BBBBB" && say("放行！BBBBB").hasPrefix("missed"))
         #expect(CaptainInbox.releases().count == 2)
+        // 11-28：點名單號可以在別的 session 放行（秘書卡片按組員的單）；不帶單號的「放行！」不會放到別人的
+        #expect(say("放行！", .keyboard, "z").contains("沒有單可放") == false)      // z 自己有 BCCCC ⇒ 放的是自己的
+        block("BDDDD", "y")
+        #expect(say("放行！BDDDD", .card, "captain") == "released BDDDD")
+        #expect(CaptainInbox.releases().last?.target == "y" && CaptainInbox.releases().last?.byName.contains("放行別的 session 的單") == true)
+        block("BEEEE", "y")
+        #expect(say("放行！BEEEE", .none, "captain") == "none")          // AI 傳的（SendMessage、CLI）不算
+        #expect(say("放行！BEEEE <cross-session-message>", .keyboard, "captain") == "none")
+        #expect(say("放行！BEEEE", .phone, "captain").hasPrefix("missed"))
+        #expect(CaptainInbox.all().first { $0.id == "BEEEE" }?.released == nil)
+        if ProcessInfo.processInfo.environment["ORBIT_TEST_PRINT_RELEASES"] != nil {
+            print("RELEASES>>\n" + ((try? String(contentsOf: dir.appendingPathComponent("rel.jsonl"), encoding: .utf8)) ?? "") + "<<RELEASES")
+        }
         // 事先放行：點名種類才記、一句一次、舊紀錄（自然語言）用不了
         #expect(say("放行！隨便").contains("請打：放行！") && say("放行！刪掉吧").hasPrefix("missed"))
         CaptainInbox.recordAnswer(sid: "a", answer: "好，部署", question: nil, now: t0 + 50)

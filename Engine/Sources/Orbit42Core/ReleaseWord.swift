@@ -84,7 +84,11 @@ extension CaptainInbox {
             guard let i = release(id: xs[0].id, target: sid, by: by, byName: byName, source: source, now: now) else { return miss("找不到單") }
             return .released(i)
         case .id(let id):
-            guard let i = release(id: id, target: sid, by: by, byName: byName, source: source, now: now) else { return miss("找不到單號 \(id)（打錯、別的 session 的、已放行過、或超過一天）") }
+            // 11-28 Keng「放行那個也一定要修」：點名單號就認那張單，不管是哪個 session 發的（例如在秘書的卡片上按組員的單）。
+            // 界線不變：只有本人輸入（keyboard／card）走得到這裡、一定要單號（「放行！」不帶單號仍只放自己 session 的）、紀錄寫明在誰那裡按的
+            let owner = all().first { $0.id == id.uppercased() }?.sid
+            let at = owner.map { $0 == sid ? "" : "（在 \(NicknameStore.get(sid)?.name ?? String(sid.prefix(8))) 的卡片／終端機放行別的 session 的單）" } ?? ""
+            guard let i = release(id: id, target: nil, by: by, byName: byName + at, source: source, now: now) else { return miss("找不到單號 \(id)（打錯、已放行過、或超過一天）") }
             return .released(i)
         case .kind(let k):
             recordAnswer(sid: sid, answer: text, question: question, now: now)
