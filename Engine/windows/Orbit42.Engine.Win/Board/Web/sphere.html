@@ -2521,8 +2521,8 @@ const MAC = /Mac/.test(navigator.platform || navigator.userAgent), MOD = MAC ? "
 const agoText = m => m == null ? "" : m < 1 ? "剛剛" : m < 60 ? `等了 ${m} 分` : `等了 ${Math.floor(m / 60)} 小時`;
 const sentKey = new Map();          // sessionId → 已按過的那題（題目沒變前不再顯示）
 function askKey(c) { return (c.permit?.id || "") + "|" + (c.ask || ""); }
-// 11-27 T1127061001：浮層接手時（Orbit42 Mac）球體只畫秘書的題（浮層不收秘書的，不可漏答）；其他人的照舊交給浮層
-function pending() { return (data.team || []).filter(c => c.status === "需要你" && c.sessionId && sentKey.get(c.sessionId) !== askKey(c) && (!window.askFloatOn || c.captain)); }
+// 浮層接手時（Orbit42 Mac）球體不畫答案卡，全部交給浮層（羅盤）；11-27 Keng「戰情小視窗裡不要有四份答案卡」（秘書的也一樣，浮層已收）
+function pending() { return (data.team || []).filter(c => c.status === "需要你" && c.sessionId && sentKey.get(c.sessionId) !== askKey(c) && !window.askFloatOn); }
 function renderAsk() {
   const list = pending(), card = $("askCard");
   if (!list.length) { card.classList.remove("on"); document.body.classList.remove("asking"); askSid = null; snoozed = null; $("askDot").classList.remove("on"); return; }
@@ -2629,7 +2629,7 @@ if (ORBIT) {
     rows(); if (!window.askFloatOn) return;
     for (const row of $("teamRows").querySelectorAll(".row")) {                 // 畫出來的每一列都看（不限前 6 列）；有 data-sid 用它，沒有才用序號
       const c = row.dataset.sid ? (data.team || []).find(x => x.sessionId === row.dataset.sid) : (data.team || [])[+row.dataset.i], s = row.querySelector(".sub");
-      if (c?.status === "需要你" && !c.captain && s && !s.querySelector(".askTag")) s.insertAdjacentHTML("afterbegin", `<span class="askTag" data-ask="${esc(c.sessionId || "")}">● 等你答</span> · `);
+      if (c?.status === "需要你" && s && !s.querySelector(".askTag")) s.insertAdjacentHTML("afterbegin", `<span class="askTag" data-ask="${esc(c.sessionId || "")}">● 等你答</span> · `);
     }
   };
   // 浮層活著（true）／載不起來、當掉（false：這裡照畫，不可漏答）。接手時還在 3 秒復原的那題收回，不替他送

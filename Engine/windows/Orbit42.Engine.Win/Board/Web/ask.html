@@ -96,8 +96,9 @@ const typing = () => document.activeElement?.tagName === "TEXTAREA";
 
 function askUpdate(data) {
   const next = new Map();
-  // 11-27 T1127061001：秘書的題目不進浮層（浮層疊在所有衛星上，會蓋到組員衛星）；由球體自己畫在秘書那一列
-  for (const c of data.team || []) if (c.status === "需要你" && !c.captain && c.sessionId && (c.askId || c.permit?.id)) next.set(keyOf(c), c);
+  // 11-27 T1127061001 曾讓秘書的題不進浮層、改畫在球體秘書那一列；11-27 15:3x Keng「戰情小視窗裡不要有四份答案卡，羅盤可以直接打開」
+  // ⇒ 秘書的題也收進浮層（羅盤），戰情那一列只留「● 等你答」
+  for (const c of data.team || []) if (c.status === "需要你" && c.sessionId && (c.askId || c.permit?.id)) next.set(keyOf(c), c);
   live = next;
   const fresh = [...live.keys()].filter(k => !seen.has(k)), first = !booted; booted = true;
   for (const k of fresh) seen.add(k);
@@ -115,7 +116,7 @@ function askUpdate(data) {
   render();
 }
 let seen = new Set(), booted = false, restored = null, want = null;
-/* 要不要現在展開由原生端決定：他正在終端機打字（含組字）就先閃，停 2 秒再 askGo。多題連著來只有一個等著的，展開一次、顯示最新那題 */
+/* 要不要現在展開由原生端決定：他正在終端機打字（含組字）就先閃、羅盤題數照加，停 30 秒沒按鍵才 askGo（11-27 Keng「一直在用終端機時盡量不要跳出來打擾」）。多題連著來只有一個等著的，展開一次、顯示最新那題 */
 function wantOpen(k) { const asked = want !== null; want = k; const s = $("strip"); s.classList.remove("flash"); void s.offsetWidth; s.classList.add("flash"); fling(); if (!asked) post({ action: "askWant" }); }
 window.askGo = () => {
   const k = want; want = null; if (open || !k) return;

@@ -103,9 +103,10 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
     private func point(_ k: String) -> NSPoint? { (store.array(forKey: k) as? [Double]).flatMap { $0.count == 2 ? NSPoint(x: $0[0], y: $0[1]) : nil } }
     private var spot: NSPoint?               // 展開期間自己拖到的位置；縮起就放掉，不存
     private var shapes: [[NSPoint]] = []     // 縮起時看得見的形狀（網頁座標，左上原點）：羅盤的圓、提示。之外是透明的，點得到底下
-    // 打字中不展開：別處（終端機）最後一次按鍵
+    // 打字中不展開：別處（終端機）最後一次按鍵。11-27 Keng「一直在使用終端機時答案卡盡量不要跳出來打擾我」⇒ 2 秒改 30 秒；
+    // 這段時間羅盤照樣甩轉、題數照加，他自己點羅盤就能開
     var lastKey = -100.0, wantTimer: Timer?, keyWatch: Any?
-    static let quiet = 2.0
+    static let quiet = 30.0
     func mayExpand(now t: Double) -> Bool { !composing() && t - lastKey >= Self.quiet }
     func tryExpand(now t: Double? = nil) {
         wantTimer?.invalidate(); wantTimer = nil
@@ -131,7 +132,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         SphereEmbed.askResult = { [weak self] sid, ask, text in self?.call("window.askResult", [sid, ask, text]) }
         SphereEmbed.askShow = { [weak self] sid in self?.call("window.askShow", [sid]) }
         keyWatch = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
-            MainActor.assumeIsolated { if let self, let w = self.webView.window, e.window === w, w.firstResponder !== self.webView { self.lastKey = self.now } }
+            MainActor.assumeIsolated { if let self, e.window !== self.webView.window || self.webView.window?.firstResponder !== self.webView { self.lastKey = self.now } }      // Orbit42 任何視窗打字都算（答案卡自己的不算）
             return e
         }
         // 衛星會被拖動、開關：縮成一條時每秒看一次有沒有擋到（沒動就不做事）
