@@ -585,6 +585,7 @@
   <button id="demo">▶ 示範一輪</button>
 </div>
 
+<script src="spoken.js"></script>      <!-- 11-28 播報口語改寫（window.Spoken） -->
 <script type="importmap">
 { "imports": { "three": "./vendor/three-r170/three.module.min.js" } }
 </script>
@@ -1630,7 +1631,10 @@ function renderVoiceMenu() {
     <button class="row" data-v="toggle"><span class="lb">${voiceOn ? "播報開著" : "播報關著"}</span><span class="sw${voiceOn ? " on" : ""}"></span></button>
     <div class="sep"></div>
     <div class="row"><span class="ic">${SPK_SMALL}</span><input type="range" min="0" max="100" step="5" value="${voiceVol}" aria-label="音量" style="--pct:${voiceVol}%"><span class="pct">${voiceVol}%</span></div>
-    <button class="row" data-v="test"><span class="ic">▶</span><span class="lb">試聽目前的音量</span></button>`;
+    <button class="row" data-v="test"><span class="ic">▶</span><span class="lb">試聽目前的音量</span></button>` +
+    // 11-28：AI 口語改寫（原生端有 claude 才出現）。預設關：每句多等約 3 秒、會用一點額度，而且 haiku 偶爾會自己補內容
+    (spokenAIAvail ? `<div class="sep"></div>
+    <button class="row" data-v="ai" title="開：每句先請 AI（haiku）改成口語再念，約慢 3 秒、會用一點額度；3 秒沒回就用規則改寫"><span class="lb">AI 口語改寫${spokenAI ? "開著" : "關著"}</span><span class="sw${spokenAI ? " on" : ""}"></span></button>` : "");
 }
 const SPK_SMALL = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>';
 $("voice").onclick = e => {
@@ -1641,6 +1645,7 @@ $("voiceMenu").addEventListener("click", e => {
   e.stopPropagation();
   const b = e.target.closest("[data-v]"); if (!b) return;
   if (b.dataset.v === "toggle") { setVoiceOn(!voiceOn); renderVoiceMenu(); }
+  if (b.dataset.v === "ai") { spokenAI = !spokenAI; try { localStorage.setItem("sphere.spokenAI", spokenAI ? "1" : "0"); } catch {} renderVoiceMenu(); }
   if (b.dataset.v === "test") { if (!voiceOn) { setVoiceOn(true); renderVoiceMenu(); } else announce(`音量 ${voiceVol}%。`); }
 });
 $("voiceMenu").addEventListener("input", e => {
@@ -1667,6 +1672,32 @@ async function speak(text, mute = false) {
   } else await typed;
 }
 
+/* ---------- 11-28 播報口語改寫：每句念之前過 Spoken.say（規則，離線零延遲）；
+   語音選單開了「AI 口語改寫」就再交給原生端（claude -p --model haiku）改成一句口語，3 秒沒回或失敗就用規則版。
+   同一句只改一次（快取）；字幕跟聲音是同一句改寫後的文字 ---------- */
+const spokenCache = new Map(), spokenWait = new Map(); let spokenSeq = 0, spokenAIAvail = false, spokenAI = false;
+try { spokenAI = localStorage.getItem("sphere.spokenAI") === "1"; } catch {}
+window.karaSpoken = (id, text) => { const r = spokenWait.get(id); if (r) { spokenWait.delete(id); r(text || null); } };
+function aiRewrite(text, ms = 3500) {          // 原生端自己 3 秒就放棄；這邊多等 0.5 秒是保險
+  return new Promise(res => {
+    const id = ++spokenSeq; spokenWait.set(id, res);
+    post({ action: "spoken", id, text });
+    setTimeout(() => { if (spokenWait.delete(id)) res(null); }, ms);
+  });
+}
+async function spokenLine(text, mute = false) {
+  if (!window.Spoken) return text;
+  const useAI = spokenAI && spokenAIAvail && voiceOn && !!host() && !mute;
+  const key = (useAI ? "ai|" : "r|") + text;
+  if (spokenCache.has(key)) return spokenCache.get(key);
+  let out = Spoken.say(text, 300);               // 300＝原生端一句的上限；卡片播報本身已經組成短句
+  if (useAI) { const a = await aiRewrite(text); if (a && a.trim()) out = Spoken.say(a, 60) || out; }
+  out = out || text;
+  if (spokenCache.size >= 300) spokenCache.delete(spokenCache.keys().next().value);
+  spokenCache.set(key, out);
+  return out;
+}
+
 /* ---------- 播報佇列：狀態一變就說，一次說一句 ---------- */
 const queue = []; let talkingNow = false;
 // v5：一句話可以帶 { pop: 事件卡, banner: 警示橫幅 }，唸的同時彈出來
@@ -1680,7 +1711,9 @@ async function pump() {
     $("capQ").textContent = queue.length ? `+${queue.length}` : "";
     if (q.banner) showBanner(q.banner);
     if (q.pop) showPop(q.pop); else hidePop();
-    setState("speaking"); await speak(q.text, q.auto && !DESK && deskOn);
+    const mute = q.auto && !DESK && deskOn;
+    const line = await spokenLine(q.text, mute);     // 11-28：字幕和聲音都用改寫後這一句
+    setState("speaking"); await speak(line, mute);
     if (q.pop) hidePop(2600);
   }
   $("capQ").textContent = "";
@@ -2362,16 +2395,19 @@ function diff(team) {
       //   你看過（待審→完成）、你回答完（需要你→完成）不播：那是你自己的動作，不用再告訴你
       const result = c.reportKind === "start" ? "" : (c.summary || "");
       const r = String(c.reason || "");
-      if (is === "需要你") announce(c.ask ? `${who} 在等你回答：${clip(c.ask, 40)}` : `${who} 在等你回答。`,
+      // 11-28 Keng「語音播報先做口語改寫」：念的句子照人講話的句型組（spoken.js Spoken.card），橫幅照舊用原文；spoken.js 沒載到就退回舊句型
+      const f = { name: c.name, doing: c.doing, result, ask: c.ask };
+      const talk = (kind, old, extra = {}) => window.Spoken ? Spoken.card(kind, { ...f, ...extra }) : old;
+      if (is === "需要你") announce(talk("ask", c.ask ? `${who} 在等你回答：${clip(c.ask, 40)}` : `${who} 在等你回答。`),
         { auto: true, pop, banner: { level: "warn", icon: "user", tag: "需要你 · ACTION", source: who, title: `${who} 在等你`, sub: clip(c.ask || "", 60), sid: c.sessionId } });
-      else if (is === "待審" && was) announce(result ? `${who} 做完了，等你看：${clip(result, 40)}` : `${who} 這一輪做完了，等你看。`, { auto: true, pop });
-      else if (is === "完成" && (was === "進行中" || was === "卡住")) announce(result ? `${who} 完成了：${clip(result, 40)}` : `${who} 完成了。`, { auto: true, pop });
+      else if (is === "待審" && was) announce(talk("review", result ? `${who} 做完了，等你看：${clip(result, 40)}` : `${who} 這一輪做完了，等你看。`), { auto: true, pop });
+      else if (is === "完成" && (was === "進行中" || was === "卡住")) announce(talk("done", result ? `${who} 完成了：${clip(result, 40)}` : `${who} 完成了。`), { auto: true, pop });
       else if (is === "卡住" && was !== "卡住") {
         const quiet = r.match(/^(\d+) 分鐘沒有新動靜/);
         const why = r.replace(/^AI 自報卡住：/, "").trim();
-        const line = quiet ? `${who} 已經 ${quiet[1]} 分鐘沒有新動靜，可能卡住了。`
-          : r.startsWith("在等外部") ? `${who} 在等外部的事${result ? "：" + clip(result, 30) : "。"}`
-          : `${who} 卡住了${why ? "：" + clip(why, 30) : "。"}`;
+        const line = quiet ? talk("quiet", `${who} 已經 ${quiet[1]} 分鐘沒有新動靜，可能卡住了。`, { minutes: quiet[1] })
+          : r.startsWith("在等外部") ? talk("wait", `${who} 在等外部的事${result ? "：" + clip(result, 30) : "。"}`)
+          : talk("stuck", `${who} 卡住了${why ? "：" + clip(why, 30) : "。"}`, { why });
         announce(line, { auto: true, pop, banner: { level: "bad", icon: "warn", tag: "卡住 · BLOCKED", source: who, title: quiet ? `${who} ${quiet[1]} 分鐘沒動靜` : `${who} 卡住了`, sub: clip(quiet ? "可能在跑長指令，或真的卡住了" : why || result, 60), sid: c.sessionId } });
       }
     }
@@ -2394,6 +2430,7 @@ window.karaPrefs = (p) => {
     sel.value = p.voice; sel.hidden = false; if (ORBIT && typeof applyPanels === "function") try { applyPanels(); } catch {}
   }
   deskOn = !!p.mini;
+  spokenAIAvail = !!p.spokenAI;          // 11-28：原生端找得到 claude 才能開 AI 口語改寫（Windows 版沒有這個欄位＝不顯示）
   $("bMini").classList.toggle("on", deskOn); $("bMini").title = deskOn ? "智能體桌面版：開（點一下關掉）" : "智能體桌面版：關（點一下打開）";
   if (p.deskSize) $("bSize").innerHTML = `<span class="wide">尺寸 · </span>${esc(p.deskSize)}`;
   fitTools();
@@ -2923,7 +2960,7 @@ function captainReply() {
   if (!handoffAt || Date.now() - handoffAt > 20 * 60 * 1000) return;
   handoffAt = 0;
   const plain = String(c.text).replace(/```[\s\S]*?```/g, "（程式碼略）").replace(/[#*`>|_]/g, "").replace(/\s+/g, " ").trim();
-  announce(`秘書回覆：${clip(plain, 90)}`, { auto: true, pop: { html: `<div class="k">CAPTAIN · 回覆</div><div class="ln" style="border:0">${esc(clip(plain, 220))}</div>` } });
+  announce(window.Spoken ? "秘書回你了。" + Spoken.say(plain, 50) : `秘書回覆：${clip(plain, 90)}`, { auto: true, pop: { html: `<div class="k">CAPTAIN · 回覆</div><div class="ln" style="border:0">${esc(clip(plain, 220))}</div>` } });
 }
 
 /* ---------- v4 C：點衛星展開小卡 ---------- */

@@ -98,6 +98,13 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             guard let c = card(str("sessionId")) else { return say("找不到這個 session 了。") }
             jump(c)
         case "speak": speak(str("text") ?? "")
+        case "spoken":          // 11-28 播報 AI 口語改寫（球體語音選單的開關，預設關）：回 window.karaSpoken(id, 改寫後｜null)
+            let id = (m["id"] as? NSNumber)?.intValue ?? 0
+            let reply: @Sendable (String?) -> Void = { [weak self] out in
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.js("window.karaSpoken", id, out.map { $0 as Any } ?? NSNull()) } }
+            }
+            if blocked { return reply(nil) }                // 測試不叫 AI
+            SphereSpokenAI.shared.rewrite(str("text") ?? "", done: reply)
         case "stopSpeaking": audio.stop(); edge.stop()
         case "volume":          // 11-23 Keng：球體音量選單（0–1）
             if let v = (m["value"] as? NSNumber)?.floatValue { audio.volume = max(0, min(1, v)) }
@@ -358,6 +365,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     private func pushPrefs() {
         let size = SphereMini.shared.currentPreset.flatMap { id in SphereMini.presets.first { $0.id == id }?.name } ?? "自訂"
         js("window.karaPrefs", ["mini": SphereMini.shared.enabled, "deskSize": size, "voice": SphereVoices.selected,
+                                "spokenAI": SphereSpokenAI.available,      // 11-28：有 claude 才顯示「AI 口語改寫」開關
                                 "voices": SphereVoices.all().map { ["id": $0.id, "name": $0.name, "group": $0.group] }])
     }
 
