@@ -179,6 +179,22 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         let d = UserDefaults.standard.dictionary(forKey: Self.zoomKey) as? [String: Double] ?? [:]
         setZoom(url?.host.flatMap { d[$0] }.map { CGFloat($0) } ?? 1, save: false)
     }
+    /// ⌘＋／⌘－／⌘0：在 App 收到按鍵的最前面攔（11-27 實測 ⌘－、⌘0 走 performKeyEquivalent 會被同視窗別的 view 先吃掉，只有 ⌘＋ 到得了）
+    private static var zoomMonitor: Any?
+    static func installZoomKeys() {
+        guard zoomMonitor == nil else { return }
+        zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            guard e.modifierFlags.intersection([.command, .control, .option]) == .command,
+                  let v = e.window?.firstResponder as? ChromeView, v.phoneSize == nil else { return e }
+            switch e.charactersIgnoringModifiers {
+            case "=", "+": v.zoomStep(1)
+            case "-", "_": v.zoomStep(-1)
+            case "0": v.zoomStep(0)
+            default: return e
+            }
+            return nil
+        }
+    }
     override func magnify(with e: NSEvent) {
         guard phoneSize == nil else { return }
         switch e.phase {
@@ -190,6 +206,7 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        Self.installZoomKeys()
         wantsLayer = true
         layer?.backgroundColor = NSColor.white.cgColor
         picture.contentsGravity = .resize; picture.anchorPoint = .zero
@@ -509,9 +526,6 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         case "a": edit("selectAll", 65)
         case "z": edit(e.modifierFlags.contains(.shift) ? "redo" : "undo", 90)
         case "r": reload()
-        case "=", "+": zoomStep(1)
-        case "-": zoomStep(-1)
-        case "0": zoomStep(0)
         default: return super.performKeyEquivalent(with: e)
         }
         return true
