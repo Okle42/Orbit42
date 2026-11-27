@@ -8,7 +8,7 @@ import Foundation
 //   • 看板剛啟動時現有的卡當成已看過，不一次灌給秘書
 //   • 設定 captain.relayCards（預設開）
 //   • 11-10 秘書省額度（秘書一週被叫醒上千次、ctx 400–500k，燒掉 ≥37% 額度）：預設只推「要秘書動手」的卡
-//       - captain.relayActionableOnly（預設 true）：只推帶 --ask 的卡（11-26 起 review／blocked 純狀態卡也不推）；其他只記在看板（名冊看得到）
+//       - captain.relayActionableOnly（預設 true）：11-28 起一律不推【工作回報】（帶 --ask 的也不推）；只記在看板（名冊看得到）
 //       - 開工卡只進秘書收件匣（巡檢或 orbit captain 看），不推（11-24）
 
 public enum CardRelay {
@@ -50,10 +50,11 @@ public enum CardRelay {
     /// 這張卡要不要推給秘書（不算節流、迴圈這些）：要秘書動手的才推
     /// 11-26 秘書省用量：只推「要使用者決定的」（帶 --ask）。派工單完成／卡住走【派工回報】（TaskRouter），擋下等放行走收件匣（pushNow）；
     /// 純狀態卡（review／blocked／done／working 沒帶 --ask）只記在看板，不叫醒秘書
+    /// 11-28 秘書只收「完成」與「卡住」（Keng 核可）：帶 --ask 的卡也不推了——只在組員卡片問使用者、只記在看板，
+    /// 使用者答了原話自動記進派工單（TaskNotes）。完成／卡住走【派工回報】，ctx 交接走 Handover，都不經過這裡
     public static func needsCaptain(_ r: SelfReport, policy: Policy) -> Bool {
         if r.isStart { return false }        // 11-24：開工卡一律只進收件匣
-        if !policy.actionableOnly { return true }
-        return r.ask != nil
+        return !policy.actionableOnly
     }
 
     public struct Outgoing: Sendable, Equatable {

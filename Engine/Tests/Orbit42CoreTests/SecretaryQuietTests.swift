@@ -28,24 +28,24 @@ struct SecretaryQuietTests {
         d.set(0, forKey: CaptainLink.captainCtxKey); #expect(CaptainLink.captainCtxLimit(d) == 300_000)
     }
 
-    @Test("轉送只叫醒秘書做要決定的事：純狀態卡（待審、卡住、完成、工作中）不轉，帶 --ask 才轉")
+    @Test("轉送不叫醒秘書：純狀態卡不轉；11-28 起帶 --ask 的也不轉（只在組員卡片問，答案記進派工單）")
     func relayOnlyAsks() {
         for s in [SelfReport.Status.review, .blocked, .done, .working] {
             #expect(!CardRelay.needsCaptain(SelfReport(status: s, summary: "x"), policy: .quiet), "\(s)")
         }
-        #expect(CardRelay.needsCaptain(SelfReport(status: .review, summary: "x", ask: "要 push 嗎？"), policy: .quiet))
-        #expect(CardRelay.needsCaptain(SelfReport(status: .blocked, ask: "等哪個？"), policy: .quiet))
+        #expect(!CardRelay.needsCaptain(SelfReport(status: .review, summary: "x", ask: "要 push 嗎？"), policy: .quiet))
+        #expect(!CardRelay.needsCaptain(SelfReport(status: .blocked, ask: "等哪個？"), policy: .quiet))
         #expect(CardRelay.needsCaptain(SelfReport(status: .done), policy: .legacy), "舊行為開關照舊")
     }
 
-    @Test("重複內容不轉：同一張帶題的卡第二次不送")
+    @Test("重複內容不轉：同一張帶題的卡第二次不送（舊行為開關打開時）")
     func relayNoRepeat() {
         var st = CardRelay.State()
         let now = Date()
         let r = SelfReport(status: .review, summary: "x", ask: "要 push 嗎？", options: ["好", "不要"], at: now)
         _ = CardRelay.plan(reports: [:], captain: "CAP", captainLive: true, state: &st, now: now) { _, _ in "t" }       // 種子
-        let a = CardRelay.plan(reports: ["S": r], captain: "CAP", captainLive: true, state: &st, now: now) { _, _ in "t" }
-        let b = CardRelay.plan(reports: ["S": r], captain: "CAP", captainLive: true, state: &st, now: now + 120) { _, _ in "t" }
+        let a = CardRelay.plan(reports: ["S": r], captain: "CAP", captainLive: true, state: &st, now: now, policy: .legacy) { _, _ in "t" }
+        let b = CardRelay.plan(reports: ["S": r], captain: "CAP", captainLive: true, state: &st, now: now + 120, policy: .legacy) { _, _ in "t" }
         #expect(a.count == 1); #expect(b.isEmpty)
         let status = SelfReport(status: .blocked, summary: "等背景工作", at: now + 200)
         #expect(CardRelay.plan(reports: ["T": status], captain: "CAP", captainLive: true, state: &st, now: now + 200) { _, _ in "t" }.isEmpty)

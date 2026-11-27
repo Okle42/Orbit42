@@ -14,22 +14,22 @@ struct CaptainQuietTests {
         return r
     }
 
-    @Test("工作回報：預設只推帶 --ask 的（11-26 起 review／blocked 純狀態卡也不推）；其他只記不推（之後也不補送）")
+    @Test("工作回報：預設一張都不推（11-26 起純狀態卡不推，11-28 起帶 --ask 的也不推）；只記不推（之後也不補送）")
     func actionableOnly() {
         var st = CardRelay.State(); st.seeded = true
         let quiet = CardRelay.plan(reports: ["w": card(.working, "做事中", at: t0), "d": card(.done, "做完", at: t0),
                                              "r": card(.review, "要審", at: t0), "b": card(.blocked, "卡住", at: t0),
                                              "q": card(.working, "問一下", at: t0, ask: "要 push 嗎")],
                                    captain: "cap", captainLive: true, state: &st, now: t0, text: txt)
-        #expect(Set(quiet.map(\.sessionId)) == ["q"])
+        #expect(quiet.isEmpty)
         // done／working 已記成看過：同一張卡之後不會補送
         #expect(CardRelay.plan(reports: ["w": card(.working, "做事中", at: t0), "d": card(.done, "做完", at: t0)],
                                captain: "cap", captainLive: true, state: &st, now: t0 + 120, text: txt).isEmpty)
-        // 同一個人改成卡住（純狀態卡）⇒ 11-26 起也不推；卡住又帶題 ⇒ 推
+        // 同一個人改成卡住（純狀態卡）⇒ 11-26 起也不推；卡住又帶題 ⇒ 11-28 起也不推（卡住的派工單走【派工回報】）
         #expect(CardRelay.plan(reports: ["w": card(.blocked, "卡住了", at: t0 + 130)],
                                captain: "cap", captainLive: true, state: &st, now: t0 + 130, text: txt).isEmpty)
         #expect(CardRelay.plan(reports: ["w": card(.blocked, "卡住了", at: t0 + 200, ask: "要換方法嗎")],
-                               captain: "cap", captainLive: true, state: &st, now: t0 + 200, text: txt).map(\.sessionId) == ["w"])
+                               captain: "cap", captainLive: true, state: &st, now: t0 + 200, text: txt).isEmpty)
     }
 
     @Test("開關改回舊行為：done／working 照推")
@@ -49,26 +49,27 @@ struct CaptainQuietTests {
         }
     }
 
-    @Test("同一張卡只推一次；問題從無到有、文字或選項改了一定推；拿掉問題或同題重發不推")
+    @Test("同一張卡只推一次；問題從無到有、文字或選項改了一定推；拿掉問題或同題重發不推（舊行為開關打開時；預設一張都不推）")
     func dedupe() {
         var st = CardRelay.State(); st.seeded = true
         var now = t0
-        func push(_ ask: String?, _ options: [String]? = nil, how: String? = nil, summary: String = "卡住") -> Bool {
+        func push(_ ask: String?, _ options: [String]? = nil, how: String? = nil, summary: String = "卡住", policy: CardRelay.Policy = .legacy) -> Bool {
             var r = card(.blocked, summary, at: now, ask: ask); r.options = options; r.how = how
             defer { now += 70 }
-            return !CardRelay.plan(reports: ["a": r], captain: "c", captainLive: true, state: &st, now: now, text: txt).isEmpty
+            return !CardRelay.plan(reports: ["a": r], captain: "c", captainLive: true, state: &st, now: now, policy: policy, text: txt).isEmpty
         }
-        #expect(!push(nil))                            // 11-26：沒帶題的卡住狀態卡不推
-        #expect(!push(nil) && !push(nil, how: "換了方法"))
+        #expect(push(nil))                             // 舊行為：第一張狀態卡推
+        #expect(!push(nil) && !push(nil, how: "換了方法"))      // 內容一樣（--how 不算）不重推
         #expect(push("要 push 嗎"))
-        #expect(!push("要 push 嗎") && !push(nil))
+        #expect(!push("要 push 嗎") && !push(nil))     // 拿掉問題不推
         #expect(push("要 push 嗎"))                    // 有→無→同題再問：第三張要推
         #expect(!push("要 push 嗎") && !push("要 push 嗎"))       // 完全重複仍只推一次
         #expect(push("要部署嗎"))
         #expect(push("要部署嗎", ["好", "不要"]))
-        #expect(!push(nil))
-        #expect(!push(nil, summary: "又卡住"))           // 11-26：純狀態卡不推
+        #expect(push(nil, summary: "又卡住"))
         #expect(push("要部署嗎", ["好", "不要"], summary: "又卡住"))       // 換了一張卡，同一題也算新的
+        // 預設（11-28）：帶新題也不推
+        #expect(!push("要換方法嗎", ["好", "不要"], policy: .quiet))
     }
 
     @Test("巡檢：跟上次一樣不推，App 重開後也不重推；時間、ctx 數字變動不算")
@@ -238,7 +239,7 @@ struct CaptainQuietTests {
         #expect(m.contains("只進你的收件匣、不推給你"))
         #expect(m.contains("沒事不送"))
         #expect(m.contains("【換哨提醒】"))
-        #expect(m.contains("其他狀態卡只記在看板"))
+        #expect(m.contains("只記在看板，不推給你"))
         #expect(!m.contains("無變化"))
     }
 
