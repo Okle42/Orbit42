@@ -623,6 +623,8 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
     func restack() {
         guard let root = window.contentView else { return }
         let order = stackOrder, typing: String? = nil, dim = Set<String>()      // 11-28：滑過就換輸入點，最上面那顆就是打字那顆 ⇒ 不用變暗、不用另外標打字
+        let shown = Set(satWins.filter { !$0.value.isHidden && $0.value.wantShown && !$0.value.zoomed }.map(\.key))
+        let up = SatStack.raised(pinned: pinned, shown: shown)          // 選到的那顆浮起＋放大 3%；其他照排列順序疊
         let move = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         var changed = false
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -631,6 +633,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             w.wantsLayer = true; let z = CGFloat(10 + i)
             if w.layer?.zPosition != z { w.layer?.zPosition = z; changed = true }
             w.setLift(dim: dim.contains(id), typing: typing == id && lift.lifted != id, animate: move)
+            w.setRaised(id == up, animate: move)
         }
         CATransaction.commit()
         guard changed else { return }
@@ -705,7 +708,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
                 layer.setAffineTransform(CGAffineTransform(scaleX: 0.94, y: 0.94))
             }, completionHandler: { MainActor.assumeIsolated {
                 guard !w.wantShown else { return }          // 收到一半又被打開：不要藏
-                w.isHidden = true; w.alphaValue = 1; layer.setAffineTransform(.identity)
+                w.isHidden = true; w.alphaValue = 1; w.setRaised(false, animate: false); layer.setAffineTransform(.identity)
                 then?()
             } })
         }

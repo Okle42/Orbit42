@@ -84,8 +84,21 @@ public enum AskQueue {
             if r.options != nil, out[i].action == nil { out[i].options = r.options }      // 看板發的題不給 AI 改選項
             return out
         }
+        // 11-28（Hana 同一題 --ask 發 3 次，等你回答排了 3 筆）：換句話重發、選項一樣 ⇒ 併成一筆，用最新的說法，排隊位置不變
+        if let opts = r.options, !opts.isEmpty,
+           let i = out.firstIndex(where: { $0.action == nil && sameOptions($0.options, opts) && Answered.similar($0.ask, q) }) {
+            if out[i].sendingAt == nil, out[i].unsureAt == nil { out[i].ask = q }      // 正在送的題不改字
+            return out
+        }
         out.append(PendingAsk(id: id(), ask: q, options: r.options, at: r.at, doing: r.doing))
         return out
+    }
+
+    /// 選項一樣（不管順序、「（建議）」標記、空白與標點）
+    static func sameOptions(_ a: [String]?, _ b: [String]?) -> Bool {
+        func key(_ xs: [String]?) -> [String] { (xs ?? []).map { Answered.normal(AnswerPick.bare($0)) }.filter { !$0.isEmpty }.sorted() }
+        let x = key(a)
+        return !x.isEmpty && x == key(b)
     }
 
     /// 還有效的（沒過期），最早的在前
@@ -188,11 +201,16 @@ public enum AskQueue {
     /// 使用者在這個 session 的終端機打字回答 ⇒ 這個 session 的待答題全部拿掉、卡片上的 --ask 清掉；
     /// 秘書卡片／佇列掛著同一題的也清掉（不轉【使用者已答】：答案在組員那邊，秘書巡檢看得到，不為這個叫醒秘書）。回傳拿掉的題
     @discardableResult
+    /// 11-28：答的這個 session 有進行中的派工單 ⇒ 原話記進單（TaskNotes），秘書看單就知道，不用再問組員
     public static func answeredInTerminal(sid: String, prompt: String?, captain: String? = nil,
-                                          cardsDir: URL = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true)) -> [PendingAsk] {
+                                          cardsDir: URL = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true),
+                                          tasksDir: URL = Captain.tasksDir, name: String? = nil, now: Date = Date()) -> [PendingAsk] {
         guard isTerminalAnswer(prompt) else { return [] }
         let xs: [PendingAsk] = locked { let xs = load(sid); if !xs.isEmpty { save(sid, []) }; return xs }
         guard !xs.isEmpty else { return [] }
+        TaskNotes.record(sid: sid, name: name ?? NicknameStore.get(sid)?.name, cardTask: nil,
+                         question: xs.map(\.ask).joined(separator: "／"), answer: prompt ?? "", via: "終端機",
+                         at: now, captain: captain, asks: sid == captain ? nil : [:], dir: tasksDir)
         for q in xs {
             Answered.clearCaptainCard(sid: sid, question: q.ask, dir: cardsDir)
             if let cap = captain, cap != sid {

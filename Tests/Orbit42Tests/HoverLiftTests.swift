@@ -45,17 +45,25 @@ final class HoverLiftTests: XCTestCase {
         h.settle("c", hover: "c"); XCTAssertEqual(run(&h, ["c", "d"]), [nil, "d"])          // 點了 c：滑到 d 照樣立刻換
         h.drop("d"); XCTAssertNil(h.lifted)
     }
-    /// 放大後每顆都還露出完整標題列＋一點，3 顆照 80%／88%，越多顆越小
+    /// 選到的那顆浮起放大：要在最上面、開著、而且不只一顆
+    func testRaised() {
+        XCTAssertEqual(SatStack.raised(pinned: "b", shown: ["a", "b", "c"]), "b")
+        XCTAssertNil(SatStack.raised(pinned: "b", shown: ["b"]))                 // 只有一顆：不放大
+        XCTAssertNil(SatStack.raised(pinned: "x", shown: ["a", "b"]))            // 收起來的不算
+        XCTAssertNil(SatStack.raised(pinned: nil, shown: ["a", "b"]))
+        XCTAssertEqual(SatStack.order(ws, pinned: "b", lifted: nil), ["a", "c", "s", "b"])      // 其他顆照排列順序疊，不跟著動
+    }
+    /// 平常縮小一點（74%／82%）留空間給放大 3%；每顆都還露出完整標題列＋一點，越多顆越小
     func testArrangeSize() {
         let area = CGSize(width: 760, height: 640), bar: CGFloat = 34
         let (w3, h3) = SatStack.size(count: 3, area: area, bar: bar)
-        XCTAssertEqual(w3, 608, accuracy: 0.5); XCTAssertEqual(h3, 563.2, accuracy: 0.5)
+        XCTAssertEqual(w3, 562.4, accuracy: 0.5); XCTAssertEqual(h3, 524.8, accuracy: 0.5)
         XCTAssertGreaterThan(w3, area.width * 0.62); XCTAssertGreaterThan(h3, area.height * 0.78)     // 比 11-23 的 62%×78% 大
         for n in 2...8 {
             let (w, h) = SatStack.size(count: n, area: area, bar: bar), k = CGFloat(n - 1)
             XCTAssertGreaterThanOrEqual((area.height - h) / k, bar + 4 - 1e-6, "\(n) 顆：標題列要露出")
             XCTAssertGreaterThanOrEqual((area.width - w) / k, 44 - 1e-6, "\(n) 顆：左邊要露出一條")
-            XCTAssertLessThanOrEqual(w, area.width * 0.80 + 1e-6); XCTAssertLessThanOrEqual(h, area.height * 0.88 + 1e-6)
+            XCTAssertLessThanOrEqual(w, area.width * 0.74 + 1e-6); XCTAssertLessThanOrEqual(h, area.height * 0.82 + 1e-6)
         }
         XCTAssertEqual(SatStack.size(count: 1, area: area, bar: bar).0, 760)
     }

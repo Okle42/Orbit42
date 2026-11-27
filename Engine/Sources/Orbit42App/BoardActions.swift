@@ -354,8 +354,15 @@ enum BoardActions {
 
     /// 使用者答了組員卡片的問題 ⇒ 清掉秘書卡片上同一題（秘書 Penny 10-25：別再重複問 Kang）。
     /// 11-26 秘書省用量：不再 Peer 送「【使用者已答】」叫醒秘書（答案已直接送到那個 session）。答的是秘書自己的卡片就不用清
+    /// 11-28：答的這張卡（組員或秘書）的 session 有進行中的派工單 ⇒ 原話＋時間＋哪張卡記進單（TaskNotes），秘書看單就好、不用再問組員
     private static func tellCaptain(_ c: BoardCard, answer: String, question q: String?) {
-        guard testHook == nil, let cap = CaptainStore.captain()?.sessionId, cap != c.sessionId else { return }
+        guard testHook == nil else { return }
+        let cap = CaptainStore.captain()?.sessionId
+        var said = answer, via = "Orbit42 卡片"
+        for (tag, where_) in [(Answered.phoneTyped, "手機"), (Answered.webSent, "網頁傳話")] where said.hasPrefix(tag) { said = String(said.dropFirst(tag.count)); via = where_ }
+        TaskNotes.record(sid: c.sessionId, name: c.name, shown: NicknameStore.get(c.sessionId)?.name, cardTask: c.report?.task,
+                         question: q, answer: said, via: via, captain: cap)
+        guard let cap, cap != c.sessionId else { return }
         Answered.clearCaptainCard(sid: cap, question: q)
         AskQueue.resolve(sid: cap, question: q)
     }

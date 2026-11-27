@@ -20,13 +20,18 @@ public enum SatStack {
     }
     /// 滑鼠底下看得到的那顆：照現在的疊放從上往下找 ⇒ 浮起來的那顆蓋住別顆時就是它，不會兩顆來回跳
     public static func hit(_ p: CGPoint, order: [String], frames: [String: CGRect]) -> String? { order.last { frames[$0]?.contains(p) == true } }
-    /// 11-28 Keng「視窗大小可以再大一點，只要我方便切換視窗就行」：多顆斜對角排開時每顆的大小（不含 420×260 下限）。
-    /// 最多 寬 80%、高 88%；越多顆越小，保證每顆往右下錯開至少 44 × (標題列＋4) ⇒ 每條標題列完整露出、滑鼠瞄得到
+    /// 11-28 Keng「視窗大小可以再大一點，只要我方便切換視窗就行」→ 同日改「原本的縮小一點點，選到的浮上來放大一點點」：
+    /// 多顆斜對角排開時每顆的大小（不含 420×260 下限）。最多 寬 74%、高 82%（留空間給選到的那顆放大 3%）；越多顆越小，保證每顆往右下錯開至少 44 × (標題列＋4) ⇒ 每條標題列完整露出、滑鼠瞄得到
     public static let minStep = CGSize(width: 44, height: 4)
     public static func size(count n: Int, area: CGSize, bar: CGFloat) -> (CGFloat, CGFloat) {
         guard n > 1 else { return (area.width, area.height) }
         let k = CGFloat(n - 1)
-        return (min(area.width * 0.80, area.width - k * minStep.width), min(area.height * 0.88, area.height - k * (bar + minStep.height)))
+        return (min(area.width * 0.74, area.width - k * minStep.width), min(area.height * 0.82, area.height - k * (bar + minStep.height)))
+    }
+    /// 選到的那顆（滑過／搖桿／點的）要不要放大：它在最上面、還開著，而且不只一顆（只有一顆時放大沒意義）
+    public static func raised(pinned: String?, shown: Set<String>) -> String? {
+        guard let p = pinned, shown.contains(p), shown.count > 1 else { return nil }
+        return p
     }
     /// 浮起時誰要變暗：浮起那顆和正在打字那顆以外
     public static func dimmed(_ order: [String], lifted: String?, typing: String?) -> Set<String> {

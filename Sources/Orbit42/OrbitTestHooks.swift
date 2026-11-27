@@ -24,11 +24,28 @@ extension OrbitWindow {
                 let ids = (1...n).map { i in self.host.runCommand(name: i == n ? "秘書（測試）" : "測試 \(i)", brain: .claude,
                     command: "for k in $(seq 1 30); do echo 衛星 \(i) 第 $k 行 ── 滑過去輸入點就在這顆; done; sleep 90") }
                 if let s = ids.last { self.satWins[s]?.secretary = true }
+                // 螢幕外的視窗 WebKit 會當成「被遮住」不畫字 ⇒ 測試時關掉遮蔽偵測（只在這個測試掛勾）
+                let occ = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+                for id in ids { let v = self.host.view(for: id); if v.responds(to: occ) { v.perform(occ, with: nil) } }
                 func num(_ id: String?) -> String { id.flatMap { ids.firstIndex(of: $0) }.map { "\($0 + 1)" } ?? "-" }
+                // 11-28：要看字糊不糊 ⇒ 拍視窗伺服器合成後的畫面（含 layer 放大、網頁終端機的字）；視窗在螢幕外 -30000，Keng 看不到
+                self.window.alphaValue = 1
+                @MainActor func grab() -> CGImage? {
+                    CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(self.window.windowNumber), [.boundsIgnoreFraming, .bestResolution])
+                }
+                @MainActor func save(_ cg: CGImage, _ name: String) { try? NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out + "." + name + ".png")) }
+                /// 第 2 顆左上角那塊字（同一個畫面位置，原尺寸像素）：放大前後擺一起比
+                @MainActor func closeup(_ cg: CGImage, _ name: String) {
+                    let f = self.satWins[ids[1]]!.frame, k = CGFloat(cg.width) / root.bounds.width
+                    let r = CGRect(x: (f.minX + 8) * k, y: (root.bounds.height - f.maxY + TermWindowView.barHeight + 4) * k, width: 300 * k, height: 120 * k).integral
+                    if let c = cg.cropping(to: r) { save(c, name) }
+                }
                 @MainActor func shot(_ tag: String) {
-                    guard let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
-                    root.cacheDisplay(in: root.bounds, to: rep)
-                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out + "." + tag + ".png"))
+                    if let cg = grab() { save(cg, tag) }
+                    else if let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) {
+                        root.cacheDisplay(in: root.bounds, to: rep)
+                        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out + "." + tag + ".png"))
+                    }
                     let order = root.subviews.compactMap { v in ids.firstIndex { self.satWins[$0] === v }.map { "\($0 + 1)" } }.joined()
                     print("arrange \(tag) root=\(Int(root.bounds.width))x\(Int(root.bounds.height)) order=\(order) typing=\(num(self.typingSat)) "
                           + ids.map { let f = self.satWins[$0]!.frame; return "#\(num($0)) \(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))" }.joined(separator: " | ")); fflush(stdout)
@@ -36,11 +53,13 @@ extension OrbitWindow {
                 after(6) {
                     self.window.setContentSize(NSSize(width: 1440, height: 900))
                     after(1) { self.pinned = nil; self.autoArrange()
-                    after(1.5) { shot("1自動排版")
+                    after(1.5) { shot("1自動排版"); if let cg = grab() { closeup(cg, "字特寫-放大前") }
+                        let termBefore = NSStringFromRect(self.satWins[ids[1]]!.content.convert(self.satWins[ids[1]]!.content.bounds, to: root))
                         let f = self.satWins[ids[1]]!.frame; self.mouse = NSPoint(x: f.minX + 20, y: f.maxY - 14)
                         let t = CACurrentMediaTime(); self.liftStep(); let dt = (CACurrentMediaTime() - t) * 1000
                         print(String(format: "arrange hover 2 → typing=%@ top=%@ step=%.2fms", num(self.typingSat), num(self.pinned), dt))
-                    after(0.4) { shot("2滑過第2顆")
+                    after(0.6) { shot("2滑過第2顆"); if let cg = grab() { closeup(cg, "字特寫-放大後") }
+                        print("arrange raised=\(ids.filter { self.satWins[$0]?.raised == true }.map { num($0) }.joined()) outset=\(self.satWins[ids[1]]!.liftOutset) term=\(NSStringFromRect(self.satWins[ids[1]]!.content.convert(self.satWins[ids[1]]!.content.bounds, to: root))) 放大前 term=\(termBefore)")
                         self.mouse = NSPoint(x: 5, y: 5); self.liftStep()
                         print("arrange leave → typing=\(num(self.typingSat))（要留在 2）"); fflush(stdout)
                         self.host.shutdown(); exit(0) } } }

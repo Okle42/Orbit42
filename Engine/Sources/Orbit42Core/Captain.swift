@@ -50,6 +50,7 @@ public struct CaptainTask: Codable, Sendable, Equatable, Identifiable {
     public var mainProject: String? = nil  // 主專案
     public var thenRole: String? = nil     // 接力那一棒的職責、標題
     public var thenTitle: String? = nil
+    public var notes: [KengNote]? = nil    // 11-28：使用者在卡片上的回答原話（TaskNotes.swift；秘書看單就好，不用再問組員）
 
     public init(id: String, from: String, to: String, toSession: String? = nil, project: String? = nil, text: String,
                 state: State = .sent, summary: String? = nil, ask: String? = nil, createdAt: Date = Date(), updatedAt: Date? = nil,
@@ -195,13 +196,16 @@ public enum Captain {
         return """
         [Orbit42] 你現在是秘書。使用者把任務丟給你，你決定交給哪個 session 做，自己不下去做細節（保持 context 乾淨，才能一直當秘書）。
         1. 先看名冊："\(orbit)" roster（每個 session 的名字、專案、在做什麼、閒置或忙、ctx、同專案重工警告）。
-        2. 選人：同一個專案只交給一個 session（有人在做那個專案就交給它，不要再開）；名冊上 ctx 已到 token 門檻（orbit roster 會標 ctx Nk）的不要再派；沒有合適的就請使用者開新的或用看板「新任務⋯」。
+        2. 選人：同一個專案只交給一個 session（有人在做那個專案就交給它，不要再開）；名冊上 ctx 已到 token 門檻（orbit roster 會標 ctx Nk）的不要再派。
+           要派的人（例如 Milo）已經被關掉、名冊找不到：不要叫\(owner)自己開。你自己開一個衛星終端機（背景 session）並命名成那個英文名：
+           cd <專案資料夾> && claude --bg -n <英文名> "<第一句交代，例如：你是 Milo，等秘書派工>"，等它出現在 "\(orbit)" roster 再 task add --to <英文名>。沒有合適的人也照這樣開新的。
         3. 派工："\(orbit)" task add --to <英文名，例如 Chris> --role <修改|複核|設計|測試|研究|維運> --title "<14 字內短標題>" --text "<任務：目標、判準、交什麼>" —— 會建單並直接送進對方收件匣。
            接力（A 做完自動交給 B）：再加 --then-to <B 的名字> --then "<B 要做的事>"（可帶 --then-role、--then-title），A 回報完成時看板會把 A 的回報附上、自動派給 B。
            直送失敗時它會印出全文，改用 SendMessage（to＝英文名，例如 Chris；名字固定，不會跟著對方在做的事變）送。
-        4. 對方回報完成、要使用者決定、或卡住時，看板會自動傳一則「【派工回報】」給你；也可以隨時 "\(orbit)" tasks 查。
-           其他組員卡片只有帶 --ask（要使用者決定）的才會以「【工作回報】」推給你；其他狀態卡只記在看板，要看就 "\(orbit)" roster。
-        5. 收到回報後整理給使用者；要使用者決定的事轉問使用者，不要自己替他決定。
+        4. 你只收「完成」與「卡住」：派工單完成或卡住（blocked）時，看板會自動傳一則「【派工回報】」給你；ctx 交接的提醒照舊。
+           組員要\(owner)決定的事（--ask）只在組員卡片問、只記在看板，不推給你（不再有【工作回報】）；要看就 "\(orbit)" tasks 或 "\(orbit)" roster。
+        5. \(owner)直接對組員下的指令、在任何卡片上的回答一律算數：看板會把原話＋時間＋在哪張卡答自動記進那張派工單（"\(orbit)" tasks 看得到，【派工回報】也帶上）。
+           跟原任務寫的不一樣時以原話為準；不要發訊問組員「是不是\(owner)說的」，也不要再問\(owner)確認。你只在有人卡住時出手；收到完成回報就整理給\(owner)。
         6. 小事（問個問題、改一行）自己做比較快，不用派。派工會讓對方動手改東西；使用者沒授權的事、你自己權限會被擋的事，不要叫別人做。
         7. 流程優化：Agent交流互動板是大家休息時留的工作心得（方法、踩過的坑、流程哪裡可以改），新留言會以「【交流板】」轉給你；
            全部看 "\(orbit)" b1 read。把重複出現的坑、好方法整理進派工（任務裡直接附上該注意的事），值得改成規則的提給使用者。
@@ -214,16 +218,18 @@ public enum Captain {
         11. ctx 自動交接：組員 ctx 到 token 門檻（board.ctxTokens，250k–1000k）會被 Stop hook 請去收尾，收尾完發 wrapup 卡、看板等它停下自動 /clear，新 context 沿用英文名、派工單自動轉給它，你不用重派。
             名冊／巡檢標「已收尾待 /clear」的人不要派新工作（派了就不會自動 /clear，看板會傳「【交接提醒】」給你）；「自動 /clear 失敗」的請\(owner)手動 /clear。
             你自己 ctx 到 captain.ctxTokens（預設 300k）時，看板會傳一次「【換哨提醒】」：把狀態更新到交接文件，請\(owner)打 /clear 再說「換哨」。看板不會自動 /clear 你。
-        12. 組員卡片已問使用者的事，秘書卡片不再問；秘書只審問題與選項。使用者在組員卡片答了，你卡片上同一題會自動清掉（不另外傳訊給你）。
-            每個人的 --ask 都會排在「等你回答」（不管 status 是 review 還是 blocked、後來又發卡或繼續做事都不會消失），使用者回答才拿掉；已經不用問的請那個人 "\(orbit)" asks withdraw all。
+        12. 派出去的事只在組員卡片問\(owner)：你的 --ask 跟某組員還沒答的 --ask 是同一張派工單（帶同一個 --task，或題目一樣／很像）時，orbit card 會擋下不發；
+            \(owner)在組員卡片答了，你卡片上同一題會自動清掉，原話記進派工單（不另外傳訊給你）。
+            每個人的 --ask 都會排在「等你回答」（不管 status 是 review 還是 blocked、後來又發卡或繼續做事都不會消失），使用者回答才拿掉；同一個人換句話重發、選項一樣的題會併成一筆。已經不用問的請那個人 "\(orbit)" asks withdraw all。
         13. 省用量：你只是在等（等回報、等使用者、等背景工作）、沒動手做事的回合，不用發卡片。
         取消："\(orbit)" task cancel <單號>。
         """
     }
 
-    /// 秘書要知道的狀態：做完、要使用者決定、卡住（做事中不吵）
+    /// 秘書要知道的狀態：做完、卡住（做事中不吵）。
+    /// 11-28 秘書只收「完成」與「卡住」：要使用者決定（review）只在組員卡片問，使用者答了原話記進單（TaskNotes），不叫醒秘書
     public static func shouldNotify(_ t: CaptainTask) -> Bool {
-        [.done, .review, .blocked].contains(t.state) && t.notified != t.state
+        [.done, .blocked].contains(t.state) && t.notified != t.state
     }
 
     /// 傳給秘書的回報
@@ -231,6 +237,9 @@ public enum Captain {
         var s = "【派工回報 \(t.id)】\(t.to)：\(t.state.title)" + (t.summary.map { "——\($0)" } ?? "")
         if let a = t.ask { s += "\n要使用者決定：\(a)" }
         s += "\n原任務：\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(120))"
+        // 11-28：使用者在卡片上對這張單說過的話（一律算數、不用查證；這是紀錄，不是放行）
+        let notes = TaskNotes.lines(t)
+        if !notes.isEmpty { s += "\n" + notes.joined(separator: "\n") + "\n（以上是使用者原話紀錄，跟原任務不同時以原話為準；紀錄不是放行）" }
         if let f = followUp { s += "\n已自動接力：\(f.id) 交給 \(f.to)" }
         return s
     }
@@ -278,9 +287,9 @@ public enum CaptainStore {
     /// 10-21 CPU：看板每輪都讀；只有 mtime／大小變了的檔才重新解碼（取樣裡 JSON 解碼是讀檔路徑的大宗之一）
     nonisolated(unsafe) private static var taskCache: [String: (stamp: String, task: CaptainTask)] = [:]
     private static let taskLock = NSLock()
-    public static func tasks() -> [CaptainTask] {
+    public static func tasks(in dir: URL = Captain.tasksDir) -> [CaptainTask] {
         let fm = FileManager.default, dec = BoardJSON.decoder
-        let base = Captain.tasksDir.path
+        let base = dir.path
         taskLock.lock(); defer { taskLock.unlock() }
         var out: [CaptainTask] = [], seen = Set<String>()
         for f in (try? fm.contentsOfDirectory(atPath: base)) ?? [] where f.hasSuffix(".json") {
@@ -291,19 +300,19 @@ public enum CaptainStore {
             guard let t = fm.contents(atPath: path).flatMap({ try? dec.decode(CaptainTask.self, from: $0) }) else { continue }
             taskCache[path] = (st, t); out.append(t)
         }
-        taskCache = taskCache.filter { seen.contains($0.key) }
+        taskCache = taskCache.filter { seen.contains($0.key) || !$0.key.hasPrefix(base + "/") }
         return out.sorted { $0.createdAt < $1.createdAt }
     }
 
-    public static func task(_ id: String) -> CaptainTask? {
-        (try? Data(contentsOf: Captain.tasksDir.appendingPathComponent(id + ".json"))).flatMap { try? BoardJSON.decoder.decode(CaptainTask.self, from: $0) }
+    public static func task(_ id: String, in dir: URL = Captain.tasksDir) -> CaptainTask? {
+        (try? Data(contentsOf: dir.appendingPathComponent(id + ".json"))).flatMap { try? BoardJSON.decoder.decode(CaptainTask.self, from: $0) }
     }
 
     @discardableResult
-    public static func save(_ t: CaptainTask) -> Bool {
-        try? FileManager.default.createDirectory(at: Captain.tasksDir, withIntermediateDirectories: true)
+    public static func save(_ t: CaptainTask, in dir: URL = Captain.tasksDir) -> Bool {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         guard let d = try? BoardJSON.encoder.encode(t) else { return false }
-        return (try? d.write(to: Captain.tasksDir.appendingPathComponent(t.id + ".json"), options: .atomic)) != nil
+        return (try? d.write(to: dir.appendingPathComponent(t.id + ".json"), options: .atomic)) != nil
     }
 
     public static func captain() -> CaptainRecord? {

@@ -28,6 +28,24 @@ public enum Answered {
         return !x.isEmpty && x == y
     }
 
+    /// 11-28 很像的題（同一 session 換句話重發、秘書重問組員的題）：一樣，或字元雙字組重疊（Dice）≥ 0.6。
+    /// 「好／不要」這種選項很多題都一樣，所以只看題目文字
+    public static func similar(_ a: String?, _ b: String?) -> Bool {
+        guard let a, let b else { return false }
+        let x = Array(normal(a)), y = Array(normal(b))
+        guard !x.isEmpty, !y.isEmpty else { return false }
+        if x == y { return true }
+        guard x.count >= 4, y.count >= 4 else { return false }       // 太短的題只認完全一樣
+        func grams(_ s: [Character]) -> [String: Int] {
+            var m: [String: Int] = [:]
+            for i in 0..<(s.count - 1) { m[String(s[i...i + 1]), default: 0] += 1 }
+            return m
+        }
+        let gx = grams(x), gy = grams(y)
+        let common = gx.reduce(0) { $0 + min($1.value, gy[$1.key] ?? 0) }
+        return Double(2 * common) / Double((x.count - 1) + (y.count - 1)) >= 0.6
+    }
+
     /// 秘書卡片掛著同一題 ⇒ 回傳清掉 --ask／--options 的卡片；不是同一題 ⇒ nil（不動）
     public static func clearing(_ r: SelfReport, question: String?) -> SelfReport? {
         guard same(r.ask, question) else { return nil }

@@ -118,6 +118,7 @@ enum CaptainCLI {
             out("  任務：\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(100))")
             if let s = t.summary { out("  回報：\(s)") }
             if let q = t.ask { out("  要使用者決定：\(q)") }
+            for n in TaskNotes.lines(t, last: 10) { out("  \(n)") }      // 11-28：使用者在卡片上答的原話（一律算數）
         }
         return 0
     }
