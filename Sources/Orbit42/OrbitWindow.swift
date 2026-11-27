@@ -340,6 +340,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         host.js("window.orbitTheme", dark ? "dark" : "light")
         askFloat?.theme = themeNow
         login.web.appearance = ap
+        SecCheckWindow.shared.applyTheme(ap)      // 11-28 資安體檢小視窗跟衛星一起換深淺色
     }
 
     /// 進入：收起登入畫面，球體的「＋ 新衛星」只列登入過的大腦

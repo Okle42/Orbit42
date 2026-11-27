@@ -4,6 +4,4 @@ import AppKit
 enum Palette {
     static let green = NSColor(srgbRed: 0x4f / 255.0, green: 0xc3 / 255.0, blue: 0x6a / 255.0, alpha: 1)
     static let red = NSColor(srgbRed: 0xd7 / 255.0, green: 0x26 / 255.0, blue: 0x1b / 255.0, alpha: 1)
-    /// 11-28 資安體檢的「注意」黃燈（綠＝正常、紅＝危險之間要第三色；深淺色都看得清）
-    static let amber = NSColor(srgbRed: 0xd9 / 255.0, green: 0x9a / 255.0, blue: 0x1e / 255.0, alpha: 1)
 }
