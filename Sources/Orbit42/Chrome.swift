@@ -186,10 +186,11 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
         zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             guard e.modifierFlags.intersection([.command, .control, .option]) == .command,
                   let v = e.window?.firstResponder as? ChromeView, v.phoneSize == nil else { return e }
-            switch e.charactersIgnoringModifiers {
-            case "=", "+": v.zoomStep(1)
-            case "-", "_": v.zoomStep(-1)
-            case "0": v.zoomStep(0)
+            // 用實體按鍵碼比對：注音等輸入法開著時字元會變（「-」→「ㄦ」），11-27 實測 ⌘－ 因此沒反應
+            switch e.keyCode {
+            case 24, 69: v.zoomStep(1)          // = ＋、數字鍵盤 ＋
+            case 27, 78: v.zoomStep(-1)         // - 、數字鍵盤 －
+            case 29, 82: v.zoomStep(0)          // 0 、數字鍵盤 0
             default: return e
             }
             return nil
