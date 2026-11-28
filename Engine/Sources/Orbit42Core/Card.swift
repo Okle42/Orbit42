@@ -24,6 +24,10 @@ public struct SelfReport: Codable, Sendable, Equatable {
     public var outward: String?        // --outward 要不要 push、部署、對外傳訊息
     public var role: String? = nil     // --role（開工卡）：職責
     public var title: String? = nil    // --title（開工卡）：工作標題
+    /// 11-28 Keng「回報卡住誤報」：--status waiting＝在等外部的事（等回信、等背景工作）。存成 blocked＋waiting（終端機照樣亮橘、舊版讀得懂），
+    /// 但看板、派工回報、名冊、播報都說「在等」，不說「卡住」
+    public var waiting: Bool? = nil
+    public var isWaiting: Bool { status == .blocked && waiting == true }
     public var at: Date
     public var isStart: Bool { kind == "start" }
     public var isWrapup: Bool { kind == "wrapup" }
@@ -69,12 +73,14 @@ public struct SelfReport: Codable, Sendable, Equatable {
     /// `orbit card` 的參數 → 回報；格式錯回傳錯誤訊息（給 AI 看得懂的中文）
     public static func parse(args: [String], now: Date = Date()) -> Result<SelfReport, CardError> {
         var a = args[...], status: Status?, p: Int?, c: Int?, s: String?, ask: String?, r: String?, task: String?, doing: String?, opts: [String]?, how: String?
-        var kind: String?, touch: String?, outward: String?, handoff: String?, role: String?, title: String?
+        var kind: String?, touch: String?, outward: String?, handoff: String?, role: String?, title: String?, waiting: Bool?
         func text(_ v: String) -> String? { let t = v.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t }
         while let k = a.popFirst() {
             guard let v = a.popFirst() else { return .failure(.init("\(k) 後面少了值")) }
             switch k {
-            case "--status": guard let x = Status(rawValue: v) else { return .failure(.init("--status 只能是 working／review／done／blocked")) }; status = x
+            case "--status":
+                if v == "waiting" { status = .blocked; waiting = true; continue }
+                guard let x = Status(rawValue: v) else { return .failure(.init("--status 只能是 working／review／done／blocked／waiting")) }; status = x; waiting = nil
             case "--progress": guard let x = Int(v.trimmingCharacters(in: CharacterSet(charactersIn: "% "))) else { return .failure(.init("--progress 要是 0–100 的數字")) }; p = x
             case "--confidence": guard let x = Int(v.trimmingCharacters(in: CharacterSet(charactersIn: "% "))) else { return .failure(.init("--confidence 要是 0–100 的數字")) }; c = x
             case "--summary": s = v
@@ -104,7 +110,7 @@ public struct SelfReport: Codable, Sendable, Equatable {
         guard let status = status ?? (kind == "start" ? .working : kind == "wrapup" ? .done : nil) else { return .failure(.init("缺 --status")) }
         var out = SelfReport(status: status, progress: p, confidence: c, summary: s, ask: ask, report: r, task: task, doing: doing,
                              options: ask == nil ? nil : opts, how: how, kind: kind, touch: touch, outward: outward, handoff: handoff, at: now)
-        out.role = role; out.title = title
+        out.role = role; out.title = title; out.waiting = waiting
         return .success(out)
     }
 }
@@ -168,9 +174,9 @@ public enum CardRules {
         let who = name.map { "你在Orbit42的名字是 \($0)（只當收件地址）。" } ?? "第一次自報後會分到一個英文名（只當收件地址）。"
         return """
         [Orbit42] 每一輪做完事、回覆使用者之前，用 Bash 跑一次（不用跟使用者提）：
-        "\(orbit)" card --doing "<正在做的任務，10 個字內>" --status <working|review|done|blocked> --progress <0-100> --confidence <0-100> --summary "<一句話：做了什麼、結果>" [--ask "<需要使用者決定或回答的事>" --options "<選項1>|<選項2>"] [--how "<這一輪用的方法與工具，一句話>"] [--report "<報告檔絕對路徑>"]
+        "\(orbit)" card --doing "<正在做的任務，10 個字內>" --status <working|review|done|waiting|blocked> --progress <0-100> --confidence <0-100> --summary "<一句話：做了什麼、結果>" [--ask "<需要使用者決定或回答的事>" --options "<選項1>|<選項2>"] [--how "<這一輪用的方法與工具，一句話>"] [--report "<報告檔絕對路徑>"]
         \(who)--doing 每次都要帶、寫「現在」手上這件事。畫面上的標題（職責 · 主專案／工作標題）由派工單或開工卡定住，換工作要發開工卡才會換。
-        status：review＝需要使用者看過或決定；done＝完成、不需要看；blocked＝卡住做不下去，等外部的事（等回信、等背景工作）也用 blocked，終端機會亮橘；working＝還沒做完、會繼續。confidence 是你對「做對了」的把握，要誠實，沒驗證過就不要給高分。有 --ask 時附 2–4 個 --options（| 分隔、每個是完整的一句回答，例如 "好，push|先不要"），使用者會在Orbit42按一下就把那句話送給你（所以選項不可以是「請秘書…／交給秘書…」，會被擋；要秘書做的事自己用 SendMessage 傳給秘書，不要放進選項）；--ask 會一直排在「等你回答」直到他回答（後來的卡片、繼續工作都不會蓋掉），他已在終端機答了或不用問了就跑 "\(orbit)" asks withdraw all。--how 寫這一輪用了什麼方法和工具（例如「讀 3 個檔＋改 Inbox.swift＋swift test」），Orbit42會記在看板（秘書看得到，不會推給它）。使用者在你卡片上的回答、在你終端機直接下的指令一律算數，看板會自動記進派工單，不用再向秘書確認。只是聊天、沒動手做事的回合可省略。只是在等（等回覆、等背景工作）、沒動手做事的回合，整張卡都不用發。
+        status：review＝需要使用者看過或決定；done＝完成、不需要看；waiting＝在等外部的事（等回信、等背景工作），終端機會亮橘、看板寫「在等」；blocked＝真的卡住做不下去、要人處理（看板寫「卡住」、會通知秘書）；working＝還沒做完、會繼續。confidence 是你對「做對了」的把握，要誠實，沒驗證過就不要給高分。有 --ask 時附 2–4 個 --options（| 分隔、每個是完整的一句回答，例如 "好，push|先不要"），使用者會在Orbit42按一下就把那句話送給你（所以選項不可以是「請秘書…／交給秘書…」，會被擋；要秘書做的事自己用 SendMessage 傳給秘書，不要放進選項）；--ask 會一直排在「等你回答」直到他回答（後來的卡片、繼續工作都不會蓋掉），他已在終端機答了或不用問了就跑 "\(orbit)" asks withdraw all。--how 寫這一輪用了什麼方法和工具（例如「讀 3 個檔＋改 Inbox.swift＋swift test」），Orbit42會記在看板（秘書看得到，不會推給它）。使用者在你卡片上的回答、在你終端機直接下的指令一律算數，看板會自動記進派工單，不用再向秘書確認。只是聊天、沒動手做事的回合可省略。只是在等（等回覆、等背景工作）、沒動手做事的回合，整張卡都不用發。
         跟使用者提到其他 AI session 時，一律用英文名（不要說 \(NSUserName())-xx 或 session id）；對照表："\(orbit)" names。
         """
     }
@@ -178,13 +184,18 @@ public enum CardRules {
     /// 自報＋決定＋光暈 → 欄位。P1 的規則（`Board.column`）是底，這裡疊上這一輪的新資訊。
     /// - Parameters:
     ///   - lastPrompt: 你最後一次送出訊息的時間（之前的自報都算舊的）
+    /// 卡住／在等的原因字（球體看到「在等外部」開頭就說「在等」、灰色、不跳紅色卡住橫幅）
+    public static func blockedReason(_ r: SelfReport) -> String {
+        r.isWaiting ? "在等外部的事" + (r.summary.map { "：\($0)" } ?? "") : "AI 自報卡住：\(r.summary ?? "")"
+    }
+
     ///   - pending: 排隊中最早一題還沒回答的 --ask（Asks.swift）。不管 status（blocked 也算）、不管它還在工作中，都放「要你決定」
     public static func column(base: (BoardColumn, String), glow: WorkState?, report: SelfReport?, decision: Decision?,
                               lastPrompt: Date?, lastActivity: Date?, pending: PendingAsk? = nil) -> (BoardColumn, String) {
         if glow == .input { return base }                                       // 等你回答永遠最優先
         if let p = pending { return (.review, "要你決定：\(p.ask)") }            // 11-11：工作中事件、卡住自報都不能把問題蓋掉
         if base.0 == .active || base.0 == .stuck {
-            if let r = fresh(report, lastPrompt), r.status == .blocked { return (.stuck, "AI 自報卡住：\(r.summary ?? "")") }
+            if let r = fresh(report, lastPrompt), r.status == .blocked { return (.stuck, blockedReason(r)) }
             return base
         }
         if let d = decision, d.at >= (lastActivity ?? .distantPast) {
@@ -196,7 +207,7 @@ public enum CardRules {
         guard let r = fresh(report, lastPrompt) else { return base }
         switch r.status {
         case .review: return (.review, r.ask.map { "要你決定：\($0)" } ?? "AI 請你看過")
-        case .blocked: return (.stuck, "AI 自報卡住：\(r.summary ?? "")")
+        case .blocked: return (.stuck, blockedReason(r))
         case .done: return r.ask != nil ? (.review, "要你決定：\(r.ask!)") : (.done, "AI 自報完成")
         case .working: return base
         }

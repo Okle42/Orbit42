@@ -11,7 +11,7 @@ struct CardTests {
         let r = try SelfReport.parse(args: ["--status", "review", "--progress", "80%", "--confidence", "130", "--summary", "做完 A", "--ask", "要 push 嗎"], now: t0).get()
         #expect(r.status == .review && r.progress == 80 && r.confidence == 100 && r.ask == "要 push 嗎" && r.at == t0)
         #expect(SelfReport.parse(args: ["--progress", "5"]) == .failure(CardError("缺 --status")))
-        #expect(SelfReport.parse(args: ["--status", "ok"]) == .failure(CardError("--status 只能是 working／review／done／blocked")))
+        #expect(SelfReport.parse(args: ["--status", "ok"]) == .failure(CardError("--status 只能是 working／review／done／blocked／waiting")))
         #expect(SelfReport.parse(args: ["--status"]) == .failure(CardError("--status 後面少了值")))
         #expect(SelfReport.parse(args: ["--status", "done", "--x", "1"]) == .failure(CardError("不認得的參數 --x")))
     }

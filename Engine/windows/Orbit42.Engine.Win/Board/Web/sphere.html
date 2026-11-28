@@ -837,6 +837,8 @@ const bits = [];
 }
 
 // 6. v3 #3 session 衛星：每個 session 一顆小光點繞球；顏色＝狀態，需要你的會脈動、點了跳過去
+/* 11-28：卡住欄裡「在等外部的事」（--status waiting）不是出事：灰色、不套準星、不跳紅色橫幅 */
+const isWaitOut = c => !!c && c.status === "卡住" && /^在等外部/.test(c.reason || "");
 const SAT_COLOR = { "需要你": ALERT, "進行中": BALL, "待審": GRAY, "卡住": BAD, "完成": DONE };
 const SAT_GRAY = DONE;
 const satGroup = new THREE.Group(); scene.add(satGroup);
@@ -863,7 +865,7 @@ function syncSats(team) {
       sats.set(c.sessionId, s);
     }
     s.c = c;
-    const col = SAT_COLOR[c.status] || SAT_GRAY;
+    const col = isWaitOut(c) ? SAT_GRAY : SAT_COLOR[c.status] || SAT_GRAY;
     s.fade.set(col);
   }
   for (const [id, s] of sats) if (!keep.has(id)) { satGroup.remove(s.pivot); for (const m of s.moons || []) { m.mesh.material.dispose(); m.hit.material.dispose(); if (hoveredMoon === m) hoveredMoon = null; } s.mesh.material.dispose(); s.halo.material.dispose(); sats.delete(id); }
@@ -2011,7 +2013,7 @@ const markG = document.createElementNS("http://www.w3.org/2000/svg", "g"); $("li
 const markPool = [];
 function satMarks() {
   const want = [];
-  for (const s of sats.values()) if (s.c && (s.c.status === "需要你" || s.c.status === "卡住" || s === hovered)) want.push(s);
+  for (const s of sats.values()) if (s.c && (s.c.status === "需要你" || (s.c.status === "卡住" && !isWaitOut(s.c)) || s === hovered)) want.push(s);
   while (markPool.length < want.length) {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.innerHTML = `<circle r="7" style="fill:var(--bg);opacity:.85"/><circle r="6.5" style="fill:none;stroke:var(--acc);stroke-width:1.2"/><circle r="3" style="fill:var(--acc)"/>`;
@@ -2405,10 +2407,13 @@ function diff(team) {
       else if (is === "卡住" && was !== "卡住") {
         const quiet = r.match(/^(\d+) 分鐘沒有新動靜/);
         const why = r.replace(/^AI 自報卡住：/, "").trim();
+        const waitOut = !quiet && r.startsWith("在等外部");
         const line = quiet ? talk("quiet", `${who} 已經 ${quiet[1]} 分鐘沒有新動靜，可能卡住了。`, { minutes: quiet[1] })
-          : r.startsWith("在等外部") ? talk("wait", `${who} 在等外部的事${result ? "：" + clip(result, 30) : "。"}`)
+          : waitOut ? talk("wait", `${who} 在等外部的事${result ? "：" + clip(result, 30) : "。"}`)
           : talk("stuck", `${who} 卡住了${why ? "：" + clip(why, 30) : "。"}`, { why });
-        announce(line, { auto: true, pop, banner: { level: "bad", icon: "warn", tag: "卡住 · BLOCKED", source: who, title: quiet ? `${who} ${quiet[1]} 分鐘沒動靜` : `${who} 卡住了`, sub: clip(quiet ? "可能在跑長指令，或真的卡住了" : why || result, 60), sid: c.sessionId } });
+        // 11-28 Keng「回報卡住誤報」：在等外部的事（--status waiting）只輕聲講一句，不跳紅色「卡住」橫幅
+        if (waitOut) announce(line, { auto: true, pop });
+        else announce(line, { auto: true, pop, banner: { level: "bad", icon: "warn", tag: "卡住 · BLOCKED", source: who, title: quiet ? `${who} ${quiet[1]} 分鐘沒動靜` : `${who} 卡住了`, sub: clip(quiet ? "可能在跑長指令，或真的卡住了" : why || result, 60), sid: c.sessionId } });
       }
     }
   }
@@ -3368,7 +3373,7 @@ function applyTheme() {
   for (const f of [accentFade, heatFade]) { f.from.copy(f.to); f.t0 = -1e9; }
   setState(state);
   accentFade.c.copy(accentFade.to); accentFade.from.copy(accentFade.to); accentFade.t0 = -1e9;
-  for (const sat of sats.values()) { const col = SAT_COLOR[sat.c?.status] || SAT_GRAY; sat.fade.to.copy(col); sat.fade.from.copy(col); sat.fade.c.copy(col); sat.fade.t0 = -1e9; }
+  for (const sat of sats.values()) { const col = isWaitOut(sat.c) ? SAT_GRAY : SAT_COLOR[sat.c?.status] || SAT_GRAY; sat.fade.to.copy(col); sat.fade.from.copy(col); sat.fade.c.copy(col); sat.fade.t0 = -1e9; }
   syncOuter(data.runs, data.heat); heatFade.c.copy(heatFade.to); heatFade.from.copy(heatFade.to);
   for (const a of outerArcs) if (!a.mesh.userData.heat) { a.mesh.material.color.copy(BALL); a.track.material.color.copy(BALL); }
   waveHist.fill(0); waveIdle = 0;

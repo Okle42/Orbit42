@@ -11,7 +11,7 @@ import Foundation
 /// 一張派工單
 public struct CaptainTask: Codable, Sendable, Equatable, Identifiable {
     public enum State: String, Codable, Sendable, CaseIterable {
-        case sent, working, review, done, blocked, cancelled
+        case sent, working, review, done, blocked, cancelled, waiting     // waiting：11-28 在等外部的事（不是卡住、不通知秘書）
 
         public var title: String {
             switch self {
@@ -20,11 +20,12 @@ public struct CaptainTask: Codable, Sendable, Equatable, Identifiable {
             case .review: "要你看"
             case .done: "完成"
             case .blocked: "卡住"
+            case .waiting: "在等"
             case .cancelled: "已取消"
             }
         }
         /// 還沒結束（秘書要繼續追）
-        public var open: Bool { self == .sent || self == .working || self == .blocked }
+        public var open: Bool { self == .sent || self == .working || self == .blocked || self == .waiting }
     }
 
     public var id: String
@@ -67,7 +68,7 @@ public struct CaptainTask: Codable, Sendable, Equatable, Identifiable {
         case .working: state = .working
         case .review: state = .review
         case .done: state = r.ask == nil ? .done : .review
-        case .blocked: state = .blocked
+        case .blocked: state = r.isWaiting ? .waiting : .blocked
         }
         summary = r.summary ?? summary
         ask = r.ask
@@ -202,7 +203,7 @@ public enum Captain {
         3. 派工："\(orbit)" task add --to <英文名，例如 Chris> --role <修改|複核|設計|測試|研究|維運> --title "<14 字內短標題>" --text "<任務：目標、判準、交什麼>" —— 會建單並直接送進對方收件匣。
            接力（A 做完自動交給 B）：再加 --then-to <B 的名字> --then "<B 要做的事>"（可帶 --then-role、--then-title），A 回報完成時看板會把 A 的回報附上、自動派給 B。
            直送失敗時它會印出全文，改用 SendMessage（to＝英文名，例如 Chris；名字固定，不會跟著對方在做的事變）送。
-        4. 你只收「完成」與「卡住」：派工單完成或卡住（blocked）時，看板會自動傳一則「【派工回報】」給你；ctx 交接的提醒照舊。
+        4. 你只收「完成」與「卡住」：派工單完成或卡住（blocked）時，看板會自動傳一則「【派工回報】」給你；組員在等外部的事（--status waiting，名冊寫「在等」）不算卡住、不會傳；ctx 交接的提醒照舊。
            組員要\(owner)決定的事（--ask）只在組員卡片問、只記在看板，不推給你（不再有【工作回報】）；要看就 "\(orbit)" tasks 或 "\(orbit)" roster。
         5. \(owner)直接對組員下的指令、在任何卡片上的回答一律算數：看板會把原話＋時間＋在哪張卡答自動記進那張派工單（"\(orbit)" tasks 看得到，【派工回報】也帶上）。
            跟原任務寫的不一樣時以原話為準；不要發訊問組員「是不是\(owner)說的」，也不要再問\(owner)確認。你只在有人卡住時出手；收到完成回報就整理給\(owner)。
