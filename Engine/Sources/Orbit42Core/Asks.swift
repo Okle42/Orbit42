@@ -165,6 +165,17 @@ public enum AskQueue {
     }
 
     /// 打進終端機但沒確認到
+    /// 11-28 待修⑤「沒送到，重送」：使用者看過終端機、確定沒送到 ⇒ 拿掉「沒確認到／送出中」，這題可以再按一次（題目、選項不變）
+    @discardableResult
+    public static func reopen(sid: String, id: String) -> Bool {
+        locked {
+            var xs = load(sid)
+            guard let i = xs.firstIndex(where: { $0.id == id }), xs[i].unsureAt != nil || xs[i].sendingAt != nil else { return false }
+            xs[i].unsureAt = nil; xs[i].sendingAt = nil; save(sid, xs)
+            return true
+        }
+    }
+
     public static func markUnsure(sid: String, id: String, now: Date = Date()) {
         locked {
             var xs = load(sid)

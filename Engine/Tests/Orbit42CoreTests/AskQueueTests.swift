@@ -101,6 +101,9 @@ struct AskQueueTests {
         #expect(go(p) == .ok(q, text: "好，現在部署", queued: 1))
         AskQueue.markUnsure(sid: "S", id: "Q1", now: n)
         #expect(go(p) == .busy)                                       // 沒確認到：不能再按成第二次送達
+        #expect(AskQueue.reopen(sid: "S", id: "Q1") && go(p) == .ok(q, text: "好，現在部署", queued: 1))   // 11-28 待修⑤：使用者按「沒送到，重送」⇒ 可以再按
+        AskQueue.unclaim(sid: "S", id: "Q1"); #expect(!AskQueue.reopen(sid: "S", id: "Q1") && !AskQueue.reopen(sid: "S", id: "Q9"))   // 沒卡住的、不在的題：不動
+        AskQueue.markUnsure(sid: "S", id: "Q1", now: n)
         AskQueue.resolve(sid: "S", id: "Q1", cardsDir: dir)
         #expect(go(p) == .gone)
         AskQueue.save("S", [q])

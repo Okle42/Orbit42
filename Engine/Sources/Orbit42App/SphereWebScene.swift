@@ -128,6 +128,10 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             AskQueue.resolve(sid: sid, id: aid)
             BoardModel.shared.append(["ev": "answer-dismiss", "id": sid, "ask": aid])
             SphereEmbed.askResult?(sid, aid, "已收掉")
+        case "askRetry":        // 11-28 待修⑤「沒送到，重送」：只把那題重新開放作答，送字還是要使用者再按一次答案（走原本 answer 那條）
+            guard let sid = str("sessionId"), let aid = str("askId"), !blocked else { return }
+            if AskQueue.reopen(sid: sid, id: aid) { BoardModel.shared.append(["ev": "answer-reopen", "id": sid, "ask": aid]) }
+            SphereEmbed.askResult?(sid, aid, "重新開放作答")
         case "permit":
             guard let c = card(str("sessionId")) else { return say("這個 session 已經不在了。") }
             guard let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") else { return say("看不懂這個回答，沒有送出。") }
