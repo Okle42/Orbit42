@@ -63,8 +63,9 @@ final class ChromeBrowser {
         let rc = posix_spawn(&p, exe, &acts, &attr, &argv, &envp)
         posix_spawn_file_actions_destroy(&acts); posix_spawnattr_destroy(&attr)
         close(readEnd); close(writeEnd)
-        guard rc == 0 else { close(writeMine); close(readMine); return false }
+        guard rc == 0 else { close(writeMine); close(readMine); OrbitLog.restore("無頭 Chrome 開不起來 posix_spawn=\(rc)"); return false }
         pid = p; toChrome = writeMine; fromChrome = readMine
+        OrbitLog.restore("無頭 Chrome 啟動 pid \(p)；設定檔鎖在 \(ChromeGoogleLogin.lockOwner(Self.profile).map(String.init) ?? "沒人")")
         _ = fcntl(writeMine, F_SETNOSIGPIPE, 1)
         let fd = readMine, me = p
         Thread.detachNewThread {
@@ -92,6 +93,7 @@ final class ChromeBrowser {
     }
     private func died(_ p: pid_t) {
         guard p == pid else { return }
+        OrbitLog.restore("無頭 Chrome \(p) 結束了；設定檔鎖在 \(ChromeGoogleLogin.lockOwner(Self.profile).map(String.init) ?? "沒人")")
         close(toChrome); close(fromChrome)
         pid = 0; toChrome = -1; fromChrome = -1; listeners = [:]
         let w = waiting; waiting = [:]
@@ -262,16 +264,22 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
             ChromeGoogleLogin.shared.whenClosed { [weak self] in if let self, !self.closed { self.connect() } }
             return
         }
-        guard ChromeBrowser.shared.start() else { onError("這台 Mac 沒有裝 Google Chrome，或開不起來"); return }
+        guard ChromeBrowser.shared.start() else { OrbitLog.restore("網頁 \(url?.absoluteString ?? "-")：無頭 Chrome 開不起來"); onError("這台 Mac 沒有裝 Google Chrome，或開不起來"); return }
         opening = true
         ChromeBrowser.shared.send("Target.createTarget", ["url": "about:blank"]) { [weak self] r in
-            guard let t = (r["result"] as? [String: Any])?["targetId"] as? String else { self?.opening = false; self?.onError("Chrome 開不了新頁"); return }
+            guard let t = (r["result"] as? [String: Any])?["targetId"] as? String else {
+                OrbitLog.restore("網頁 \(self?.url?.absoluteString ?? "-")：開新頁失敗 \(r["error"] ?? "")")
+                self?.opening = false; self?.onError("Chrome 開不了新頁"); return
+            }
             guard let self, !self.closed else { ChromeBrowser.shared.send("Target.closeTarget", ["targetId": t]); return }
             self.target = t; ChromeBrowser.shared.own(t, self)
             ChromeBrowser.shared.send("Target.attachToTarget", ["targetId": t, "flatten": true]) { [weak self] r in
                 guard let self else { return }
                 self.opening = false
-                guard let s = (r["result"] as? [String: Any])?["sessionId"] as? String, !self.closed else { return }
+                guard let s = (r["result"] as? [String: Any])?["sessionId"] as? String, !self.closed else {
+                    if !self.closed { OrbitLog.restore("網頁 \(self.url?.absoluteString ?? "-")：接上新頁失敗 \(r["error"] ?? "")"); self.onError("Chrome 接不上新頁，按 ↻ 重開") }
+                    return
+                }
                 self.session = s
                 ChromeBrowser.shared.listen(s) { [weak self] m, p in self?.event(m, p) }
                 self.cmd("Page.enable"); self.cmd("Runtime.enable")

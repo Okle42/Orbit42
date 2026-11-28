@@ -594,6 +594,10 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             out.append(e)
         }
         if let d = try? JSONSerialization.data(withJSONObject: out) { UserDefaults.standard.set(String(decoding: d, as: UTF8.self), forKey: Self.restoreKey) }
+        OrbitLog.restore("關掉前記下 \(out.count) 顆衛星：" + out.map { e in
+            "\(e["name"] ?? "?")" + (e["web"].map { "［網頁 \($0) 展開=\(e["webShown"] ?? "0")］" } ?? "")
+                + (e["3d"].map { "［3D \($0.split(separator: "\n").count) 個檔］" } ?? "")
+        }.joined(separator: "、"))
     }
     /// 11-26 Keng「重開後網頁面板自動恢復」：這顆衛星上方開著網頁 ⇒ 記下網址和有沒有展開
     private func addWeb(_ e: inout [String: String], _ id: String) {
@@ -614,19 +618,45 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let files = list.split(separator: "\n").map { URL(fileURLWithPath: String($0)) }
         let cur = e["3dCur"].map { URL(fileURLWithPath: $0) }, shown = e["3dShown"] == "1"
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { MainActor.assumeIsolated {
-            guard self.has(id) else { return }
+            guard self.has(id) else { OrbitLog.restore("3D \(id)：2.5 秒時衛星還沒開回來，略過 \(files.count) 個檔"); return }
             OrbitWindow.shared.restoreModels(files, cur: cur, shown: shown, sat: id)
+            let missing = files.filter { !FileManager.default.fileExists(atPath: $0.path) }.map(\.lastPathComponent)
+            OrbitLog.restore("3D \(id)：開回 \(files.count) 個檔、目前 \(cur?.lastPathComponent ?? "-")、展開=\(shown)\(missing.isEmpty ? "" : "；找不到檔：" + missing.joined(separator: "、"))")
             print("restore 3d \(id) \(files.count) files shown=\(shown)"); fflush(stdout)
         } }
     }
-    /// 衛星開回來之後，把它的網頁也開回來（等衛星視窗建好）
+    /// 衛星開回來之後，把它的網頁也開回來（等衛星視窗建好）。
+    /// 11-28 Keng「重開後網頁有時沒開回來」：以前固定等 2.5 秒、衛星還沒好就默默放棄，也沒留紀錄 ⇒
+    /// 每 0.5 秒看一次、最多等 10 秒；開了之後 6 秒、15 秒各檢查一次有沒有畫面，沒有就重開一次；每一步寫 restore.log
     private func reopenWeb(_ e: [String: String], sat id: String) {
-        guard let u = e["web"].flatMap(WebPane.parse), !u.isFileURL else { return }
+        guard let raw = e["web"] else { return }
+        guard let u = WebPane.parse(raw), !u.isFileURL else { OrbitLog.restore("網頁 \(id)：存的網址 \(raw) 不能開，略過"); return }
         let shown = e["webShown"] == "1"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { MainActor.assumeIsolated {
-            guard self.has(id) else { return }
-            if shown { OrbitWindow.shared.openWeb(u, sat: id) } else { OrbitWindow.shared.openWebQuiet(u, sat: id) }
-            print("restore web \(id) \(u.absoluteString) shown=\(shown)"); fflush(stdout)
+        OrbitLog.restore("網頁 \(id)：排定開回 \(u.absoluteString) 展開=\(shown)")
+        func attempt(_ tries: Int) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + (tries == 0 ? 2.5 : 0.5)) { MainActor.assumeIsolated {
+                guard self.has(id) else {
+                    if tries < 15 { attempt(tries + 1) } else { OrbitLog.restore("網頁 \(id)：等 10 秒衛星都沒開回來，放棄 \(u.absoluteString)") }
+                    return
+                }
+                if shown { OrbitWindow.shared.openWeb(u, sat: id) } else { OrbitWindow.shared.openWebQuiet(u, sat: id) }
+                OrbitLog.restore("網頁 \(id)：開 \(u.absoluteString)（等了 \(String(format: "%.1f", 2.5 + Double(tries) * 0.5)) 秒）")
+                self.checkWeb(id, u, after: 6, retried: false)
+            } }
+        }
+        attempt(0)
+    }
+    /// 開回網頁後看結果：有收到畫面 ⇒ 成功；沒有、也不是在等登入視窗 ⇒ 記下面板上的訊息，重開一次
+    private func checkWeb(_ id: String, _ u: URL, after s: Double, retried: Bool) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated {
+            guard let pane = OrbitWindow.shared.moonViews(id)["web"] as? WebPane else { OrbitLog.restore("網頁 \(id)：面板已經關掉（\(Int(s)) 秒時）"); return }
+            let frames = pane.web.frames, msg = pane.messageText
+            if frames > 0 { OrbitLog.restore("網頁 \(id)：成功，收到 \(frames) 張畫面，現在在 \(pane.currentURL)"); return }
+            if ChromeGoogleLogin.shared.isOpen { OrbitLog.restore("網頁 \(id)：在等登入用的 Chrome 視窗關掉（\(msg)）"); return }
+            OrbitLog.restore("網頁 \(id)：\(Int(s)) 秒還沒畫面，訊息「\(msg.isEmpty ? "無" : msg)」，Chrome pid \(ChromeBrowser.shared.pid)\(retried ? "，已重試過，不再試" : "，重開一次")")
+            guard !retried else { return }
+            pane.web.load(u)
+            self.checkWeb(id, u, after: 9, retried: true)
         } }
     }
 
@@ -634,8 +664,9 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func restore() {
         if Self.restoreBlocked { return }
         guard let str = UserDefaults.standard.string(forKey: Self.restoreKey), let d = str.data(using: .utf8),
-              let list = try? JSONSerialization.jsonObject(with: d) as? [[String: String]], !list.isEmpty else { return }
+              let list = try? JSONSerialization.jsonObject(with: d) as? [[String: String]], !list.isEmpty else { OrbitLog.restore("打開：沒有要開回的衛星"); return }
         UserDefaults.standard.removeObject(forKey: Self.restoreKey)
+        OrbitLog.restore("打開：要開回 \(list.count) 顆衛星，其中 \(list.filter { $0["web"] != nil }.count) 顆有網頁、\(list.filter { $0["3d"] != nil }.count) 顆有 3D")
         for e in list {
             let cwd = e["cwd"] ?? NSHomeDirectory()
             if let job = e["job"] {
