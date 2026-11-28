@@ -234,9 +234,14 @@ enum BoardActions {
     /// 答案能不能走「打進終端機」（純判斷）。放行、排了好幾題、開著權限框的不走：
     ///   放行有自己的單號規則；打字進去會讓 UserPromptSubmit 把排著的題全部當成答了；註明題目的字也會被當成使用者說的
     static func typable(_ c: BoardCard, pick: AnswerPick?, source: AnswerSource, asks: [PendingAsk], now: Date = Date()) -> String? {
-        guard source == .user, c.permit == nil, c.asks.count <= 1, c.kind != "board", !c.id.contains("#"),
-              let raw = pick?.text(asks: asks, now: now), let t = TermAnswer.clean(raw), !TermAnswer.norm(t).hasPrefix("放行") else { return nil }
-        return t
+        // 11-28 Keng：「我用答案卡回答的，要像我在終端機打字一樣有框框」。以前排了 2 題以上就改走訊息（終端機沒框框）；
+        // 改成照樣打進去，後面註明答的是哪一題（跟走訊息時同一句「（回答的是：…）」）
+        guard source == .user, c.permit == nil, c.kind != "board", !c.id.contains("#"), let pick else { return nil }
+        let live = AskQueue.live(asks, now: now)
+        guard let q = live.first(where: { $0.id == pick.askId }), let raw = pick.text(for: q),
+              let t = TermAnswer.clean(raw), !TermAnswer.norm(t).hasPrefix("放行") else { return nil }
+        guard live.count > 1 || c.asks.count > 1 else { return t }
+        return TermAnswer.clean(t + "（回答的是：\(q.ask.replacingOccurrences(of: "\n", with: " ").prefix(60))）") ?? t
     }
 
     /// hook 用的 orbit 看得懂記號嗎（舊版看不懂會提早放行 ⇒ 不打字，走訊息）
