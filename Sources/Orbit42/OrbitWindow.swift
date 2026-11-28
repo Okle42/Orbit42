@@ -233,17 +233,28 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         guard let id else { openModel(url); return }
         // 同一個檔原本開在獨立視窗 ⇒ 吃進來
         for (k, x) in satWins where k.hasPrefix("3d-") && (x.content as? ModelView)?.url?.standardizedFileURL == url.standardizedFileURL { closeModel(x) }
-        let v: ModelView
-        if let have = moons[id]?["3d"] as? ModelView { v = have }
-        else {
-            v = ModelView(frame: .zero)
-            v.onShut = { [weak self] in self?.dropMoon(id, "3d") }
-            v.onTuck = { [weak self] in self?.tuckMoon(id) }
-            v.onOpenPanel = { [weak self, weak v] in self?.pickModel(into: v) }
-            v.onTitle = { [weak self] _ in self?.pushMoons() }
-            moons[id, default: [:]]["3d"] = v
-        }
+        let v = modelPane(id)
         showMoon(id, "3d"); v.open(url)
+    }
+    private func modelPane(_ id: String) -> ModelView {
+        if let have = moons[id]?["3d"] as? ModelView { return have }
+        let v = ModelView(frame: .zero)
+        v.onShut = { [weak self] in self?.dropMoon(id, "3d") }
+        v.onTuck = { [weak self] in self?.tuckMoon(id) }
+        v.onOpenPanel = { [weak self, weak v] in self?.pickModel(into: v) }
+        v.onTitle = { [weak self] _ in self?.pushMoons() }
+        moons[id, default: [:]]["3d"] = v
+        return v
+    }
+    /// 11-28 Keng「重開會把用到一半的 3D 關掉」：重開後把 3D 面板開回來。files 依原本下拉選單順序，cur 是當時顯示的那個
+    func restoreModels(_ files: [URL], cur: URL?, shown: Bool, sat id: String) {
+        let have = files.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !have.isEmpty else { return }
+        let v = modelPane(id)
+        let show = cur.flatMap { c in have.first { $0.standardizedFileURL == c.standardizedFileURL } } ?? have.last!
+        for u in have where u != show { v.open(u) }   // 先依序放進下拉選單，最後開當時那個
+        v.open(show)
+        if shown { showMoon(id, "3d") } else { pushMoons() }
     }
     /// 網頁開在衛星裡（同一顆衛星一個網頁面板，再開就換網址）
     func openWeb(_ url: URL?, sat: String = "", job: String = "") {

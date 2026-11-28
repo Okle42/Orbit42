@@ -11,6 +11,7 @@ extension OrbitWindow {
         runReadmeShot(env, test: test)      // ReadmeShotHook.swift：README 用的衛星 Chrome 截圖
         runAccountTest(env, test: test)     // AccountTestHook.swift：真的登一次 Google
         runHeadlessWakeTest(env, test: test) // HeadlessWakeTest.swift：卡 110 欄的衛星顯示後要重新量
+        runKeep3DTest(env, test: test)       // Keep3DTest.swift：重開後 3D 面板開回來
         // 測試（11-28）：ORBIT_TEST_ARRANGE_SHOT="<個數>@<png>" ⇒ 開 n 顆衛星（最後一顆當秘書）→ 自動排版截圖 →
         // 假滑鼠滑進第 2 顆露出的地方（不點）截圖，印每顆位置大小、疊放、輸入點在哪顆
         if let spec = env["ORBIT_TEST_ARRANGE_SHOT"], let at = spec.firstIndex(of: "@"), let n = Int(spec[..<at]), test {

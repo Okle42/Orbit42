@@ -571,11 +571,11 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var out: [[String: String]] = []
         for id in order {
             guard let s = sats[id], !id.hasPrefix("cmd-"), s.exited == nil else { continue }
-            if let job = s.attachedJob { var e = ["job": job, "name": s.name, "cwd": s.cwd]; addWeb(&e, id); out.append(e); continue }
+            if let job = s.attachedJob { var e = ["job": job, "name": s.name, "cwd": s.cwd]; addWeb(&e, id); addModel(&e, id); out.append(e); continue }
             guard let p = s.pty else { continue }
             var e = ["brain": s.brain.rawValue, "name": s.name, "cwd": s.cwd]
             if s.brain == .claude, let r = recs.first(where: { $0.pid == p.pid || Self.parent(of: $0.pid) == p.pid }) { e["sid"] = r.sessionId; e["cwd"] = r.cwd }
-            addWeb(&e, id)
+            addWeb(&e, id); addModel(&e, id)
             out.append(e)
         }
         if let d = try? JSONSerialization.data(withJSONObject: out) { UserDefaults.standard.set(String(decoding: d, as: UTF8.self), forKey: Self.restoreKey) }
@@ -586,6 +586,23 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let u = pane.currentURL
         guard !u.isEmpty, let url = URL(string: u), !url.isFileURL else { return }
         e["web"] = u; e["webShown"] = OrbitWindow.shared.moonShownKind(id) == "web" ? "1" : "0"
+    }
+    /// 11-28 Keng「重開會把用到一半的 3D 關掉」：這顆衛星開著 3D ⇒ 記下下拉選單裡的檔案、當時顯示哪個、有沒有展開
+    func addModel(_ e: inout [String: String], _ id: String) {
+        guard let pane = OrbitWindow.shared.moonViews(id)["3d"] as? ModelView, !pane.history.isEmpty else { return }
+        e["3d"] = pane.history.map(\.path).joined(separator: "\n")
+        if let u = pane.url { e["3dCur"] = u.path }
+        e["3dShown"] = OrbitWindow.shared.moonShownKind(id) == "3d" ? "1" : "0"
+    }
+    func reopenModel(_ e: [String: String], sat id: String) {
+        guard let list = e["3d"], !list.isEmpty else { return }
+        let files = list.split(separator: "\n").map { URL(fileURLWithPath: String($0)) }
+        let cur = e["3dCur"].map { URL(fileURLWithPath: $0) }, shown = e["3dShown"] == "1"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { MainActor.assumeIsolated {
+            guard self.has(id) else { return }
+            OrbitWindow.shared.restoreModels(files, cur: cur, shown: shown, sat: id)
+            print("restore 3d \(id) \(files.count) files shown=\(shown)"); fflush(stdout)
+        } }
     }
     /// 衛星開回來之後，把它的網頁也開回來（等衛星視窗建好）
     private func reopenWeb(_ e: [String: String], sat id: String) {
@@ -608,7 +625,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let cwd = e["cwd"] ?? NSHomeDirectory()
             if let job = e["job"] {
                 userContentController(WKUserContentController(), didReceive: FakeMessage(["action": "attach", "job": job, "name": e["name"] ?? job, "cwd": cwd]))
-                reopenWeb(e, sat: "bg-" + job)
+                reopenWeb(e, sat: "bg-" + job); reopenModel(e, sat: "bg-" + job)
                 continue
             }
             let brain = Brain(rawValue: e["brain"] ?? "claude") ?? .claude
@@ -620,7 +637,7 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if brain == .claude, Self.useBackground { openBackground(name: name, cwd: cwd, resume: sid); continue }
             let cmd = sid.map { brain.command + " --resume " + $0 } ?? brain.command
             let s = Satellite(id: UUID().uuidString.prefix(8).lowercased(), name: name, brain: brain, cwd: cwd, command: cmd)
-            add(s); onOpen(s.id); reopenWeb(e, sat: s.id)
+            add(s); onOpen(s.id); reopenWeb(e, sat: s.id); reopenModel(e, sat: s.id)
         }
     }
 
