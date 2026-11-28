@@ -14,6 +14,7 @@
 //   orbit web enable [--port N] | disable | status | rotate   Orbit42 網頁版（只綁 Tailscale；要本人在終端機跑）
 //   orbit cost [--week] | tasks | weekly [--save]   花費紀錄（CostLog.swift，約當 API 牌價）
 //   orbit learn scan | list | approve <編號> | reject <編號>   從過去紀錄整理建議（Lessons.swift；核可才生效）
+//   orbit skill search | list | preview | install   匯入公開 skill（SkillImport.swift；預覽＋危險掃描，核可才裝）
 //   orbit seccheck [--card] [--json] [--wait] [--accept-network] [--open]   本機資安體檢（只看不改，SecCheck.swift）
 //
 // Contract with the AI tools that call us (hooks): this must NEVER slow them down or fail them.
@@ -467,6 +468,9 @@ if args.first == "cost" {
 }
 if args.first == "learn" {
     exit(LearnCLI.run(args))
+}
+if args.first == "skill" {
+    exit(SkillCLI.run(args))
 }
 if args.first == "b1" {
     exit(B1CLI.run(args))
