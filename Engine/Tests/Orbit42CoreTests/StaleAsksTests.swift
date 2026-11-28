@@ -52,6 +52,16 @@ struct StaleAsksTests {
         #expect(StaleAsks.shipVerbs("要換裝置測嗎？").isEmpty)
         #expect(StaleAsks.shipVerbs("推薦用哪個版本？").isEmpty)
         #expect(StaleAsks.shipVerbs("main 3b97f08 的測試結果要寄給誰？").isEmpty)
+        // 11-28 實測誤撤：前面是報告、引號裡是引用，真正問的是「接下來？」
+        #expect(StaleAsks.shipVerbs("自動撤題已上線：推上 GitHub main（4dc1503）、15:48 裝好並重開成功，App 這次也記下了自己是哪個 commit，之後「問要不要裝」的題也判斷得到。已傳訊請秘書把本機 main 跟上。接下來？").isEmpty)
+        #expect(StaleAsks.shipVerbs("改好了 1b1dab2。要不要 push？") == [.push])     // 問句在後面、commit 在前面：照樣認
+    }
+
+    @Test("誤撤（實測）：報告完問「接下來？」的題，commit 已進 main、已裝也不撤")
+    func reportThenNext() {
+        let g = git { $0.refs["4dc1503"] = "H"; $0.refs["INST"] = "H"; $0.inside = ["H>OM", "H>M"] }
+        let q = ask("Q1", "自動撤題已上線：推上 GitHub main（4dc1503）、15:48 裝好並重開成功，之後「問要不要裝」的題也判斷得到。接下來？")
+        #expect(StaleAsks.shipped(q, card: nil, cwd: "/repo", installed: "INST", git: g) == nil)
     }
 
     @Test("解析 commit 與分支：日期、英文字、檔名、網址不算")

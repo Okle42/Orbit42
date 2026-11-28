@@ -54,7 +54,8 @@ public enum StaleAsks {
     static let askWords = #"(要不要|要不|是否|可不可以|可以|能不能|需不需要|該不該|需要)"#
 
     /// 這題在問哪幾種動作；只是提到（「已經 push 了，接下來做哪個？」）不算
-    public static func shipVerbs(_ question: String) -> Set<Verb> {
+    public static func shipVerbs(_ text: String) -> Set<Verb> {
+        let question = focus(text)
         var out = Set<Verb>()
         for (v, p) in verbPatterns {
             let asked = "\(askWords)\(clause){0,30}?(\(p))"          // 「要不要 push …」
@@ -62,6 +63,16 @@ public enum StaleAsks {
             if matches(asked, question) || matches(tail, question) { out.insert(v) }
         }
         return out
+    }
+
+    /// 只看真正在問的那幾句（有 ？／嗎 的句子），引號裡的字不算。
+    /// 11-28 實測誤撤：「自動撤題已上線：推上 GitHub main…之後「問要不要裝」的題也判斷得到。…接下來？」前面是報告、引號是引用，真正問的是「接下來？」
+    /// 整段都沒有問句（例如「要不要 push 1b1dab2」沒打問號）就整段看
+    static func focus(_ text: String) -> String {
+        let unquoted = text.replacingOccurrences(of: #"「[^」]*」|『[^』]*』|“[^”]*”|"[^"]*""#, with: " ", options: .regularExpression)
+        let sentences = unquoted.components(separatedBy: CharacterSet(charactersIn: "。！!；;\n"))
+        let asked = sentences.filter { $0.contains("？") || $0.contains("?") || $0.contains("嗎") }
+        return asked.isEmpty ? unquoted : asked.joined(separator: "。")
     }
 
     static func matches(_ pattern: String, _ s: String) -> Bool {
