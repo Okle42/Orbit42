@@ -72,4 +72,4 @@ cur=($(pids))
 if (( ${#cur} )); then say "已經有人先打開了（程序 $cur），不重複開"; exit 0; fi
 open "$APP"; sleep 3
 new=($(pids))
-if (( ${#new} )); then say "已重開（程序 $new）"; /usr/bin/python3 -I "${0:A:h}/swap_app.py" clean; else say "打開失敗：找不到新的 Orbit42 程序"; exit 1; fi
+if (( ${#new} )); then say "已重開（程序 $new）"; /usr/bin/python3 -I "${0:A:h}/installed_record.py" restart --app "$APP" --who "$WHO" --pid "${new[1]}" || true; /usr/bin/python3 -I "${0:A:h}/swap_app.py" clean; else say "打開失敗：找不到新的 Orbit42 程序"; exit 1; fi

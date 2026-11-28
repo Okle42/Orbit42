@@ -106,5 +106,6 @@ echo "已換 orbit、orbit-web（舊 bin/ 備份在 $BACKUP）"
 /usr/bin/python3 -I scripts/swap_app.py install "$TMP" --app "$APP"      # 原子互換；舊包留到下次重開才清（刪掉執行中的舊包，系統會認不得它）
 # Desktop shortcut (Finder alias, so the icon shows and double-click opens the app)
 blog "裝好｜$SUMMARY"
+/usr/bin/python3 -I scripts/installed_record.py build --app "$APP" --who "$WHO" --root "$PWD" --forced "${ORBIT_BUILD_FORCE:-}" || true   # 11-28 board/installed.json 跟著更新
 osascript -e 'tell application "Finder" to if not (exists alias file "Orbit42" of desktop) then make alias file to (POSIX file "'"$APP"'") at desktop with properties {name:"Orbit42"}' >/dev/null
 echo "$APP"
