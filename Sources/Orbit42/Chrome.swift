@@ -7,7 +7,8 @@ import Darwin
 final class ChromeBrowser {
     static let shared = ChromeBrowser()
     static var appURL: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") }
-    private var pid: pid_t = 0, toChrome: Int32 = -1, fromChrome: Int32 = -1
+    private(set) var pid: pid_t = 0
+    private var toChrome: Int32 = -1, fromChrome: Int32 = -1
     private var nextID = 0
     private var waiting: [Int: ([String: Any]) -> Void] = [:]
     private var listeners: [String: (String, [String: Any]) -> Void] = [:]      // 頁面 session → 事件
