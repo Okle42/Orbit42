@@ -123,6 +123,11 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             let sid = c.sessionId, aid = str("askId") ?? ""
             let tell: @MainActor (String) -> Void = { [weak self] in self?.say($0 + "。"); SphereEmbed.askResult?(sid, aid, $0) }
             tell(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { tell($0) })
+        case "askDismiss":      // 11-28 待修②：「已答，收掉」——只把那題拿掉（卡片 --ask 一起清），不送任何字、不算放行
+            guard let sid = str("sessionId"), let aid = str("askId"), !blocked else { return }
+            AskQueue.resolve(sid: sid, id: aid)
+            BoardModel.shared.append(["ev": "answer-dismiss", "id": sid, "ask": aid])
+            SphereEmbed.askResult?(sid, aid, "已收掉")
         case "permit":
             guard let c = card(str("sessionId")) else { return say("這個 session 已經不在了。") }
             guard let d = PermitAnswer.Decision(rawValue: str("decision") ?? "") else { return say("看不懂這個回答，沒有送出。") }

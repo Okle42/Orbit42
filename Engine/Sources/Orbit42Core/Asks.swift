@@ -201,7 +201,15 @@ public enum AskQueue {
         return !(prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("放行")
     }
 
-    /// 使用者在這個 session 的終端機打字回答 ⇒ 這個 session 的待答題全部拿掉、卡片上的 --ask 清掉；
+    /// 打的字跟這題某個選項完全一樣（不管「（建議）」標記、空白與標點）
+    public static func typedOption(_ prompt: String, of q: PendingAsk) -> Bool {
+        let p = Answered.normal(prompt)
+        return !p.isEmpty && ((q.options ?? []).isEmpty ? Inbox.genericOptions : q.options!).contains { Answered.normal(AnswerPick.bare($0)) == p }
+    }
+
+    /// 11-28 待修②（Keng 核可）：以前終端機打任何字就清光這個 session 的所有待答題 ⇒ 改成只清「打的字跟選項完全一樣」的那題；
+    /// 其他的留著，Keng 在卡片按「已答，收掉」或 AI 自己 withdraw。
+    /// 使用者在這個 session 的終端機打字回答 ⇒ 對得上的那題拿掉、卡片上的 --ask 清掉；
     /// 秘書卡片／佇列掛著同一題的也清掉（不轉【使用者已答】：答案在組員那邊，秘書巡檢看得到，不為這個叫醒秘書）。回傳拿掉的題
     @discardableResult
     /// 11-28：答的這個 session 有進行中的派工單 ⇒ 原話記進單（TaskNotes），秘書看單就知道，不用再問組員
@@ -209,7 +217,12 @@ public enum AskQueue {
                                           cardsDir: URL = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true),
                                           tasksDir: URL = Captain.tasksDir, name: String? = nil, now: Date = Date()) -> [PendingAsk] {
         guard isTerminalAnswer(prompt) else { return [] }
-        let xs: [PendingAsk] = locked { let xs = load(sid); if !xs.isEmpty { save(sid, []) }; return xs }
+        let typed = prompt ?? ""
+        let xs: [PendingAsk] = locked {
+            let all = load(sid), hit = all.filter { typedOption(typed, of: $0) }
+            if !hit.isEmpty { save(sid, all.filter { q in !hit.contains { $0.id == q.id } }) }
+            return hit
+        }
         guard !xs.isEmpty else { return [] }
         let tasks = Set(xs.map(\.task))
         TaskNotes.record(sid: sid, name: name ?? NicknameStore.get(sid)?.name, cardTask: tasks.count == 1 ? tasks.first! : nil, askedAt: xs.map(\.at).min(),

@@ -194,10 +194,14 @@ struct AskQueueTests {
         }
         #expect(AskQueue.load("S").count == 2)
 
-        // 本人在終端機打字：兩題都清、卡片 --ask 清、秘書同一題也清
-        let gone = AskQueue.answeredInTerminal(sid: "S", prompt: "寄吧", captain: "CAP", cardsDir: cards)
-        #expect(gone.map(\.ask) == ["要不要寄？", "第二題？"])
-        #expect(AskQueue.load("S").isEmpty && AskQueue.load("CAP").isEmpty)
+        // 11-28 待修②：打的字跟選項對不上（自由回答）⇒ 一題都不清，留給卡片的「已答，收掉」
+        #expect(AskQueue.answeredInTerminal(sid: "S", prompt: "寄吧", captain: "CAP", cardsDir: cards).isEmpty)
+        #expect(AskQueue.load("S").count == 2)
+        // 本人在終端機打的字跟選項完全一樣：只清那一題、卡片 --ask 清、秘書同一題也清；另一題留著
+        let gone = AskQueue.answeredInTerminal(sid: "S", prompt: " 寄 ", captain: "CAP", cardsDir: cards)
+        #expect(gone.map(\.ask) == ["要不要寄？"])
+        #expect(AskQueue.load("S").map(\.ask) == ["第二題？"] && AskQueue.load("CAP").isEmpty)
+        #expect(AskQueue.withdraw(sid: "S", id: "all") == 1)
         for f in ["S.json", "CAP.json"] {
             let left = try BoardJSON.decoder.decode(SelfReport.self, from: Data(contentsOf: cards.appendingPathComponent(f)))
             #expect(left.ask == nil, "\(f)")

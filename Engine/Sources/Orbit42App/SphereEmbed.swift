@@ -66,7 +66,7 @@ public enum SphereEmbed {
     static func askAction(_ m: [String: Any]) {
         func has(_ k: String) -> Bool { (m[k] as? String)?.isEmpty == false }
         switch m["action"] as? String {                  // 沒有題目／單號的一律不收
-        case "answer": guard has("sessionId"), has("askId") else { return }
+        case "answer", "askDismiss": guard has("sessionId"), has("askId") else { return }
         case "permit": guard has("sessionId"), has("permitId"), has("decision") else { return }
         case "focus", "stopSpeaking": break
         default: return

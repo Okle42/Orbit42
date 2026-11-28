@@ -272,7 +272,7 @@ function drawOver() {
   const msg = u ? `<div class="u" title="${esc(u.name + "：" + u.label)}"><span class="t">${undos.size > 1 ? `（${undos.size} 題待送）` : ""}3 秒後送給 ${esc(clip(u.name, 30))}：${esc(clip(u.label, 40))}</span><button tabindex="-1" data-undo="${esc(u.key)}">復原</button></div>`
     : st ? `<div class="st" title="${esc(st)}"><span class="t">${esc(st)}</span><button tabindex="-1" data-later>稍後</button><button tabindex="-1" data-jump>去看 →</button></div>`
     : barText ? `<div title="${esc(barText)}"><span class="t">${esc(barText)}</span></div>` : "";
-  const html = msg || (open_ ? `<div class="foot"><span class="hint">${(xs.length ? `點一下卡片後可按 1–${Math.min(9, xs.length)}${xs.some(o => o.rec) ? "、Enter 送建議" : ""} · ` : "") + "送出後 3 秒可復原"}</span><span class="links"><button class="lnk" tabindex="-1" data-later>稍後再答</button><button class="lnk" tabindex="-1" data-jump>跳到它的終端機 →</button></span></div>` : "");
+  const html = msg || (open_ ? `<div class="foot"><span class="hint">${(xs.length ? `點一下卡片後可按 1–${Math.min(9, xs.length)}${xs.some(o => o.rec) ? "、Enter 送建議" : ""} · ` : "") + "送出後 3 秒可復原"}</span><span class="links">${c?.askId ? `<button class="lnk" tabindex="-1" data-dismiss title="已經在終端機答過了：只把這題從清單拿掉，不送任何字給它">已答，收掉</button>` : ""}<button class="lnk" tabindex="-1" data-later>稍後再答</button><button class="lnk" tabindex="-1" data-jump>跳到它的終端機 →</button></span></div>` : "");
   if ($("over").dataset.h !== html) { if ($("over").dataset.h) shifted(); $("over").dataset.h = html; $("over").innerHTML = html; }      // 條數、內容一變：0.5 秒內的點擊不算作答
 }
 // 「可以再按」只在原生端真的會收的時候講（送出中、沒確認到由 blockWhy 講）
@@ -299,7 +299,7 @@ function expand() { open = true; want = null; post({ action: "askOpen", open });
 function jump() { const c = live.get(cur); if (!c) return; post({ action: "focus", sessionId: c.sessionId }); collapse(false); }
 
 /* ---- 滑鼠：按下和放開要在同一題、同一顆按鈕，按下那刻也要過了 0.5 秒 ---- */
-const hit = t => t.closest("[data-k],[data-go],[data-nav],[data-later],[data-jump],[data-undo]");
+const hit = t => t.closest("[data-k],[data-go],[data-nav],[data-later],[data-jump],[data-undo],[data-dismiss]");
 document.addEventListener("pointerdown", e => {
   if (e.button !== 0) return;
   const b = hit(e.target); down = { key: cur, b, ok: now() >= lockUntil && now() >= shiftUntil };
@@ -325,6 +325,7 @@ document.addEventListener("click", e => {
   if ($("over").contains(b) && (!d || !d.ok)) return;                                 // 那格剛換內容：連點復原不可變成跳走
   if (b.dataset.later != null) return collapse(true);
   if (b.dataset.jump != null) return jump();
+  if (b.dataset.dismiss != null) { if (!d || d.b !== b || d.key !== cur || !d.ok) return; const c = live.get(cur); if (c?.askId) { post({ action: "askDismiss", sessionId: c.sessionId, askId: c.askId }); bar("已收掉這題（沒有送字給它）"); } return; }      // 11-28 待修②：終端機自由回答過的題，自己收掉
   if (!d || d.b !== b || d.key !== cur || !d.ok) return;
   if (b.dataset.nav) { const l = visible(), i = l.indexOf(cur); cur = l[(i + +b.dataset.nav + l.length) % l.length] ?? null; render(); armed = true; document.body.classList.add("armed"); return; }
   if (b.dataset.go != null) return sendFree(true);

@@ -359,7 +359,7 @@ public final class AskFloat: NSObject, WKScriptMessageHandler, WKNavigationDeleg
         case "askDrag": drag(b["phase"] as? String ?? "", NSPoint(x: num("dx"), y: num("dy")))
         case "askFocusBack": focusBack()
         case "askTyping": SphereEmbed.askTyping(b["on"] as? Bool ?? false)
-        case "focus", "answer", "permit", "stopSpeaking": SphereEmbed.askAction(b)
+        case "focus", "answer", "permit", "stopSpeaking", "askDismiss": SphereEmbed.askAction(b)
         default: break
         }
     }
