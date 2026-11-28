@@ -183,7 +183,7 @@ enum CaptainCLI {
         case .failure(let e):
             out("單號 \(id) 已建，但直送失敗（\(e.message)）。請改用 SendMessage（to: \"\(saved.to)\"）送出以下全文：")
             out("-----")
-            out(Captain.message(saved, orbit: orbit))
+            out(Captain.message(saved, orbit: orbit, reminders: Lessons.reminders()))
         }
         return 0
     }

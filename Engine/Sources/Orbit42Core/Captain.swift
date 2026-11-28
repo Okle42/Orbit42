@@ -181,12 +181,14 @@ public enum Captain {
     }
 
     /// 秘書要用 SendMessage 送給對方的全文（附上回報方式）
-    public static func message(_ t: CaptainTask, orbit: String) -> String {
+    public static func message(_ t: CaptainTask, orbit: String, reminders: [String] = []) -> String {
         let lines = t.text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
         let rest = lines.dropFirst().joined(separator: "\n")
+        // 11-28 B 組③：Keng 核可過的「派工提醒」（Lessons.swift）附在任務後面
+        let tips = reminders.isEmpty ? "" : "這次要注意（從過去紀錄整理、Keng 核可過）：\n" + reminders.map { "・" + $0 }.joined(separator: "\n") + "\n"
         return """
         【秘書派工 \(t.id)】\(lines.first ?? "")
-        \(rest.isEmpty ? "" : rest + "\n")
+        \(rest.isEmpty ? "" : rest + "\n")\(tips)
         回報方式：這件事每一輪的 orbit card 都加上 --task \(t.id)（例如 "\(orbit)" card --task \(t.id) --status done --progress 100 --confidence 80 --summary "…"）。要使用者決定的用 --ask；卡住用 --status blocked 並說原因。同一個 repo 的規則（不准 push、客戶案要審）照舊遵守。
         """
     }
@@ -260,7 +262,7 @@ public enum Captain {
         let target = Peer.find(t.toSession ?? t.to) ?? Peer.find(t.to)
         if let r = target { t.toSession = r.sessionId; t.to = r.name ?? t.to }
         let replyTo = Peer.find(t.from)?.messagingSocketPath
-        let result: Result<String, CardError> = target.map { Peer.send(to: $0, text: message(t, orbit: orbit), fromName: fromName, replyTo: replyTo) }
+        let result: Result<String, CardError> = target.map { Peer.send(to: $0, text: message(t, orbit: orbit, reminders: Lessons.reminders()), fromName: fromName, replyTo: replyTo) }
             ?? .failure(CardError("找不到開著的 session「\(t.to)」"))
         if case .failure(let e) = result { t.sendError = e.message } else { t.sendError = nil }
         CaptainStore.save(t)
