@@ -178,7 +178,29 @@ extension OrbitWindow {
                                                             pb.clearContents(); pb.setString("PASTE42STAYB", forType: .string); key("v", 9)
                                                             after(1.2) { js(b, "window.orbitTest.screen()") { scr in check("焦點在 B ⇒ ⌘V 貼進 B 不搶", scr.contains("PASTE42STAYB"), responder())
                                                                 // 點進去拖選的情境只在 real 模式跑：螢幕外的非 key 視窗，WebKit 不處理合成的滑鼠事件（11-28 實測：點了焦點不換、之後連 paste 都進不了網頁）
-                                                                finish()
+                                                                // 11-28 錄影查到的真因 ①：Claude Code 滑鼠選字後用 OSC 52 叫終端機拷貝 ⇒ 剪貼簿要拿到那段字（含中文）
+                                                                pb.clearContents(); pb.setString("(還沒拷貝)", forType: .string)
+                                                                let word = "OSC52-複製測試", b64 = Data(word.utf8).base64EncodedString()
+                                                                let c = self.host.runCommand(name: "測試 C", brain: .claude, command: "/bin/sh -c \"sleep 3; printf '\\033]52;c;\(b64)\\007'; printf '\\033]52;c;?\\007'; cat\"")
+                                                                do { let v = self.host.view(for: c); let occ = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:"); if v.responds(to: occ) { v.perform(occ, with: nil) } }
+                                                                after(7) {
+                                                                    let got = pb.string(forType: .string) ?? "nil"
+                                                                    js(c, "window.orbitTest.screen().trim().slice(0,300)") { scr in print("copypaste C screen: \(scr.debugDescription) win=\(self.satWins[c] != nil)"); fflush(stdout) }
+                                                                    check("OSC 52 拷到剪貼簿", got == word, "pb=\(got.debugDescription)")
+                                                                    // 真因 ②：xterm 沒選字時 ⌘C 不准把剪貼簿蓋成空的
+                                                                    self.window.makeFirstResponder(self.satWins[c]?.content ?? self.satWins[a]!.content)
+                                                                    js(c, "window.orbitTest.clearSel()") { _ in
+                                                                        pb.clearContents(); pb.setString("KEEP42-原本的剪貼簿", forType: .string)
+                                                                        key("c", 8)
+                                                                        after(1) {
+                                                                            let kept = pb.string(forType: .string) ?? "nil"
+                                                                            check("沒選字按 ⌘C 剪貼簿不變", kept == "KEEP42-原本的剪貼簿", "pb=\(kept.debugDescription) \(responder())")
+                                                                            // 接著 ⌘V 要把原本的剪貼簿貼進去
+                                                                            key("v", 9)
+                                                                            after(1.5) { js(c, "window.orbitTest.screen()") { scr in check("沒選字 ⌘C 後 ⌘V 照樣貼得出來", scr.contains("KEEP42"), responder()); finish() } }
+                                                                        }
+                                                                    }
+                                                                }
                                                             } }
                                                         } }
                                                     } }

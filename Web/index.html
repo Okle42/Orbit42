@@ -284,6 +284,24 @@ function makeTerm(id) {
   // 11-25 滑過浮起：輸入法組字中要暫停（組字時換疊放會閃），告訴 App
   if (!MIRROR) for (const [ev, on] of [["compositionstart", true], ["compositionend", false], ["blur", false]]) term.textarea?.addEventListener(ev, () => post({ action: "compose", id, on }));
   term.onData(data => { if (!MIRROR) return post({ action: "input", id, data }); if (!MIRROR_REPLY.test(data)) post({ action: "key", id, data }); });
+  // 11-28 Keng「衛星終端機裡複製貼上不能用」（錄影＋editkeys.log 查到）：
+  // ① Claude Code 自己接滑鼠選字，選完顯示「copied N chars」，用 OSC 52 叫終端機放進剪貼簿；xterm.js 預設不接 ⇒ 字沒進剪貼簿
+  //    ⇒ 接 OSC 52，只收「寫入」；問剪貼簿內容（?）一律不回答（不讓終端機裡的程式讀走你的剪貼簿）
+  if (!MIRROR) term.parser.registerOscHandler(52, d => {
+    const i = d.indexOf(";"), b64 = i < 0 ? "" : d.slice(i + 1);
+    if (!b64 || b64 === "?") return true;
+    try { const text = new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0))); if (text) post({ action: "clipboard", id, text }); } catch {}
+    return true;
+  });
+  // ② xterm 自己沒選字時按 ⌘C：WebKit 照預設拷貝「空的選取」，把剪貼簿蓋成空字串（剛用 Claude Code 選字拷好的就被清掉，⌘V 貼出來是空的）
+  //    ⇒ 沒選字的 ⌘C 在網頁這裡就當處理掉（不送回 App 的拷貝），拷貝事件也擋掉，剪貼簿維持原樣
+  if (!MIRROR) {
+    term.attachCustomKeyEventHandler(e => {
+      if (e.type === "keydown" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.code === "KeyC" && !term.hasSelection()) { e.preventDefault(); return false; }
+      return true;
+    });
+    el.addEventListener("copy", e => { if (!term.hasSelection()) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+  }
   // 11-23：Claude Code 的「自動」主題會問終端機背景是什麼顏色（OSC 11／10）。xterm.js 預設不回答，
   // Claude Code 就當成深色背景、用白字 ⇒ 淺色模式下你送出的訊息、標籤都變成白字看不到。這裡照目前色票回答。
   const rgb = hex => { const h = hex.replace("#", ""); return [0, 2, 4].map(i => h.slice(i, i + 2)).map(x => x + x).join("/"); };

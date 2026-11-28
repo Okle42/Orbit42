@@ -397,6 +397,11 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             guard let s = sats[id] else { return }
             if s.pty == nil || s.exited != nil { start(s, cols: cols, rows: rows) }
             else { if let v = views[id] { Self.call(v, "window.orbitReplay", [id, s.snapshot().base64EncodedString()]) }; s.localResize(cols: cols, rows: rows) }
+        case "clipboard":      // 終端機裡的程式用 OSC 52 叫我們拷貝（Claude Code 滑鼠選字）：只寫不讀，太大的不收
+            if let t = m["text"] as? String, !t.isEmpty, t.utf8.count <= 4_000_000 {
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t, forType: .string)
+                EditKeys.log("OSC52 拷貝 \(t.count) 字 衛星=\(id)")
+            }
         case "compose": if m["on"] as? Bool == true { composing.insert(id) } else { composing.remove(id) }      // 輸入法組字中（滑過浮起要暫停）
         case "input":
             if let d = (m["data"] as? String)?.data(using: .utf8) { input(id, d) }
