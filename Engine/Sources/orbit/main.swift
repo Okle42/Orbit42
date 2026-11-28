@@ -249,6 +249,18 @@ func ghExempt(_ hs: inout [(rule: CaptainLink.Rule, segment: String)], _ cmd: St
 if args.first == "guard-push" {
     guard isatty(0) == 0, let o = try? JSONSerialization.jsonObject(with: FileHandle.standardInput.readDataToEndOfFile()) as? [String: Any],
           let cmd = (o["tool_input"] as? [String: Any])?["command"] as? String else { exit(0) }
+    // 11-28 B 組⑥：gh 留言／LINE／寄信 的內容掃密鑰（擋）與個資（警告＋遮好的版本），規則在 OutboundScan.swift
+    if !isReviewer {
+        let hits = OutboundScan.check(cmd, cwd: o["cwd"] as? String ?? FileManager.default.currentDirectoryPath,
+                                      keywords: PushGuard.list(PushGuard.dir.appendingPathComponent("keywords.txt")),
+                                      read: { try? String(contentsOfFile: $0, encoding: .utf8) })
+        if !hits.isEmpty {
+            let sid = o["session_id"] as? String
+            let acked = !hits.contains(where: \.blocked) && OutboundScan.acknowledged(OutboundScan.fingerprint(cmd, session: sid))
+            OutboundScan.log(hits, session: sid, released: acked)
+            if let out = OutboundScan.hookOutput(hits, acked: acked) { print(out); exit(0) }
+        }
+    }
     if !isReviewer, let sid = o["session_id"] as? String, CaptainStore.captain()?.sessionId != sid {   // 秘書自己不擋不預告（秘書只審不做）
         var hs = CaptainLink.hits(cmd, rules: CaptainLink.loadRules())
         let ghWhy = ghExempt(&hs, cmd, cwd: o["cwd"] as? String ?? FileManager.default.currentDirectoryPath)
