@@ -35,7 +35,18 @@ cp "$SW/scripts/flow_audit.py" "$TMP/Contents/Resources/flow_audit.py"
 ID=$(security find-identity -v -p codesigning | awk '/Developer ID Application|Apple Development/ {print $2; exit}')
 codesign -f -s "${ID:--}" --identifier ai.okle42.orbit42 "$TMP" >/dev/null
 # 11-26 衛星裡的 AI 操作網頁用的指令：放在 orbit 旁邊（寄信刪檔付款類動作，Orbit42 會先問）
-BIN_DIR="$HOME/Library/Application Support/Orbit42/bin"; mkdir -p "$BIN_DIR"; cp scripts/orbit-web "$BIN_DIR/orbit-web"; chmod +x "$BIN_DIR/orbit-web"
+BIN_DIR="$HOME/Library/Application Support/Orbit42/bin"; mkdir -p "$BIN_DIR"
+# 11-28 orbit 指令也跟著換（以前只換 App，bin/orbit 會停在舊版）：先把整個舊 bin/ 備份，再 cp 成 .new、mv 換上、cmp 核對
+REL_BIN="$(swift build -c release --show-bin-path)"
+[[ -x "$REL_BIN/orbit" ]] || { echo "錯誤：找不到 release 版 orbit（$REL_BIN/orbit）" >&2; exit 1; }
+BACKUP="$HOME/Library/Application Support/Orbit42/backup/bin-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "${BACKUP:h}"; cp -Rp "$BIN_DIR" "$BACKUP"
+for pair in "$REL_BIN/orbit:orbit" "scripts/orbit-web:orbit-web"; do
+  src="${pair%:*}"; dst="$BIN_DIR/${pair##*:}"
+  cp "$src" "$dst.new"; chmod +x "$dst.new"; mv -f "$dst.new" "$dst"
+  cmp -s "$src" "$dst" || { echo "錯誤：$dst 換完跟來源不一樣（備份在 $BACKUP）" >&2; exit 1; }
+done
+echo "已換 orbit、orbit-web（舊 bin/ 備份在 $BACKUP）"
 /usr/bin/python3 -I scripts/swap_app.py install "$TMP" --app "$APP"      # 原子互換；舊包留到下次重開才清（刪掉執行中的舊包，系統會認不得它）
 # Desktop shortcut (Finder alias, so the icon shows and double-click opens the app)
 osascript -e 'tell application "Finder" to if not (exists alias file "Orbit42" of desktop) then make alias file to (POSIX file "'"$APP"'") at desktop with properties {name:"Orbit42"}' >/dev/null
