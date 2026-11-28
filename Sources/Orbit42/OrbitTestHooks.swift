@@ -171,7 +171,7 @@ extension OrbitWindow {
         startModels(test: test); startMoons(); startLift()
         MacWindows.shared.installMenu()
         ChromeGoogleLogin.shared.installMenu()      // 11-26：衛星 Chrome 登入 Google（App 選單，不加畫面按鈕）
-        if !test { ChromeClickGuard.shared.start() } // 11-28：桌面 Chrome 關著時點 Chrome 圖示，不要被導去衛星背後那支
+        if !test { ChromeClickGuard.shared.start() } // 11-28：點 Chrome 圖示開起來卻沒視窗 ⇒ 幫它開一個；登入 Chrome 紅叉後留著 ⇒ 結束
         SecCheckWindow.shared.installMenu()         // 11-28：本機資安體檢小視窗（App 選單／orbit seccheck --open）
         if !test { SecSchedule.shared.start() }     // 11-28：每週＋換 Wi-Fi 自動體檢，有變化才通知
         WebAgent.shared.start()                     // 11-26：衛星裡的 AI 操作網頁（scripts/orbit-web；寄信刪檔付款先問）

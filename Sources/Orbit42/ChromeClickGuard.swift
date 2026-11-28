@@ -17,28 +17,30 @@ enum OrbitLog {
     nonisolated static func restore(_ line: String) { write("restore.log", line) }
 }
 
-/// 11-28 Keng「桌面 Chrome 關掉後點圖示沒反應」：衛星背後的 Chrome 跟桌面 Chrome 是同一個 App（同 bundle id），
-/// macOS 會把「開 Chrome」交給已經在跑、但沒有視窗的那一支（衛星的無頭 Chrome，或登入用、按紅叉後留在背景的 Chrome）。
-/// Orbit42 看到這兩支被叫到前面、而且沒有視窗 ⇒ 另開一份新的正常 Chrome（不帶設定檔參數 ⇒ Keng 平常的設定檔、他的登入）。
-/// 另外：登入用的 Chrome 視窗全關了、程式還留著佔住設定檔 ⇒ 把它結束，衛星網頁面板才接得回來
+/// 11-28 Keng「桌面 Chrome 關掉後點圖示沒反應」。20:25 實測（秘書代關 Keng 的 Chrome、open -a 模擬點圖示）：
+/// 不是被導去衛星背後的無頭 Chrome（無頭那支根本沒在 LaunchServices 登記），而是 Chrome 正常啟動了、卻沒開出一般視窗。
+/// ⇒ Orbit42 看到桌面 Chrome 啟動（或剛啟動不久被叫到前面）3 秒、6 秒還是沒有一般視窗，就用 Chrome 自己的轉送：
+///    再跑一次 `Google Chrome --new-window`（不帶設定檔參數＝Keng 平常的設定檔），新程序把「開新視窗」交給在跑的那支後自己結束。
+///    不用 AppleScript（Orbit42 沒有 Apple Events 權限，會跳權限或被擋）。新視窗會順便把上次的分頁叫回來（20:3x 實測 make new window 也是）。
+/// 另外：登入用的 Chrome 視窗全關了、程式還留著佔住衛星的設定檔 ⇒ 把它結束，衛星網頁面板才接得回來
 @MainActor
 final class ChromeClickGuard {
     static let shared = ChromeClickGuard()
 
-    enum Action: Equatable { case none, openDesktop, openDesktopAndQuitLogin }
-    /// 判斷：被叫到前面的是哪一支 Chrome、它有沒有視窗
-    nonisolated static func decide(activated: pid_t, bundle: String?, headless: pid_t, login: pid_t?, windows: Int) -> Action {
-        guard bundle == "com.google.Chrome", activated > 0 else { return .none }
-        if activated == headless { return .openDesktop }                  // 無頭那支本來就沒有視窗
-        if let login, activated == login, windows == 0 { return .openDesktopAndQuitLogin }
-        return .none                                                       // Keng 自己的 Chrome，或登入視窗還開著
+    /// 這支 Chrome 要不要幫它開視窗：是桌面 Chrome（不是衛星背後那支、不是登入用那支）、剛啟動 15 秒內、沒有一般視窗、這次啟動還沒幫過
+    nonisolated static func needsWindow(pid: pid_t, bundle: String?, headless: pid_t, login: pid_t?, windows: Int,
+                                        sinceLaunch: TimeInterval, alreadyHelped: Bool) -> Bool {
+        guard bundle == "com.google.Chrome", pid > 0, pid != headless, pid != login else { return false }
+        return windows == 0 && sinceLaunch <= 15 && !alreadyHelped
     }
     /// 登入用的 Chrome 留在背景、沒有視窗多久了要結束它：連續 n 次（每 2 秒一次）看到沒視窗；剛開的前幾秒視窗還沒出來不算
     nonisolated static func shouldQuitIdleLogin(noWindowStreak: Int, sinceLaunch: TimeInterval) -> Bool {
         sinceLaunch >= 8 && noWindowStreak >= 2
     }
+    /// 轉送「開新視窗」用的參數：不帶 --user-data-dir ⇒ 交給用 Keng 平常設定檔在跑的那支
+    nonisolated static let newWindowArgs = ["--new-window"]
 
-    /// 這支程序在畫面上（含縮到 Dock 的）有幾個一般視窗
+    /// 這支程序有幾個一般視窗（含縮到 Dock 的；Chrome 沒視窗時只剩 1920×30 的條狀視窗，不算）
     nonisolated static func windowCount(_ pid: pid_t) -> Int {
         let all = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         return all.filter { w in
@@ -55,65 +57,66 @@ final class ChromeClickGuard {
         return nil
     }
 
-    private var started = false, lastOpen = Date.distantPast
+    private var started = false
+    private var launched: [pid_t: (at: Date, helped: Bool)] = [:]
     func start() {
         guard !started else { return }
         started = true
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { n in
-            guard let a = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            let pid = a.processIdentifier, bundle = a.bundleIdentifier
-            MainActor.assumeIsolated { ChromeClickGuard.shared.activated(pid, bundle) }
+        let nc = NSWorkspace.shared.notificationCenter
+        for n in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didActivateApplicationNotification] {
+            nc.addObserver(forName: n, object: nil, queue: .main) { note in
+                guard let a = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication, a.bundleIdentifier == "com.google.Chrome" else { return }
+                let pid = a.processIdentifier, launch = note.name == NSWorkspace.didLaunchApplicationNotification
+                MainActor.assumeIsolated { ChromeClickGuard.shared.seen(pid, launch: launch) }
+            }
+        }
+        nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { note in
+            guard let a = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let pid = a.processIdentifier
+            MainActor.assumeIsolated { _ = ChromeClickGuard.shared.launched.removeValue(forKey: pid) }
         }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in MainActor.assumeIsolated { ChromeClickGuard.shared.watchLogin() } }
     }
 
-    private func activated(_ pid: pid_t, _ bundle: String?) {
-        guard bundle == "com.google.Chrome" else { return }
-        let login = loginPid
-        let act = Self.decide(activated: pid, bundle: bundle, headless: ChromeBrowser.shared.pid, login: login, windows: Self.windowCount(pid))
-        OrbitLog.write("chrome-click.log", "叫到前面 pid \(pid)（無頭 \(ChromeBrowser.shared.pid)、登入 \(login.map(String.init) ?? "-")）⇒ \(act)")
-        switch act {
-        case .none: return
-        case .openDesktop: openDesktop()
-        case .openDesktopAndQuitLogin: quitLogin(pid, why: "被叫到前面但沒有視窗"); openDesktop()
+    private func seen(_ pid: pid_t, launch: Bool) {
+        if launch { launched[pid] = (Date(), false); OrbitLog.write("chrome-click.log", "桌面 Chrome 啟動 pid \(pid)") }
+        guard launched[pid] != nil else { return }        // Orbit42 開著之前就在跑的：不管
+        for s in [3.0, 6.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + s) { MainActor.assumeIsolated { ChromeClickGuard.shared.check(pid) } }
         }
     }
-
-    /// 開一份新的正常 Chrome（Keng 平常的設定檔）。已經有別支有視窗的正常 Chrome 就不重開
-    func openDesktop() {
-        guard Date().timeIntervalSince(lastOpen) > 3, let app = ChromeBrowser.appURL else { return }
-        let others = NSWorkspace.shared.runningApplications.filter {
-            $0.bundleIdentifier == "com.google.Chrome" && $0.processIdentifier != ChromeBrowser.shared.pid && $0.processIdentifier != loginPid
+    private func check(_ pid: pid_t) {
+        guard let rec = launched[pid], kill(pid, 0) == 0 else { return }
+        let n = Self.windowCount(pid), since = Date().timeIntervalSince(rec.at)
+        guard Self.needsWindow(pid: pid, bundle: "com.google.Chrome", headless: ChromeBrowser.shared.pid, login: loginPid, windows: n,
+                               sinceLaunch: since, alreadyHelped: rec.helped) else { return }
+        launched[pid]?.helped = true
+        guard let app = ChromeBrowser.appURL else { return }
+        let p = Process()
+        p.executableURL = app.appendingPathComponent("Contents/MacOS/Google Chrome")
+        p.arguments = Self.newWindowArgs
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        p.terminationHandler = { t in
+            let code = t.terminationStatus
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { MainActor.assumeIsolated {
+                OrbitLog.write("chrome-click.log", "轉送結束碼 \(code)；Chrome \(pid) 現在有 \(Self.windowCount(pid)) 個視窗")
+            } }
         }
-        if let mine = others.first(where: { Self.windowCount($0.processIdentifier) > 0 }) {
-            OrbitLog.write("chrome-click.log", "桌面 Chrome \(mine.processIdentifier) 已經有視窗，叫它到前面"); mine.activate(); return
-        }
-        lastOpen = Date()
-        let c = NSWorkspace.OpenConfiguration(); c.createsNewApplicationInstance = true; c.activates = true
-        NSWorkspace.shared.openApplication(at: app, configuration: c) { a, e in
-            OrbitLog.write("chrome-click.log", e.map { "開正常 Chrome 失敗：\($0.localizedDescription)" } ?? "開了正常 Chrome pid \(a?.processIdentifier ?? 0)")
-        }
+        do { try p.run(); OrbitLog.write("chrome-click.log", "Chrome \(pid) 啟動 \(String(format: "%.1f", since)) 秒還沒有視窗 ⇒ 轉送 --new-window") }
+        catch { OrbitLog.write("chrome-click.log", "轉送 --new-window 失敗：\(error.localizedDescription)") }
     }
 
-    // 登入用的 Chrome：按紅叉只關視窗、程式留著 ⇒ 沒視窗超過 4 秒就結束（衛星網頁在等它讓出設定檔）
+    // 登入用的 Chrome：按紅叉只關視窗、程式留著 ⇒ 開了 8 秒後連續 2 次沒視窗就結束（衛星網頁在等它讓出設定檔）
     private var loginSeen: (pid: pid_t, at: Date, streak: Int)?
     private func watchLogin() {
         guard let p = loginPid else { loginSeen = nil; return }
-        if loginSeen?.pid != p {
-            // 自己開的：從啟動算；Orbit42 重開前開的：從第一次看到算（它早就開好了，但保守一點一樣等 8 秒）
-            loginSeen = (p, Date(), 0)
-        }
-        let n = Self.windowCount(p)
-        loginSeen!.streak = n == 0 ? loginSeen!.streak + 1 : 0
+        if loginSeen?.pid != p { loginSeen = (p, Date(), 0) }
+        loginSeen!.streak = Self.windowCount(p) == 0 ? loginSeen!.streak + 1 : 0
         if Self.shouldQuitIdleLogin(noWindowStreak: loginSeen!.streak, sinceLaunch: Date().timeIntervalSince(loginSeen!.at)) {
-            quitLogin(p, why: "視窗都關了、程式還留著佔住設定檔")
+            OrbitLog.write("chrome-click.log", "結束登入用的 Chrome \(p)：視窗都關了、程式還留著佔住衛星的設定檔")
+            loginSeen = nil
+            if let r = NSRunningApplication(processIdentifier: p) { r.terminate() } else { kill(p, SIGTERM) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { if kill(p, 0) == 0 { kill(p, SIGTERM) } }
         }
-    }
-    private func quitLogin(_ p: pid_t, why: String) {
-        OrbitLog.write("chrome-click.log", "結束登入用的 Chrome \(p)：\(why)")
-        loginSeen = nil
-        if let r = NSRunningApplication(processIdentifier: p) { r.terminate() } else { kill(p, SIGTERM) }
-        // terminate 沒效（例如有對話框）5 秒後再送 SIGTERM
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { if kill(p, 0) == 0 { kill(p, SIGTERM) } }
     }
 }
