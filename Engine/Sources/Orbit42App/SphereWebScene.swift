@@ -123,11 +123,6 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             let sid = c.sessionId, aid = str("askId") ?? ""
             let tell: @MainActor (String) -> Void = { [weak self] in self?.say($0 + "。"); SphereEmbed.askResult?(sid, aid, $0) }
             tell(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { tell($0) })
-        case "askDismiss":      // 11-28 待修②：「已答，收掉」——只把那題拿掉（卡片 --ask 一起清），不送任何字、不算放行
-            guard let sid = str("sessionId"), let aid = str("askId"), !blocked else { return }
-            AskQueue.resolve(sid: sid, id: aid)
-            BoardModel.shared.append(["ev": "answer-dismiss", "id": sid, "ask": aid])
-            SphereEmbed.askResult?(sid, aid, "已收掉")
         case "askRetry":        // 11-28 待修⑤「沒送到，重送」：只把那題重新開放作答，送字還是要使用者再按一次答案（走原本 answer 那條）
             guard let sid = str("sessionId"), let aid = str("askId"), !blocked else { return }
             if AskQueue.reopen(sid: sid, id: aid) { BoardModel.shared.append(["ev": "answer-reopen", "id": sid, "ask": aid]) }

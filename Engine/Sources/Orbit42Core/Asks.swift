@@ -212,14 +212,24 @@ public enum AskQueue {
         return !(prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("放行")
     }
 
+    /// 好幾題在等、這句對不上任何選項 ⇒ 給 AI 的提醒：它看得懂使用者答了哪題，答到的自己撤回（使用者不用手按）
+    public static func leftoverNote(sid: String, prompt: String?, orbit: String, now: Date = Date()) -> String? {
+        guard isTerminalAnswer(prompt) else { return nil }
+        let xs = live(load(sid), now: now)
+        guard !xs.isEmpty else { return nil }
+        let list = xs.map { "\($0.id)：\($0.ask.replacingOccurrences(of: "\n", with: " ").prefix(60))" }.joined(separator: "；")
+        return "【Orbit42】使用者剛在終端機回了話，看板「等你回答」還掛著 \(xs.count) 題（\(list)）。這句話答到哪一題，就跑 \"\(orbit)\" asks withdraw <編號>（都答到就 withdraw all）；沒答到的留著，不用跟使用者提這件事。"
+    }
+
     /// 打的字跟這題某個選項完全一樣（不管「（建議）」標記、空白與標點）
     public static func typedOption(_ prompt: String, of q: PendingAsk) -> Bool {
         let p = Answered.normal(prompt)
         return !p.isEmpty && ((q.options ?? []).isEmpty ? Inbox.genericOptions : q.options!).contains { Answered.normal(AnswerPick.bare($0)) == p }
     }
 
-    /// 11-28 待修②（Keng 核可）：以前終端機打任何字就清光這個 session 的所有待答題 ⇒ 改成只清「打的字跟選項完全一樣」的那題；
-    /// 其他的留著，Keng 在卡片按「已答，收掉」或 AI 自己 withdraw。
+    /// 11-28 待修②：以前終端機打任何字就清光這個 session 的所有待答題。Keng 指正「答了要自動知道、不是我人工按」⇒
+    ///   • 只有一題在等：本人在終端機回的話就是在答它 ⇒ 自動收掉
+    ///   • 好幾題在等：跟某題選項完全一樣的收掉；其他留著，hook 提醒 AI 自己判斷答到哪題、自己 withdraw（leftoverNote）
     /// 使用者在這個 session 的終端機打字回答 ⇒ 對得上的那題拿掉、卡片上的 --ask 清掉；
     /// 秘書卡片／佇列掛著同一題的也清掉（不轉【使用者已答】：答案在組員那邊，秘書巡檢看得到，不為這個叫醒秘書）。回傳拿掉的題
     @discardableResult
@@ -230,7 +240,7 @@ public enum AskQueue {
         guard isTerminalAnswer(prompt) else { return [] }
         let typed = prompt ?? ""
         let xs: [PendingAsk] = locked {
-            let all = load(sid), hit = all.filter { typedOption(typed, of: $0) }
+            let all = load(sid), hit = all.count == 1 ? all : all.filter { typedOption(typed, of: $0) }
             if !hit.isEmpty { save(sid, all.filter { q in !hit.contains { $0.id == q.id } }) }
             return hit
         }

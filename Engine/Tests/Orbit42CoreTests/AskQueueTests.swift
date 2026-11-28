@@ -197,14 +197,19 @@ struct AskQueueTests {
         }
         #expect(AskQueue.load("S").count == 2)
 
-        // 11-28 待修②：打的字跟選項對不上（自由回答）⇒ 一題都不清，留給卡片的「已答，收掉」
+        // 11-28 待修②：兩題在等、打的字對不上任何選項 ⇒ 不亂清，改提醒 AI 自己判斷答到哪題、自己撤回（使用者不用手按）
         #expect(AskQueue.answeredInTerminal(sid: "S", prompt: "寄吧", captain: "CAP", cardsDir: cards).isEmpty)
         #expect(AskQueue.load("S").count == 2)
+        let note = try #require(AskQueue.leftoverNote(sid: "S", prompt: "寄吧", orbit: "orbit", now: now + 10))
+        #expect(note.contains("2 題") && note.contains("要不要寄？") && note.contains("asks withdraw"))
+        #expect(AskQueue.leftoverNote(sid: "S", prompt: "放行！", orbit: "orbit", now: now + 10) == nil)      // 不是回答的不提醒
         // 本人在終端機打的字跟選項完全一樣：只清那一題、卡片 --ask 清、秘書同一題也清；另一題留著
         let gone = AskQueue.answeredInTerminal(sid: "S", prompt: " 寄 ", captain: "CAP", cardsDir: cards)
         #expect(gone.map(\.ask) == ["要不要寄？"])
         #expect(AskQueue.load("S").map(\.ask) == ["第二題？"] && AskQueue.load("CAP").isEmpty)
-        #expect(AskQueue.withdraw(sid: "S", id: "all") == 1)
+        // 只剩一題：本人在終端機回的話（自由回答也算）就是在答它 ⇒ 自動收掉，不用手按
+        #expect(AskQueue.answeredInTerminal(sid: "S", prompt: "這題先跳過，照你的意思", captain: "CAP", cardsDir: cards).map(\.ask) == ["第二題？"])
+        #expect(AskQueue.load("S").isEmpty && AskQueue.leftoverNote(sid: "S", prompt: "好", orbit: "orbit", now: now + 10) == nil)
         for f in ["S.json", "CAP.json"] {
             let left = try BoardJSON.decoder.decode(SelfReport.self, from: Data(contentsOf: cards.appendingPathComponent(f)))
             #expect(left.ask == nil, "\(f)")

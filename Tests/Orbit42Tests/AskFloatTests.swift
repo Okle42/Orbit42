@@ -210,10 +210,10 @@ final class AskFloatTests: XCTestCase {
     func testOnlyOnePathAndState() throws {
         let (_, _, f, _, _) = try make()
         var got: [String] = []; SphereEmbed.testAction = { got.append($0["action"] as? String ?? "") }; defer { SphereEmbed.testAction = nil }
-        for a in ["answer", "permit", "focus", "stopSpeaking", "askDismiss", "askRetry", "captain", "auditFix", "newSatellite"] { f.handle(["action": a, "sessionId": "s", "askId": "Q", "permitId": "P", "decision": "deny"]) }
-        XCTAssertEqual(got, ["answer", "permit", "focus", "stopSpeaking", "askDismiss", "askRetry"])      // 11-28「已答，收掉」也走同一條
+        for a in ["answer", "permit", "focus", "stopSpeaking", "askRetry", "captain", "auditFix", "newSatellite"] { f.handle(["action": a, "sessionId": "s", "askId": "Q", "permitId": "P", "decision": "deny"]) }
+        XCTAssertEqual(got, ["answer", "permit", "focus", "stopSpeaking", "askRetry"])      // 11-28「沒送到，重送」也走同一條
         got = []                                                     // 沒帶題目、單號、決定的一律不收
-        for m in [["action": "answer", "sessionId": "s", "free": "x"], ["action": "answer", "askId": "Q"], ["action": "permit", "sessionId": "s", "decision": "allow"], ["action": "permit", "sessionId": "s", "permitId": "", "decision": "allow"], ["action": "permit", "sessionId": "s", "permitId": "P"], ["action": "askDismiss", "sessionId": "s"]] { f.handle(m) }
+        for m in [["action": "answer", "sessionId": "s", "free": "x"], ["action": "answer", "askId": "Q"], ["action": "permit", "sessionId": "s", "decision": "allow"], ["action": "permit", "sessionId": "s", "permitId": "", "decision": "allow"], ["action": "permit", "sessionId": "s", "permitId": "P"], ["action": "askRetry", "sessionId": "s"]] { f.handle(m) }
         XCTAssertEqual(got, [])
         func state(_ edit: (inout PendingAsk) -> Void) -> String? {
             var c = BoardCard(id: "s", column: .review, reason: "", project: "P", title: "t", lastActivity: nil, pid: 1, sessionId: "s"), q = PendingAsk(id: "Q1", ask: "題", options: ["好"], at: Date())

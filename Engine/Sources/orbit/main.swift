@@ -160,7 +160,12 @@ if args.first == "title" {
     }()
     let handoverNote = event == "UserPromptSubmit" ? sid.flatMap { Handover.noteNewPrompt(sid: $0, prompt: prompt) } : nil
     // 11-14 使用者：在終端機回答了，Orbit42「等你回答」的題還掛著 ⇒ 本人在這個 session 打字就清掉（Asks.swift）
-    if event == "UserPromptSubmit", let sid { AskQueue.answeredInTerminal(sid: sid, prompt: prompt, captain: CaptainStore.captain()?.sessionId) }
+    // 11-28 Keng「答了要自動知道」：只有一題就收掉；好幾題對不上的，提醒 AI 自己判斷、自己撤回
+    let askNote: String? = {
+        guard event == "UserPromptSubmit", let sid else { return nil }
+        AskQueue.answeredInTerminal(sid: sid, prompt: prompt, captain: CaptainStore.captain()?.sessionId)
+        return AskQueue.leftoverNote(sid: sid, prompt: prompt, orbit: URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path)
+    }()
     let startNag: String? = {
         guard event == "UserPromptSubmit", let sid, CaptainLink.needsStart(prompt: prompt) else { return nil }
         let p = (prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -184,7 +189,7 @@ if args.first == "title" {
         }
         return CaptainLink.startContext(orbit: orbit)
     }()
-    let context = [startNag, handoverNote].compactMap { $0 }.joined(separator: "\n")
+    let context = [startNag, handoverNote, askNote].compactMap { $0 }.joined(separator: "\n")
     let ctx: String? = context.isEmpty ? nil : context
     if let sid, NicknameStore.get(sid) == nil, let ctx {
         print(Nicknames.hookOutput(nil, done: done, event: event, context: ctx))
