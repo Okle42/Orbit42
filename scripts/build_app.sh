@@ -1,10 +1,64 @@
 #!/bin/zsh
 # Builds Orbit42.app (release) into ~/Applications and puts a shortcut on the Desktop.
 #   scripts/build_app.sh            # build + install
+#   scripts/build_app.sh --check    # 只跑打包前檢查，不打包（過了 exit 0，擋下 exit 3）
+# 11-28 T1128183531 打包前檢查（Keng：「我隨時測過改好都要直接並進主線直接分別裝起來」；Tina 從分支打包蓋掉別人的修正）：
+#   (a) 先 git fetch；要打包的 HEAD 必須等於 origin/main、工作區乾淨、不是 worktree（只准從主資料夾的 main 打包）
+#   (b) 現在裝著的 App（Info.plist 的 OrbitGitCommit）必須是 HEAD 的祖先，不然就是倒退；裝著的版本沒記 commit 也擋（查不到不算過）
+#   (c) 唯一例外：ORBIT_BUILD_FORCE="原因"，原因和沒過的項目都寫進 ~/Library/Logs/Orbit42/build.log
+#   每次打包（過、擋、強制）都記一筆：時間、誰、HEAD、裝著的版本、結果
 set -euo pipefail
 cd "${0:A:h}/.."
+APP="${ORBIT_BUILD_APP:-$HOME/Applications/Orbit42.app}"
+BUILD_LOG="${ORBIT_BUILD_LOG:-$HOME/Library/Logs/Orbit42/build.log}"
+mkdir -p "${BUILD_LOG:h}"
+# 誰在打包：Claude Code 裡跑的用它的英文名，不然寫終端機
+WHO="終端機"
+if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+  NAMEF="$HOME/Library/Application Support/Orbit42/board/names/$CLAUDE_CODE_SESSION_ID.json"
+  WHO=$(/usr/bin/python3 -I -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get("name") or sys.argv[2])
+except Exception: print(sys.argv[2])' "$NAMEF" "session ${CLAUDE_CODE_SESSION_ID[1,8]}")
+fi
+blog() { echo "$(date '+%m-%d %H:%M:%S') $*" >> "$BUILD_LOG"; }
+PROBLEMS=()
+git fetch -q origin || PROBLEMS+=("抓不到 origin（git fetch 失敗），不知道 origin/main 在哪")
+HEAD_C=$(git rev-parse HEAD)
+MAIN_C=$(git rev-parse -q --verify origin/main || echo "")
+[[ -n "$MAIN_C" && "$HEAD_C" == "$MAIN_C" ]] || PROBLEMS+=("要打包的 HEAD ${HEAD_C[1,7]}（分支 $(git rev-parse --abbrev-ref HEAD)）不是 origin/main ${MAIN_C[1,7]}：只准從 main 打包，先把改動併進 main、推上去")
+[[ "$(git rev-parse --git-dir)" == "$(git rev-parse --git-common-dir)" ]] || PROBLEMS+=("這裡是 worktree（$PWD）：只准從主資料夾打包")
+[[ -z "$(git status --porcelain --untracked-files=no)" ]] || PROBLEMS+=("工作區有還沒 commit 的改動：打包出來的跟 commit 對不上")
+INST=""
+if [[ -f "$APP/Contents/Info.plist" ]]; then
+  INST=$(/usr/bin/plutil -extract OrbitGitCommit raw "$APP/Contents/Info.plist" 2>/dev/null || echo "")
+  if [[ -z "$INST" ]]; then
+    PROBLEMS+=("裝著的 App 沒記是哪個 commit（4dc1503 以前的版本），看不出會不會倒退")
+  elif ! git cat-file -e "$INST^{commit}" 2>/dev/null; then
+    PROBLEMS+=("裝著的 App 是 ${INST[1,7]}，這個 repo 找不到這顆 commit（可能是別的分支打包、沒推上來），看不出會不會倒退")
+  elif ! git merge-base --is-ancestor "$INST" "$HEAD_C"; then
+    PROBLEMS+=("倒退：裝著的 ${INST[1,7]} 不在要打包的 ${HEAD_C[1,7]} 裡面，裝下去會蓋掉 ${INST[1,7]} 有、這版沒有的修正")
+  fi
+fi
+INST_S="${INST[1,7]}"
+SUMMARY="誰：$WHO｜HEAD ${HEAD_C[1,7]}｜裝著 ${INST_S:-（沒有）}"
+if (( ${#PROBLEMS} )); then
+  if [[ -n "${ORBIT_BUILD_FORCE:-}" ]]; then
+    blog "強制打包（ORBIT_BUILD_FORCE：$ORBIT_BUILD_FORCE）｜$SUMMARY｜沒過：${(j:；:)PROBLEMS}"
+    echo "注意：強制打包（$ORBIT_BUILD_FORCE），以下沒過的已記進 $BUILD_LOG：" >&2
+    printf '  ・%s\n' "${PROBLEMS[@]}" >&2
+  else
+    blog "擋下｜$SUMMARY｜${(j:；:)PROBLEMS}"
+    echo "打包前檢查沒過，停下（沒有打包、沒有動到裝著的 App）：" >&2
+    printf '  ・%s\n' "${PROBLEMS[@]}" >&2
+    echo "真的要裝（例如救急）：ORBIT_BUILD_FORCE=\"原因\" scripts/build_app.sh，原因會記進 $BUILD_LOG" >&2
+    exit 3
+  fi
+else
+  echo "打包前檢查通過：$SUMMARY"
+fi
+if [[ "${1:-}" == "--check" ]]; then blog "只檢查（--check）｜$SUMMARY｜${#PROBLEMS} 項沒過"; exit 0; fi
+blog "打包｜$SUMMARY"
 swift build -c release
-APP="$HOME/Applications/Orbit42.app"
 TMP="$APP.new"
 SW="Engine"   # 引擎和球體網頁都在這個 repo（2026-11-24 起不再抓 Orbit42）
 rm -rf "$TMP"; mkdir -p "$TMP/Contents/MacOS" "$TMP/Contents/Resources"
@@ -51,5 +105,6 @@ done
 echo "已換 orbit、orbit-web（舊 bin/ 備份在 $BACKUP）"
 /usr/bin/python3 -I scripts/swap_app.py install "$TMP" --app "$APP"      # 原子互換；舊包留到下次重開才清（刪掉執行中的舊包，系統會認不得它）
 # Desktop shortcut (Finder alias, so the icon shows and double-click opens the app)
+blog "裝好｜$SUMMARY"
 osascript -e 'tell application "Finder" to if not (exists alias file "Orbit42" of desktop) then make alias file to (POSIX file "'"$APP"'") at desktop with properties {name:"Orbit42"}' >/dev/null
 echo "$APP"

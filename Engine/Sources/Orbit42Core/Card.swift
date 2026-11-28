@@ -170,6 +170,9 @@ public enum BoardJSON {
 
 public enum CardRules {
     /// 注入每個新 session 的說明（SessionStart hook 的輸出會進 AI 的 context），越短越省
+    /// 11-28 T1128183531 Keng：「我隨時測過改好都要直接並進主線直接分別裝起來」。組員開工時看到的規矩（秘書守則 Captain.manual 第 14 條是同一套）
+    public static let memberRules = "組員規矩（你是秘書就看 orbit captain 的守則，不適用這段）：Orbit42 這類要裝進 App 的改動，你只交 commit——不要自己打包（build_app.sh）、重開（restart_app.sh）、push；做完把分支名和 commit 用 SendMessage 回報給秘書，秘書測過會馬上併進 main、打包、重開、推送，一件一件裝。派工單的事只在你自己的卡片問使用者。一次只做一個專案。ctx 超過 300k 就不接新工作，先寫交接。"
+
     public static func brief(orbit: String, name: String? = nil) -> String {
         let who = name.map { "你在Orbit42的名字是 \($0)（只當收件地址）。" } ?? "第一次自報後會分到一個英文名（只當收件地址）。"
         return """
@@ -177,6 +180,7 @@ public enum CardRules {
         "\(orbit)" card --doing "<正在做的任務，10 個字內>" --status <working|review|done|waiting|blocked> --progress <0-100> --confidence <0-100> --summary "<一句話：做了什麼、結果>" [--ask "<需要使用者決定或回答的事>" --options "<選項1>|<選項2>"] [--how "<這一輪用的方法與工具，一句話>"] [--report "<報告檔絕對路徑>"]
         \(who)--doing 每次都要帶、寫「現在」手上這件事。畫面上的標題（職責 · 主專案／工作標題）由派工單或開工卡定住，換工作要發開工卡才會換。
         status：review＝需要使用者看過或決定；done＝完成、不需要看；waiting＝在等外部的事（等回信、等背景工作），終端機會亮橘、看板寫「在等」；blocked＝真的卡住做不下去、要人處理（看板寫「卡住」、會通知秘書）；working＝還沒做完、會繼續。confidence 是你對「做對了」的把握，要誠實，沒驗證過就不要給高分。有 --ask 時附 2–4 個 --options（| 分隔、每個是完整的一句回答，例如 "好，push|先不要"），使用者會在Orbit42按一下就把那句話送給你（所以選項不可以是「請秘書…／交給秘書…」，會被擋；要秘書做的事自己用 SendMessage 傳給秘書，不要放進選項）；--ask 會一直排在「等你回答」直到他回答（後來的卡片、繼續工作都不會蓋掉），他已在終端機答了或不用問了就跑 "\(orbit)" asks withdraw all。--how 寫這一輪用了什麼方法和工具（例如「讀 3 個檔＋改 Inbox.swift＋swift test」），Orbit42會記在看板（秘書看得到，不會推給它）。使用者在你卡片上的回答、在你終端機直接下的指令一律算數，看板會自動記進派工單，不用再向秘書確認。只是聊天、沒動手做事的回合可省略。只是在等（等回覆、等背景工作）、沒動手做事的回合，整張卡都不用發。
+        \(memberRules)
         跟使用者提到其他 AI session 時，一律用英文名（不要說 \(NSUserName())-xx 或 session id）；對照表："\(orbit)" names。
         """
     }
