@@ -14,7 +14,7 @@ final class DiskWatch {
 
     private struct Info { var name: String; var bsd: String; var speed: Int?; var product: String? }
     private var known: [String: Info] = [:]          // 掛載路徑 → 資訊
-    private var lastSpeed: [String: Int] = [:]       // 硬碟名 → 上次量到的速度（判斷「變慢」）
+    private var lastSpeed: [String: Int] = DiskWatch.loadSpeeds()   // 硬碟名 → 上次量到的速度（判斷「變慢」；存檔，重開也記得）
     private var ejecting: Set<String> = []           // 收到 willUnmount 的路徑（使用者自己退出）
     private var drops: [String: [Date]] = [:]        // 硬碟名 → 斷線時間
     private var goneAt: [String: Date] = [:]
@@ -25,7 +25,7 @@ final class DiskWatch {
 
     func start() {
         guard !started else { return }; started = true
-        for u in Self.externalVolumes() { if let i = Self.info(u) { known[u.path] = i; if let s = i.speed { lastSpeed[i.name] = s } } }
+        for u in Self.externalVolumes() { if let i = Self.info(u) { known[u.path] = i } }
         let nc = NSWorkspace.shared.notificationCenter
         nc.addObserver(forName: NSWorkspace.willUnmountNotification, object: nil, queue: .main) { [weak self] n in
             let p = Self.path(n); MainActor.assumeIsolated { if let p { self?.ejecting.insert(p) } }
@@ -38,10 +38,15 @@ final class DiskWatch {
             // 剛掛上時 USB 速度可能還沒穩，等 2 秒再量
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { MainActor.assumeIsolated { if let p { self?.mounted(p) } } }
         }
-        // 開機時就已經慢速的也講一次
-        for i in known.values where Self.slow(i.speed) {
-            note("slow", i, "外接硬碟 \(i.name) 現在跑在 USB 2.0（\(Self.fmt(i.speed))），線或插孔可能接觸不良")
+        // 11-28 Keng：線本來就只有 USB 2.0，每次啟動都講是誤報 ⇒ 只有「比上次存的速度慢」才講（例如 10Gb/s 掉到 480Mb/s）
+        for i in known.values {
+            let before = lastSpeed[i.name]
+            if Self.slower(i.speed, than: before) {
+                note("slow", i, "外接硬碟 \(i.name) 變慢了：現在 \(Self.fmt(i.speed))（上次 \(Self.fmt(before))），線或插孔可能接觸不良", extra: ["before": before ?? 0])
+            }
+            if let s = i.speed, s > 0 { lastSpeed[i.name] = s }
         }
+        Self.saveSpeeds(lastSpeed)
         log(["event": "start", "disks": known.values.map { ["name": $0.name, "bsd": $0.bsd, "speed": $0.speed ?? 0] }])
     }
 
@@ -60,11 +65,10 @@ final class DiskWatch {
         guard path.hasPrefix("/Volumes/"), let i = Self.info(URL(fileURLWithPath: path)) else { return }
         known[path] = i
         let before = lastSpeed[i.name]
-        if let s = i.speed { lastSpeed[i.name] = s }
+        if let s = i.speed, s > 0 { lastSpeed[i.name] = s; Self.saveSpeeds(lastSpeed) }
         let off = goneAt.removeValue(forKey: i.name).map { Int(Date().timeIntervalSince($0).rounded()) }
         var msg = off.map { "外接硬碟 \(i.name) 接回來了（離線 \($0) 秒）" } ?? "外接硬碟 \(i.name) 已接上"
-        let slower = before.map { b in (i.speed ?? b) < b } ?? false
-        if Self.slow(i.speed) || slower {
+        if Self.slower(i.speed, than: before) {
             msg += "，但速度只有 \(Self.fmt(i.speed))" + (before.map { "（之前 \(Self.fmt($0))）" } ?? "") + "，線或插孔接觸不良"
             note("slow", i, msg, extra: ["before": before ?? 0, "offline": off ?? -1])
         } else if off != nil {
@@ -98,6 +102,21 @@ final class DiskWatch {
     private static func externalVolumes() -> [URL] {
         (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? [])
             .filter { $0.path.hasPrefix("/Volumes/") }
+    }
+    /// 要不要講「變慢」：量得到速度、有上次的紀錄、而且比上次慢。第一次看到、量不到、一樣慢都不講
+    static func slower(_ now: Int?, than before: Int?) -> Bool {
+        guard let now, now > 0, let before, before > 0 else { return false }
+        return now < before
+    }
+    static let speedsURL = ProcessInfo.processInfo.environment["ORBIT_DISK_SPEEDS"].map { URL(fileURLWithPath: $0) }   // 測試用另一份
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Orbit42/disk-speeds.json")
+    static func loadSpeeds(_ url: URL = speedsURL) -> [String: Int] {
+        guard let d = try? Data(contentsOf: url), let m = try? JSONDecoder().decode([String: Int].self, from: d) else { return [:] }
+        return m
+    }
+    static func saveSpeeds(_ m: [String: Int], _ url: URL = speedsURL) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let d = try? JSONEncoder().encode(m) { try? d.write(to: url, options: .atomic) }
     }
     private static func slow(_ s: Int?) -> Bool { s.map { $0 > 0 && $0 <= 480_000_000 } ?? false }
     static func fmt(_ s: Int?) -> String {
