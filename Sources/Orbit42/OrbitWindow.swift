@@ -252,9 +252,11 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         guard !have.isEmpty else { return }
         let v = modelPane(id)
         let show = cur.flatMap { c in have.first { $0.standardizedFileURL == c.standardizedFileURL } } ?? have.last!
+        // 先展開面板再載入：面板還沒尺寸就載入，鏡頭會用 0 大小取景、拉得太近（11-28 實測）。原本收著的，載入後再收回去
+        showMoon(id, "3d"); v.layoutSubtreeIfNeeded()
         for u in have where u != show { v.open(u) }   // 先依序放進下拉選單，最後開當時那個
         v.open(show)
-        if shown { showMoon(id, "3d") } else { pushMoons() }
+        if !shown { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in MainActor.assumeIsolated { self?.tuckMoon(id) } } }
     }
     /// 網頁開在衛星裡（同一顆衛星一個網頁面板，再開就換網址）
     func openWeb(_ url: URL?, sat: String = "", job: String = "") {

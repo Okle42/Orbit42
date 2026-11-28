@@ -33,7 +33,7 @@ extension OrbitWindow {
                         self.dropMoon(id, "3d")
                         e2["3d"] = (e2["3d"] ?? "") + "\n/tmp/不存在的檔-keep3d.step"
                         self.host.reopenModel(e2, sat: id)
-                        after(4) {
+                        after(5) {
                             let s2 = state(id)
                             check("收起的面板開回來但不展開＋略過不存在的檔", s2.names == want && s2.shown == "-", "\(s2)")
                             var e3: [String: String] = [:]; self.host.addModel(&e3, id)
