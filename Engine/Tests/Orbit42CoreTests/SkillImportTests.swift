@@ -78,3 +78,18 @@ struct SkillImportTests {
         #expect(!f.contains { $0.text.contains(key) })
     }
 }
+
+// ORBIT_REAL_SKILL=owner/repo:資料夾 時才跑：真的用 gh 下載到真的暫存區（不安裝），印出危險掃描
+@Suite("匯入 skill：真的預覽")
+struct SkillImportRealTests {
+    @Test("真的預覽（ORBIT_REAL_SKILL 才跑）", .enabled(if: ProcessInfo.processInfo.environment["ORBIT_REAL_SKILL"] != nil))
+    func real() {
+        let v = ProcessInfo.processInfo.environment["ORBIT_REAL_SKILL"]!.split(separator: ":", maxSplits: 1).map(String.init)
+        switch SkillImport.fetch(repo: v[0], path: v.count > 1 ? v[1] : "", gh: SkillImport.realGH) {
+        case .failure(let e): Issue.record(Comment(rawValue: e.message))
+        case .success(let s):
+            print("REAL \(s.name) \(s.repo)/\(s.path)@\(s.sha.prefix(8)) \(s.files.count) 個檔：\(s.files.joined(separator: "、"))")
+            for f in SkillImport.scan(dir: SkillImport.staging.appendingPathComponent(s.name), files: s.files) { print("REAL ［\(f.level.rawValue)］\(f.file):\(f.line) \(f.what)  \(f.text)") }
+        }
+    }
+}

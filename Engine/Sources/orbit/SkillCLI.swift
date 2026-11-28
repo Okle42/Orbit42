@@ -40,7 +40,12 @@ enum SkillCLI {
                 print("----- 危險掃描 -----")
                 let fs = SkillImport.scan(dir: d, files: s.files)
                 if fs.isEmpty { print("沒掃到危險或要注意的內容。") }
-                for f in fs.sorted(by: { $0.level == .danger && $1.level != .danger }) { print("［\(f.level.rawValue)］\(f.file):\(f.line) \(f.what)  \(f.text)") }
+                for f in fs where f.level == .danger { print("［危險］\(f.file):\(f.line) \(f.what)  \(f.text)") }
+                // 「注意」常常很多（文件裡的網址、安裝範例）：按種類彙整，每種列前 3 處
+                let cautions = Dictionary(grouping: fs.filter { $0.level == .caution }, by: \.what)
+                for (what, xs) in cautions.sorted(by: { $0.value.count > $1.value.count }) {
+                    print("［注意］\(what) \(xs.count) 處：" + xs.prefix(3).map { "\($0.file):\($0.line)" }.joined(separator: "、") + (xs.count > 3 ? "⋯" : ""))
+                }
                 let danger = fs.filter { $0.level == .danger }.count
                 print("\n暫存在 \(d.path)（還沒裝）。" + (danger > 0 ? "有 \(danger) 處危險，預設不給裝。" : "Keng 核可後：orbit skill install \(s.name) --yes"))
                 return 0
