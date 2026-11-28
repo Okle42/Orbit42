@@ -17,7 +17,10 @@ final class AnswerSourceTests: XCTestCase {
         XCTAssertNil(BoardActions.typable(c, pick: nil, source: .user, asks: c.asks))
         XCTAssertNil(BoardActions.typable(c, pick: p, source: .user, asks: []))                 // 卡片上還有、其實已經答掉了
         XCTAssertNil(BoardActions.typable(c, pick: .init(askId: "Q9", option: nil, free: "好"), source: .user, asks: c.asks))
-        XCTAssertNil(BoardActions.typable(card(2), pick: p, source: .user, asks: card(2).asks))
+        // 11-28 Keng：排了好幾題也打進終端機（有框框），註明答的是哪一題；答的那題要在、選項要對
+        XCTAssertEqual(BoardActions.typable(card(2), pick: p, source: .user, asks: card(2).asks), "好（回答的是：題 0）")
+        XCTAssertEqual(BoardActions.typable(card(2), pick: .init(askId: "Q1", option: nil, free: "不要"), source: .user, asks: card(2).asks), "不要（回答的是：題 1）")
+        XCTAssertNil(BoardActions.typable(card(2), pick: .init(askId: "Q7", option: nil, free: "好"), source: .user, asks: card(2).asks))
         for f in [" 放行 BABCD", "放\u{200B}行"] { XCTAssertNil(BoardActions.typable(c, pick: .init(askId: "Q0", option: nil, free: f), source: .user, asks: c.asks)) }
         var board = c; board.kind = "board"
         XCTAssertNil(BoardActions.typable(board, pick: p, source: .user, asks: c.asks))
