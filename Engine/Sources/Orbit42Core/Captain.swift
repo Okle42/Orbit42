@@ -189,7 +189,7 @@ public enum Captain {
         return """
         【秘書派工 \(t.id)】\(lines.first ?? "")
         \(rest.isEmpty ? "" : rest + "\n")\(tips)
-        回報方式：這件事每一輪的 orbit card 都加上 --task \(t.id)（例如 "\(orbit)" card --task \(t.id) --status done --progress 100 --confidence 80 --summary "…"）。要使用者決定的用 --ask；卡住用 --status blocked 並說原因。同一個 repo 的規則（不准 push、客戶案要審）照舊遵守。
+        回報方式：這件事每一輪的 orbit card 都加上 --task \(t.id)（例如 "\(orbit)" card --task \(t.id) --status done --progress 100 --confidence 80 --summary "…"）。要使用者決定的用 --ask；卡住用 --status blocked 並說原因。同一個 repo 的規則（不准 push、客戶案要審）照舊遵守。要裝進 App 的改動只交 commit：不要自己打包、重開、push，做完回報分支名和 commit，由秘書測過、併進 main、一件一件裝。
         """
     }
 
@@ -199,7 +199,7 @@ public enum Captain {
         return """
         [Orbit42] 你現在是秘書。使用者把任務丟給你，你決定交給哪個 session 做，自己不下去做細節（保持 context 乾淨，才能一直當秘書）。
         1. 先看名冊："\(orbit)" roster（每個 session 的名字、專案、在做什麼、閒置或忙、ctx、同專案重工警告）。
-        2. 選人：同一個專案只交給一個 session（有人在做那個專案就交給它，不要再開）；名冊上 ctx 已到 token 門檻（orbit roster 會標 ctx Nk）的不要再派。
+        2. 選人：同一個專案只交給一個 session（有人在做那個專案就交給它，不要再開；一個組員一次只做一個專案）；ctx 超過 300k 或名冊上已到 token 門檻（orbit roster 會標 ctx Nk）的不要再派，先請它交接。
            要派的人（例如 Milo）已經被關掉、名冊找不到：不要叫\(owner)自己開。你自己開一個衛星終端機（背景 session）並命名成那個英文名：
            cd <專案資料夾> && claude --bg -n <英文名> "<第一句交代，例如：你是 Milo，等秘書派工>"，等它出現在 "\(orbit)" roster 再 task add --to <英文名>。沒有合適的人也照這樣開新的。
         3. 派工："\(orbit)" task add --to <英文名，例如 Chris> --role <修改|複核|設計|測試|研究|維運> --title "<14 字內短標題>" --text "<任務：目標、判準、交什麼>" —— 會建單並直接送進對方收件匣。
@@ -229,7 +229,10 @@ public enum Captain {
             每個人的 --ask 都會排在「等你回答」（不管 status 是 review 還是 blocked、後來又發卡或繼續做事都不會消失），使用者回答才拿掉；同一個人換句話重發、選項一樣的題會併成一筆。已經不用問的請那個人 "\(orbit)" asks withdraw all。
         13. 代別人處理完一件事（你替組員併 main、裝、push、改掉它在問的東西），當下就通知原組員撤題：SendMessage 給它「這題已在秘書視窗處理：<做了什麼，例如 main 3b97f08 已裝好已推>，請 "\(orbit)" asks withdraw all 並發 done 卡」。
             不要等看板自己發現：派工單完成／取消、或它問的 commit／分支已進 main（push 要 origin/main）、已裝上時看板會自動撤並傳話給它，但解析不到單號／commit 的題它不會撤。
-        14. 省用量：你只是在等（等回報、等使用者、等背景工作）、沒動手做事的回合，不用發卡片。
+        14. 裝 App 一件一件來，不批次（11-28 \(owner)：「我隨時測過改好都要直接並進主線直接分別裝起來」）：
+            組員只交 commit（分支名＋commit），不自己打包、重開、push。你收到就測（swift test），過了馬上併進主資料夾的 main、push、再從 main 打包（build_app.sh）、重開（restart_app.sh），然後回報\(owner)和那個組員。
+            不要攢著幾件一起裝，也不要排固定時段。build_app.sh 會擋：HEAD 不是 origin/main、在 worktree、有沒 commit 的改動、裝著的版本不在 HEAD 裡（倒退）；真的要救急才用 ORBIT_BUILD_FORCE="原因"（會記進 ~/Library/Logs/Orbit42/build.log）。
+        15. 省用量：你只是在等（等回報、等使用者、等背景工作）、沒動手做事的回合，不用發卡片。
         取消："\(orbit)" task cancel <單號>。
         """
     }

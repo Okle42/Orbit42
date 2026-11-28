@@ -28,7 +28,16 @@ exec >>"$LOG" 2>&1 </dev/null
 say() { echo "$(date '+%m-%d %H:%M:%S') $*"; }
 # 只認完整路徑等於這支 App 的程序（模擬器裡同名的不算）
 pids() { ps -axo pid=,command= | awk -v b="$BIN" '{p=$1; $1=""; sub(/^ /,""); if ($0 == b) print p}'; }
-say "重開：${1:-（沒寫原因）}"
+# 11-28 T1128183531：紀錄寫明誰重開、裝的是哪個 commit（沒帶原因就自動填裝著的 commit）
+WHO="終端機"
+if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+  WHO=$(/usr/bin/python3 -I -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get("name") or sys.argv[2])
+except Exception: print(sys.argv[2])' "$HOME/Library/Application Support/Orbit42/board/names/$CLAUDE_CODE_SESSION_ID.json" "session ${CLAUDE_CODE_SESSION_ID[1,8]}")
+fi
+INST=$(/usr/bin/plutil -extract OrbitGitCommit raw "$APP/Contents/Info.plist" 2>/dev/null || echo "")
+INST="${INST[1,7]}"
+say "重開：${1:-裝 ${INST:-（裝著的版本沒記 commit）}}｜誰：$WHO｜裝著 ${INST:-（沒記 commit）}"
 # 鍵盤滑鼠閒置秒數（ORBIT_IDLE_CMD 給測試換掉）
 idle() { if [[ -n "${ORBIT_IDLE_CMD:-}" ]]; then eval "$ORBIT_IDLE_CMD"; else ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; fi; }
 waited=0
