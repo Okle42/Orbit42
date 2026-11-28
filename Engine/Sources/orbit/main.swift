@@ -12,6 +12,7 @@
 //   orbit task add --to <英文名，例如 Chris> --text "…"   建派工單，印出要用 SendMessage 送的全文
 //   orbit task cancel <單號>    orbit tasks [--all]
 //   orbit web enable [--port N] | disable | status | rotate   Orbit42 網頁版（只綁 Tailscale；要本人在終端機跑）
+//   orbit cost [--week] | tasks | weekly [--save]   花費紀錄（CostLog.swift，約當 API 牌價）
 //   orbit seccheck [--card] [--json] [--wait] [--accept-network] [--open]   本機資安體檢（只看不改，SecCheck.swift）
 //
 // Contract with the AI tools that call us (hooks): this must NEVER slow them down or fail them.
@@ -460,6 +461,9 @@ if args.first == "web" {
     exit(WebCLI.run(args))
 }
 
+if args.first == "cost" {
+    exit(CostCLI.run(args))
+}
 if args.first == "b1" {
     exit(B1CLI.run(args))
 }
