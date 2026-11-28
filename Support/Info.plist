@@ -26,6 +26,8 @@
     <true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>Orbit42 opens and arranges your terminal windows (Ghostty) for sessions that run outside Orbit42.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Orbit42 的語音晨報要唯讀你的行事曆，念出今天的行程；資料只存在這台 Mac。</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Hold the sphere (or Space) to talk to your AI; speech is turned into text on this Mac.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

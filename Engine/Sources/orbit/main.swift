@@ -476,6 +476,10 @@ if args.first == "b1" {
     exit(B1CLI.run(args))
 }
 
+// 11-28 OpenJarvis 升級 A 組：個人資料搜尋、語音晨報（PersonalCLI.swift）
+if args.first == "search" { exit(PersonalCLI.search(args)) }
+if args.first == "morning" { exit(PersonalCLI.morning(args)) }
+
 if args.first == "seccheck" {
     exit(SecCheckCLI.run(args, orbit: URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path))
 }

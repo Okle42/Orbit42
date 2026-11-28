@@ -33,6 +33,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     private let audio = SphereAudio()      // v5：自己播＋FFT，聲波和逐詞字幕都靠它
     private var listener: SphereListener?
     private let edge = SphereEdgeVoice()
+    private var wantsMorning = false      // 11-28：這顆球按了「晨報」、在等稿子
 
     init?(dir: URL? = WorkWindow.webDir, desk: Bool = false, orbit: Bool = false) {
         guard let dir, FileManager.default.fileExists(atPath: dir.appendingPathComponent("sphere.html").path) else { return nil }
@@ -70,6 +71,14 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         NotificationCenter.default.publisher(for: HeatGate.changed).sink { [weak self] _ in self?.schedule() }.store(in: &subs)
         // 桌面版開關／尺寸變了：兩顆球都要知道（分頁那顆要不要出聲、桌面版的「尺寸」按鈕字）
         NotificationCenter.default.publisher(for: SphereMini.changed).sink { [weak self] _ in self?.pushPrefs() }.store(in: &subs)
+        // 11-28 A 組：語音晨報稿好了 ⇒ 交給網頁一句一句念（auto＝排程自動念，兩顆球都開時網頁只讓桌面版出聲）
+        NotificationCenter.default.publisher(for: MorningService.ready).sink { [weak self] n in
+            // 自己按的只送回按的那顆（不然兩顆球同時念）；排程的兩顆都送，網頁照既有規則只讓桌面版出聲
+            guard let self, (n.userInfo?["auto"] as? Bool) == true || self.wantsMorning else { return }
+            self.wantsMorning = false
+            self.js("window.karaMorning", n.userInfo ?? [:])
+        }.store(in: &subs)
+        MorningService.shared.start()
     }
 
     func tearDown() {
@@ -106,6 +115,23 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             if blocked { return reply(nil) }                // 測試不叫 AI
             SphereSpokenAI.shared.rewrite(str("text") ?? "", done: reply)
         case "stopSpeaking": audio.stop(); edge.stop()
+        case "morning":         // 11-28 A 組：按「晨報」＝馬上重抓重念（排程的由 MorningService 自己觸發）
+            if blocked { return js("window.karaMorning", ["lines": ["測試晨報第一句。", "第二句。"], "id": 1, "ai": false]) }      // 測試不抓資料、不叫 AI
+            wantsMorning = true
+            if MorningService.shared.busy { return say("晨報正在整理，等一下。") }
+            say("整理今天的晨報，大概要一分鐘。")
+            MorningService.shared.run(auto: false)
+        case "morningReplay":   // 重念：用剛才那份稿子，不重抓
+            if let l = MorningService.shared.last { js("window.karaMorning", l) } else { handle(["action": "morning"]) }
+        case "search":          // 11-28 A 組：個人資料搜尋（本機索引），回 window.karaSearch({q, hits:[{cite, snippet, link}]})
+            let q = (str("q") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !q.isEmpty else { return }
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let r = MorningService.search(q)
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.js("window.karaSearch", r) } }
+            }
+        case "openLink":        // 搜尋結果的出處連結：只開 https（信、檔案、行程的網址）
+            if let u = str("url").flatMap(URL.init(string:)), u.scheme == "https", !blocked { NSWorkspace.shared.open(u) }
         case "volume":          // 11-23 Keng：球體音量選單（0–1）
             if let v = (m["value"] as? NSNumber)?.floatValue { audio.volume = max(0, min(1, v)) }
         case "setVoice":       // 11-21 使用者：換聲音（選單選了就存起來、馬上試聽一句）
@@ -369,7 +395,8 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     private func pushPrefs() {
         let size = SphereMini.shared.currentPreset.flatMap { id in SphereMini.presets.first { $0.id == id }?.name } ?? "自訂"
         js("window.karaPrefs", ["mini": SphereMini.shared.enabled, "deskSize": size, "voice": SphereVoices.selected,
-                                "spokenAI": SphereSpokenAI.available,      // 11-28：有 claude 才顯示「AI 口語改寫」開關
+                                "spokenAI": SphereSpokenAI.available,
+                                "morning": true,      // 11-28 A 組：晨報、搜尋由原生端做（網頁不再自己唸舊早報）      // 11-28：有 claude 才顯示「AI 口語改寫」開關
                                 "voices": SphereVoices.all().map { ["id": $0.id, "name": $0.name, "group": $0.group] }])
     }
 
