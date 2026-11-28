@@ -254,6 +254,13 @@ final class ChromeView: NSView, @preconcurrency NSTextInputClient {
     }
     private func connect() {
         guard !opening else { return }
+        // 11-28 Keng：外面那個登入用的 Chrome 視窗開著時，設定檔被它佔住，無頭 Chrome 開不起來 ⇒ 不是「沒有裝 Chrome」。
+        // 講清楚在等什麼，視窗一關就自己接回來
+        if ChromeGoogleLogin.shared.isOpen {
+            onError("正在另一個 Chrome 視窗登入：登好後按 ⌘Q 關掉那個視窗，這裡會自己回來")
+            ChromeGoogleLogin.shared.whenClosed { [weak self] in if let self, !self.closed { self.connect() } }
+            return
+        }
         guard ChromeBrowser.shared.start() else { onError("這台 Mac 沒有裝 Google Chrome，或開不起來"); return }
         opening = true
         ChromeBrowser.shared.send("Target.createTarget", ["url": "about:blank"]) { [weak self] r in

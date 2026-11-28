@@ -22,6 +22,10 @@ final class ChromeGoogleLogin: NSObject {
     }
 
     private var after: (() -> Void)?
+    private var waiters: [() -> Void] = []
+    var isOpen: Bool { proc?.isRunning == true }
+    /// 登入視窗關掉之後要做的事（衛星網頁面板在等它讓出設定檔）
+    func whenClosed(_ f: @escaping () -> Void) { waiters.append(f) }
     @objc func openFromMenu() { open(url: Self.loginURL) }
     /// url：正常 Chrome 視窗一開就停在哪一頁（網站的登入頁）；then：視窗關掉、登入記好之後要做的事（例如面板重新載入原頁）
     func open(url: String, then: (() -> Void)? = nil) {
@@ -43,8 +47,9 @@ final class ChromeGoogleLogin: NSObject {
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 self.proc = nil
                 let f = self.after; self.after = nil
+                let w = self.waiters; self.waiters = []
                 OrbitWindow.shared.toast("Google 登入已記住：衛星裡的網頁重新載入就是登入狀態")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { f?() } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { w.forEach { $0() }; f?() } }
             } }
         }
         do { try p.run(); proc = p; OrbitWindow.shared.toast("在跳出的 Chrome 視窗登入（可以用 Google），登完按 ⌘Q 關掉那個視窗，衛星網頁會自己重新載入") }
