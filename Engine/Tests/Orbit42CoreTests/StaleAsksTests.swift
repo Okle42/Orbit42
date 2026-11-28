@@ -62,6 +62,19 @@ struct StaleAsksTests {
         #expect(StaleAsks.branches(in: "要不要 push 分支，交給別人併？").isEmpty)
     }
 
+    @Test("T1128155212：短雜湊剛好全是數字／全是字母，repo 查得到就認；查不到的日期、英文字不擋整題")
+    func weakHashes() {
+        for h in ["1234567", "2026112", "abcdeff"] {
+            let g = git { $0.refs[h] = "H"; $0.refs["INST"] = "I"; $0.inside = ["H>I"] }
+            #expect(StaleAsks.shipped(ask("Q1", "要裝 \(h) 嗎？"), card: nil, cwd: "/repo", installed: "INST", git: g) != nil, "\(h)")
+        }
+        // 20261128 是日期、查不到 ⇒ 當沒寫；1b1dab2 照樣判斷
+        let g = git { $0.refs["1b1dab2"] = "H1"; $0.inside = ["H1>OM"] }
+        #expect(StaleAsks.shipped(ask("Q2", "20261128 改的 1b1dab2 要不要 push？"), card: nil, cwd: "/repo", installed: nil, git: g) != nil)
+        // 只有日期、查不到：沒有 commit 可查 ⇒ 不撤
+        #expect(StaleAsks.shipped(ask("Q3", "20261128 那版要不要 push？"), card: nil, cwd: "/repo", installed: nil, git: g) == nil)
+    }
+
     // MARK: ② 查 git（假的）
 
     struct FakeGit: StaleAsks.Git {

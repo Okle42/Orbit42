@@ -74,8 +74,16 @@ public enum StaleAsks {
 
     /// 文字裡的 commit 雜湊（7–40 碼十六進位，至少一個數字一個字母：日期 20261128、英文字 deadbee 不算）
     public static func commits(in s: String) -> [String] {
-        unique(all(#"(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])"#, s).filter { h in h.contains(where: \.isNumber) && h.contains(where: \.isLetter) })
+        hexWords(in: s).filter { !weak($0) }
     }
+    /// 7–40 碼十六進位字（全部，含全數字、全字母的）
+    static func hexWords(in s: String) -> [String] {
+        unique(all(#"(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])"#, s))
+    }
+    /// 全數字或全字母：可能是日期、英文字，也可能是真的短雜湊。
+    /// 11-28 T1128155212：真的 commit 約 3.7% 短雜湊剛好全是數字（7 碼 (10/16)^7），以前一律丟掉 ⇒ 那種 commit 永遠認不出來（測試隨機雜湊時好時壞）。
+    /// 改成：這種字在那個 repo 查得到 commit 才算，查不到就當沒寫（不會因為一個日期擋掉整題）
+    static func weak(_ h: String) -> Bool { !h.contains(where: \.isNumber) || !h.contains(where: \.isLetter) }
 
     /// 文字裡的分支名：帶斜線的（dora2/release-all、origin/sprint/w1）、或寫在「分支／branch」後面的；網址、檔名不算。
     /// 拿去 git 查得到才算數，所以這裡寬鬆一點沒關係
@@ -118,7 +126,8 @@ public enum StaleAsks {
         guard !verbs.isEmpty, let cwd, let repo = git.toplevel(cwd) else { return nil }
         // 要查的東西：題目 → 卡片欄位 → 現在的分支
         func parse(_ s: String) -> [(name: String, branch: Bool)] {
-            let cs: [(name: String, branch: Bool)] = commits(in: s).map { (name: $0, branch: false) }
+            let hs = hexWords(in: s).filter { !weak($0) || git.resolve(repo, $0) != nil }
+            let cs: [(name: String, branch: Bool)] = hs.map { (name: $0, branch: false) }
             let bs: [(name: String, branch: Bool)] = branches(in: s).map { (name: $0, branch: true) }
             return cs + bs
         }
