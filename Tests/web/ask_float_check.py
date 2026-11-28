@@ -63,7 +63,7 @@ async function checks() {
   for (const w of [560, 440, 240]) { askMax(w, 900); await wait(60); const c = el("#card"); ok(c.scrollWidth <= c.clientWidth, w + " 寬不可橫向裁字"); for (const x of c.querySelectorAll(".q,.opt,.sum,.nm")) ok(x.scrollWidth <= x.clientWidth + 1 || getComputedStyle(x).display === "inline", w + " 裁字 " + x.className); ok(JSON.parse(sized).h >= Math.min(c.scrollHeight, 900) - 2, "回報高度夠"); }
   askMax(440, 260); await wait(60); ok(el("#card").getBoundingClientRect().height <= 261 && el("#card").scrollHeight > 261 && getComputedStyle(el("#card")).overflowY === "auto", "矮視窗可以捲到全部");
   const bg = getComputedStyle(el("#wrap")).backgroundColor; ok(!/rgba/.test(bg), "不透明底 " + bg); up(); await wait(1700); ok(JSON.parse(sized).mode === "hidden" || S().undo, "沒題就收");
-  await reviews(); await stacks(); await opens();
+  await reviews(); await stacks(); await opens(); await picks();
 }
 /* T1125120137 縮起時新題自動展開 */
 async function opens() {
@@ -111,6 +111,30 @@ async function stacks() {
   }
   await fresh("條數一變就鎖", Q("s1", "A"), Q("s2", "B"), PM("P9")); askMax(440, 900); await wait(560); tap(opt(0)); await wait(700); tap(opt(0)); await wait(560); ok(!S().locked, "先沒鎖"); let locked = false;
   for (let t = 0; t < 60 && !locked; t++) { await wait(50); locked = S().locked; } ok(locked, "少一條要鎖"); tap(opt(2)); ok(S().visible.length === 1, "鎖住時點權限鈕不算"); await wait(4000);
+}
+/* 11-28 Keng「放行！全部」的對外單勾選卡：按選項只打勾、不送；按「確認放行」／Enter 才送 chosen；「全部不放」送空的 */
+const PK = (sid, id) => Q(sid, id, { multi: true, ask: "「放行！全部」裡有 4 張對外的單，要你勾選確認。",
+  options: ["BDEP2　組員a：firebase 部署，送到 Firebase 網站｜firebase deploy", "BLIN3　組員b：LINE 對外傳訊，送到 LINE｜line_send.py", "BGHP4　組員b：GitHub 公開發言，送到 GitHub｜gh pr create", "BPSH5　組員c：push 掃到密鑰，送到 GitHub｜Orbit42"] });
+async function picks() {
+  await fresh("勾選：按選項只打勾", PK("s1", "P"));
+  ok(el(".pick") && el(".pick").style.display !== "none" && el(".free").style.display === "none", "勾選題要有確認列、沒有補充框");
+  ok(el("[data-confirm]").disabled, "沒勾時確認鈕不能按"); tap(el("[data-confirm]")); ok(!S().undo, "沒勾按確認不送");
+  tap(opt(0)); tap(opt(2)); ok(!S().undo && S().visible.length === 1, "點選項不可送出 " + S().undo);
+  ok(opt(0).classList.contains("on") && opt(2).classList.contains("on") && !opt(1).classList.contains("on"), "點到的要打勾");
+  ok(el(".pick .what").textContent.includes("已勾 2 張：BDEP2、BGHP4"), "送出前看得到勾了哪幾張 " + el(".pick .what").textContent);
+  tap(opt(2)); ok(!opt(2).classList.contains("on") && el(".pick .what").textContent.includes("已勾 1 張：BDEP2"), "再點一次取消");
+  tap(el("#card")); key("3"); key("4"); key("4"); ok(!S().undo && opt(2).classList.contains("on") && !opt(3).classList.contains("on"), "數字鍵也只是切換勾選");
+  ok(el("[data-confirm]").textContent === "確認放行 2 張", "確認鈕寫張數 " + el("[data-confirm]").textContent);
+  await wait(3200); ok(!sends().length, "勾了等再久也不會自己送");
+  key("Enter"); ok(S().undo === "s1|a:P", "Enter＝確認放行"); ok(!sends().length, "3 秒內還沒真的送");
+  await wait(3100); const s = sends()[0];
+  ok(sends().length === 1 && JSON.stringify(s.chosen) === "[0,2]" && s.askId === "P" && s.option === undefined && s.free === undefined, "只送勾的第幾個 " + JSON.stringify(sends()));
+  await fresh("勾選：復原後勾選還在", PK("s1", "P")); tap(opt(1)); tap(el("[data-confirm]")); ok(S().undo === "s1|a:P", "按確認"); tap(el("[data-undo]")); ok(!S().undo, "復原"); await wait(600);
+  ok(opt(1).classList.contains("on"), "復原後勾選還在"); await wait(3200); ok(!sends().length, "復原後不送");
+  await fresh("勾選：全部不放", PK("s1", "P")); tap(opt(0)); tap(el("[data-none]")); ok(S().undo === "s1|a:P", "全部不放也走 3 秒復原"); await wait(3100);
+  ok(sends().length === 1 && JSON.stringify(sends()[0].chosen) === "[]", "全部不放送空的 " + JSON.stringify(sends()));
+  await fresh("勾選：題目換了勾選作廢", PK("s1", "P")); tap(opt(0)); up({ ...PK("s1", "P"), options: ["BXXXX　別的單", "BYYYY　別的單"] }); await wait(600);
+  ok(!opt(0).classList.contains("on") && el("[data-confirm]").disabled, "選項變了勾選要清掉");
 }
 /* Gavin5 複核（T1125041307）的反例 */
 const pos = () => [...document.querySelectorAll(".opt")].map(o => { const r = o.getBoundingClientRect(), v = JSON.parse(sized); return [r.left, r.top - v.h, r.width, r.height].map(Math.round).join(); }).join(" ");      // 卡片貼右下：對視窗下緣的位置

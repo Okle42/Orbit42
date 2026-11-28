@@ -36,7 +36,10 @@ public enum AskQueue {
     /// 放多久沒人回答就不再列（使用者可能在終端機答了、AI 又忘了撤回）
     public static let ttl: TimeInterval = 48 * 3600
 
+    /// 測試用：只對這個 Task 生效（環境變數是全程序共用，別的 suite 平行跑會互相蓋掉）
+    @TaskLocal public static var testDir: URL? = nil
     public static var dir: URL {
+        if let d = testDir { return d }
         if let p = TestEnv.path("ORBIT_ASKS_DIR") { return URL(fileURLWithPath: p, isDirectory: true) }
         return Paths.supportDir.appendingPathComponent("board/asks", isDirectory: true)
     }

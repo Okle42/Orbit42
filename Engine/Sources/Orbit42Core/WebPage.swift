@@ -73,7 +73,7 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
   var m = /[?&]t=([0-9a-f]{64})/.exec(location.search);
   if (m) { token = m[1]; try { sessionStorage.setItem(KEY, token); } catch (e) {} }
   else { try { token = sessionStorage.getItem(KEY) || ""; } catch (e) {} }
-  var busy = {}, drafts = {}, opened = {};
+  var busy = {}, drafts = {}, opened = {}, ticked = {};
   var timer = null;
 
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -117,7 +117,31 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
     if (meta) c.appendChild(el("div", "meta", meta));
     if (s.question) {
       c.appendChild(el("div", "q", "❓ " + s.question));
-      if (s.canAnswer && s.options.length) {
+      if (s.canAnswer && s.options.length && s.multi) {
+        // 11-28 勾選題（放行！全部的對外單）：按選項只打勾，按「確認放行」才送；勾選照題目留著（每幾秒重畫不會掉）
+        var k = s.id + "|" + s.askId, t = ticked[k] || (ticked[k] = {}), pbox = el("div", "opts"), all = [];
+        var what = el("div", "note"), ok = el("button", null, "確認放行"), none = el("button", null, "全部不放");
+        var redraw = function(){
+          var ids = [];
+          s.options.forEach(function(o, i){ var on = !!t[i]; all[i].textContent = (on ? "☑ " : "☐ ") + o; all[i].setAttribute("aria-checked", on ? "true" : "false"); if (on) ids.push(o.split(/\s/)[0]); });
+          what.textContent = ids.length ? "已勾 " + ids.length + " 張：" + ids.join("、") + "（沒勾的維持擋下）" : "還沒勾。按選項打勾／取消，按「確認放行」才送出";
+          ok.textContent = ids.length ? "確認放行 " + ids.length + " 張" : "確認放行"; ok.disabled = !ids.length || !!busy[s.id];
+          return ids;
+        };
+        s.options.forEach(function(o, i){
+          var b = el("button", null, o); b.setAttribute("role", "checkbox"); all.push(b);
+          b.addEventListener("click", function(){ t[i] = !t[i]; redraw(); });
+          pbox.appendChild(b);
+        });
+        var send = function(chosen, ids){
+          post("/api/answer", s.id, { id: s.id, askId: s.askId, chosen: chosen }, "「" + s.name + "」的對外單：\n" + (chosen.length ? "放行 " + ids.join("、") + "（沒勾的維持擋下）" : "全部不放"), all.concat([ok, none]), function(){ delete ticked[k]; });
+        };
+        ok.addEventListener("click", function(){ var ids = redraw(), ch = []; s.options.forEach(function(o, i){ if (t[i]) ch.push(i); }); if (ch.length) send(ch, ids); });
+        none.addEventListener("click", function(){ send([], []); });
+        c.appendChild(pbox); c.appendChild(what);
+        var row = el("div", "opts"); row.appendChild(ok); row.appendChild(none); c.appendChild(row);
+        redraw(); if (busy[s.id]) all.concat([ok, none]).forEach(function(b){ b.disabled = true; });
+      } else if (s.canAnswer && s.options.length) {
         var box = el("div", "opts"), btns = [];
         s.options.forEach(function(o){
           var b = el("button", null, o); btns.push(b);

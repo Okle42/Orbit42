@@ -63,7 +63,7 @@
 
 | action | 欄位 | Mac 對應 | 從哪裡按 |
 |---|---|---|---|
-| `answer` | `id, sessionId, text` | `BoardActions.answer(card, text)` | 回答卡、收件匣選項／打字、右側對話窗格 |
+| `answer` | `id, sessionId, text`（勾選題另帶 `askId, chosen: [第幾個]`，空陣列＝全部不放；題目資料有 `multi: true` 時按選項只打勾） | `BoardActions.answer(card, text)`；勾選題走 `ReleasePick.answer`（Mac，11-28） | 回答卡、收件匣選項／打字、右側對話窗格 |
 | `permit` | `id, sessionId, permitId, decision: "allow"\|"always"\|"deny", message?, answers?` | `BoardActions.permit(card, PermitAnswer)`；`answers` 是 `{題目: [選的]}`（AskUserQuestion） | 收件匣：權限、選擇題、計畫確認 |
 | `askCaptain` | `text` | `BoardActions.askCaptain(text)`（秘書不在就開一個）。做完回 `toast` 並帶 `captainDone:true` | 收件匣下方「交給秘書」 |
 | `focus` | `id, sessionId, pid, kind` | `BoardActions.focus(pid:)`：跳到終端機視窗。找不到時回 toast：`kind == "bg"` 回「這是背景 session，沒有視窗；用 claude attach 打開」，其他回「找不到這個 session 的視窗」 | 回答卡、收件匣、右鍵「跳到這個視窗」、對話窗格終端機鈕 |

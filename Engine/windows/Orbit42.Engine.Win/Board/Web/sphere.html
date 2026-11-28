@@ -170,6 +170,12 @@
   #askCard .pill.opt b { font-weight: 600; color: var(--ink-dim); margin-right: 6px; font-size: 11px; }
   #askCard .opts > .pill.opt:last-child:nth-child(odd) { grid-column: 1 / -1; }
   #askCard .pill.opt i { display: block; font-style: normal; font-size: 11px; letter-spacing: .12em; color: var(--acc); margin-bottom: 2px; }
+  /* 11-28 勾選題（放行！全部的對外單）：按選項只打勾，按「確認放行」才送 */
+  #askCard .pill.opt .box { display: inline-block; width: 1.3em; font-weight: 700; color: var(--ink-dim); }
+  #askCard .pill.opt.on { border-color: var(--acc); background: var(--acc-soft); } #askCard .pill.opt.on .box { color: var(--acc); }
+  #askCard .pick { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  #askCard .pick .what { flex: 1 1 100%; font-size: 12px; color: var(--ink-dim); overflow-wrap: anywhere; min-height: 2.9em; }
+  #askCard .pick [data-confirm] { border-color: var(--acc); font-weight: 600; } #askCard .pick button:disabled { opacity: .4; cursor: default; }
   #askCard .free { margin-top: 8px; display: flex; gap: 6px; align-items: flex-end; }
   #askCard .free textarea { flex: 1; min-width: 0; resize: vertical; min-height: 2.6em; max-height: 9em; background: var(--soft); color: var(--ink);
     border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; line-height: 1.45; outline: none; }
@@ -2599,7 +2605,7 @@ function renderAsk() {
   // 每種卡片都用同款大按鈕（2 欄、數字鍵）；只有 Claude 自己標「（建議）」／(Recommended) 的才有建議框和 Enter
   const grid = items => `<div class="opts">${items.map((o, k) => `<button class="pill opt${o.rec ? " rec" : ""}"${o.rec ? " data-rec" : ""} data-k="${k + 1}" data-label="${esc(o.label)}" data-act='${esc(JSON.stringify(o.act))}'>${o.rec ? '<i>建議</i>' : ""}${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o.label)}</button>`).join("")}</div>`;
   const isRec = o => /（建議）|\(建議\)|\(Recommended\)/i.test(o);
-  let btns = "", free = false, detail = "", n = 0, hasRec = false;
+  let btns = "", free = false, detail = "", n = 0, hasRec = false, multi = false;
   if (p?.kind === "tool") {
     detail = p.summary || "";
     btns = grid([{ label: "允許", act: { permit: "allow" } }, { label: "一律允許", act: { permit: "always" } }, { label: "拒絕", act: { permit: "deny" } }]); n = 3;
@@ -2611,6 +2617,11 @@ function renderAsk() {
       const os = qs[0].options; n = os.length; hasRec = os.some(isRec);
       btns = grid(os.map(o => ({ label: o, rec: isRec(o), act: { permit: "allow", answers: { [qs[0].question]: [o] } } })));
     } else detail = `${qs.length} 題選擇題，到它的視窗回答比較清楚。`;
+  } else if (c.multi && c.askId) {
+    // 11-28 勾選題：每個選項是一張對外單；按了只打勾（.box），送出要按「確認放行」／「全部不放」
+    const opts = c.options || []; n = opts.length; multi = true;
+    btns = `<div class="opts">${opts.map((o, k) => `<button class="pill opt" role="checkbox" aria-checked="false" data-k="${k + 1}" data-tick="${k}"><span class="box">☐</span>${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o)}</button>`).join("")}</div>`
+      + `<div class="pick"><span class="what"></span><button class="pill sm" data-confirm disabled>確認放行</button><button class="pill sm" data-none>全部不放</button></div>`;
   } else {
     // 11-23 Keng「每次作業完跳 4 選項答案卡，有預設建議，最下面還要能打字補充」：建議的那個（結尾「（建議）」，沒標就第一個）紅框；送出時去掉「（建議）」
     const opts = c.options || [], rec = Math.max(0, opts.findIndex(isRec));
@@ -2618,7 +2629,8 @@ function renderAsk() {
     if (opts.length) { btns = grid(opts.map((o, k) => ({ label: clean(o), rec: k === rec, act: { text: clean(o), opt: 1 } }))); n = opts.length; hasRec = true; }
     free = true;
   }
-  const hint = [n ? `按 1–${Math.min(9, n)} 選選項` : "", hasRec ? "Enter 送建議" : "", "送出後 3 秒內可復原"].filter(Boolean).join(" · ");
+  const hint = multi ? `按選項或 1–${Math.min(9, n)} 勾選／取消 · Enter 或「確認放行」才送出 · 送出後 3 秒內可復原`
+    : [n ? `按 1–${Math.min(9, n)} 選選項` : "", hasRec ? "Enter 送建議" : "", "送出後 3 秒內可復原"].filter(Boolean).join(" · ");
   const sum = c.summary && c.reportKind !== "start" ? c.summary : "";
   card.innerHTML = `<div class="top"><span>需要你</span><span class="nm">${esc(c.name || "")}${c.doing ? ` · ${esc(c.doing)}` : ""}</span><span class="ago">${agoText(c.ago)}</span>
       ${list.length > 1 ? `<span class="nav"><button class="pill sm" data-nav="-1">‹</button>${i + 1}/${list.length}<button class="pill sm" data-nav="1">›</button></span>` : ""}</div>
@@ -2629,8 +2641,23 @@ function renderAsk() {
     <div class="foot"><span>${hint}</span><span class="links"><button class="lnk" data-snooze>Esc 稍後再答</button><button class="lnk" data-act='{"focus":1}'>跳到它的視窗 →</button></span></div>`;
   const ta = card.querySelector(".free textarea");
   if (ta) { ta.value = drafts.get(c.sessionId) || ""; if (hadFocus) { ta.focus(); const n = ta.value.length; ta.setSelectionRange(Math.min(sel0[0], n), Math.min(sel0[1], n)); } }   // Xena3 驗收：游標留在原位，不跳到最後
+  if (multi) drawPick(c);
   card.classList.add("on");
   document.body.classList.add("asking");
+}
+/* 勾選題的勾選狀態：key＝session＋題目（askKey 含題目字；題目換了就是新的、舊勾選不帶過去）。復原時勾選還在 */
+const picked = new Map(), pickKey = c => c.sessionId + "|" + c.askId + "|" + JSON.stringify(c.options || []);
+function drawPick(c) {
+  const card = $("askCard"), t = picked.get(pickKey(c)) || new Set(), xs = c.options || [];
+  card.querySelectorAll(".pill.opt[data-tick]").forEach(b => { const on = t.has(+b.dataset.tick); b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); b.querySelector(".box").textContent = on ? "☑" : "☐"; });
+  const ids = [...t].sort((a, b) => a - b).map(i => (xs[i] || "").split(/\s/)[0]);
+  const w = card.querySelector(".pick .what"); if (w) w.textContent = ids.length ? `已勾 ${ids.length} 張：${ids.join("、")}（沒勾的維持擋下）` : "還沒勾。按選項打勾／取消，按「確認放行」才送出";
+  const b = card.querySelector("[data-confirm]"); if (b) { b.disabled = !ids.length; b.textContent = ids.length ? `確認放行 ${ids.length} 張` : "確認放行"; }
+}
+function confirmPick(c, none) {
+  const xs = c.options || [], chosen = none ? [] : [...(picked.get(pickKey(c)) || [])].sort((a, b) => a - b); if (!none && !chosen.length) return;
+  const ids = chosen.map(i => (xs[i] || "").split(/\s/)[0]), label = none ? "全部不放" : `確認放行 ${ids.length} 張：${ids.join("、")}`;
+  sendLater(c, { action: "answer", sessionId: c.sessionId, askId: c.askId, chosen, text: label }, label);
 }
 /* 11-23 Keng「答案卡位置讓版面變化不太對 ⇒ 改成在戰情卡那一列直接展開回答」（只在 Orbit42）：
    #askCard 搬進 #teamRows、插在正在問的那一列下面（不在前 6 列就放最上面）；小紅點（稍後再答）放在戰情卡標題下。
@@ -2705,6 +2732,12 @@ $("askCard").addEventListener("click", e => {
   const nav = e.target.closest("[data-nav]");
   if (nav) { const list = pending(); let i = list.findIndex(c => c.sessionId === askSid); askSid = list[(i + +nav.dataset.nav + list.length) % list.length]?.sessionId; renderAsk(); return; }
   if (e.target.closest("[data-snooze]")) return snoozeAsk();
+  {   // 勾選題：選項只切換勾選；確認／全部不放才送
+    const c = (data.team || []).find(x => x.sessionId === askSid), tk = e.target.closest("[data-tick]");
+    if (c && tk) { const k = pickKey(c), s = new Set(picked.get(k) || []), i = +tk.dataset.tick; s.has(i) ? s.delete(i) : s.add(i); picked.set(k, s); return drawPick(c); }
+    if (c && e.target.closest("[data-confirm]")) return confirmPick(c, false);
+    if (c && e.target.closest("[data-none]")) return confirmPick(c, true);
+  }
   const b = e.target.closest("[data-act]"); if (!b) return;
   const c = (data.team || []).find(x => x.sessionId === askSid); if (!c) return;
   const a = JSON.parse(b.dataset.act);
@@ -2753,7 +2786,7 @@ document.addEventListener("keydown", e => {
   if (e.target.closest && e.target.closest("textarea, input, select, [contenteditable]")) return;
   let b = null;
   if (/^[1-9]$/.test(e.key)) b = card.querySelector(`.pill.opt[data-k="${e.key}"]`);
-  else if (e.key === "Enter") b = card.querySelector(".pill.opt[data-rec]");
+  else if (e.key === "Enter") b = card.querySelector("[data-confirm]") || card.querySelector(".pill.opt[data-rec]");      // 勾選題：Enter＝確認放行（沒勾時鈕停用、按了不動）
   if (b) { e.preventDefault(); b.click(); }
 });
 function done(c) { sentKey.set(c.sessionId, askKey(c)); askSid = null; $("askCard").dataset.sig = ""; renderAsk(); autoState(); }

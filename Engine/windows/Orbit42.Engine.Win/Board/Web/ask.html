@@ -64,7 +64,14 @@
   #over > .foot { font-size: 11px; color: var(--ink-dim); }
   .foot .hint { flex: 1; min-width: 150px; } .foot .links { margin-left: auto; display: flex; gap: 12px; }
   .lnk { border: 0; padding: 0; color: var(--ink-dim); } .lnk:hover { color: var(--acc); text-decoration: underline; }
-  .off .opts, .off .free { opacity: .4; pointer-events: none; }
+  .off .opts, .off .free, .off .pick { opacity: .4; pointer-events: none; }
+  /* 11-28 勾選題（放行！全部的對外單）：按選項只打勾，按「確認放行」才送 */
+  .opt .box { display: inline-block; width: 1.3em; font-weight: 700; color: var(--ink-dim); }
+  .opt.on { border-color: var(--acc); background: var(--rec); } .opt.on .box { color: var(--acc); }
+  .pick { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .pick .what { flex: 1 1 100%; font-size: 12px; line-height: 1.45; height: 2.9em; color: var(--ink-dim); overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .pick button[data-confirm] { border-color: var(--acc); color: var(--acc); font-weight: 600; }
+  .pick button:disabled { opacity: .4; cursor: default; }
   body.armed.open #wrap { border-color: var(--acc); }
 </style>
 </head>
@@ -93,6 +100,9 @@ const visible = () => order.filter(k => live.has(k) && !sent.has(k));
 const lock = () => { lockUntil = now() + LOCK; down = null; };
 const disarm = () => { armed = false; document.body.classList.remove("armed"); };
 const typing = () => document.activeElement?.tagName === "TEXTAREA";
+/* 11-28 勾選題：ticks＝題目 key → 勾了第幾個。按選項／數字鍵只切換，不送；要按「確認放行」（或 Enter）才送 chosen */
+const ticks = new Map(), isMulti = c => !!(c && c.askId && c.multi);
+const tickOf = k => ticks.get(k) || new Set();
 
 function askUpdate(data) {
   const next = new Map();
@@ -110,6 +120,7 @@ function askUpdate(data) {
     else if (s.posted && (live.get(k).askState === "unsure" || now() - s.posted > RETRY)) sent.delete(k);      // 還在：放回清單，照現在的狀態顯示
   }
   for (const u of [...undos.values()]) if (!live.has(u.key)) dropUndo(u, "那題已經在別處答掉或收回，沒有送出");
+  for (const k of [...ticks.keys()]) if (!live.has(k)) ticks.delete(k);
   while (drafts.size > 60) drafts.delete(drafts.keys().next().value);            // 草稿照題目 id 留著：題目短暫消失再回來還在
   // 縮起時來了沒看過的題（新的 askId／權限單號）⇒ 展開那題。看過的（稍後再答、跳走時在場的）、同題更新、換順序都不彈；展開中照舊不換題
   if (!open && fresh.length && !(first && restored === null)) wantOpen(fresh.at(-1));
@@ -206,6 +217,7 @@ function drawCard(list) {
     el.dataset.key = cur; el.dataset.sig = ""; lock(); padSel = -1;
     el.innerHTML = `<div class="top"><span class="tag">需要你</span><span class="nm" data-jump></span><span class="ago"></span><span class="nav"></span></div>
       <div class="sum"></div><div class="q" data-jump></div><div class="d"></div><div class="opts"></div>
+      <div class="pick" style="display:none"><span class="what"></span><button tabindex="-1" data-confirm disabled>確認放行</button><button tabindex="-1" data-none>全部不放</button></div>
       <div class="free"><textarea rows="2" placeholder="補充說明，選了選項會一起送（⌘Enter 送出）" aria-label="自己打補充說明"></textarea><button tabindex="-1" data-go>送出</button></div>`;
     el.querySelector("textarea").value = drafts.get(cur) || ""; el.scrollTop = 0;
   }
@@ -213,6 +225,7 @@ function drawCard(list) {
 }
 function items(c) {
   const p = c.permit;
+  if (isMulti(c)) return (c.options || []).map((o, i) => ({ label: o, act: { tick: i } }));
   if (c.askId) { const os = c.options || [], rec = Math.max(0, os.findIndex(isRec)); return os.map((o, i) => ({ label: clean(o), rec: i === rec, act: { text: clean(o) } })); }
   if (p.kind === "tool") return [["允許", "allow"], ["一律允許", "always"], ["拒絕", "deny"]].map(([label, d]) => ({ label, act: { permit: d } }));
   if (p.kind === "plan") return [["核准計畫", "allow"], ["退回", "deny"]].map(([label, d]) => ({ label, act: { permit: d } }));
@@ -237,7 +250,7 @@ function patch(list) {
   set(".top .nm", titleOf(c)); set(".ago", agoText(c.ago));
   const sig = sigOf(c);
   if (el.dataset.sig === sig) return;
-  if (el.dataset.sig) { lock(); disarm(); }                                        // 同一題但內容、選項變了：剛剛瞄準的那顆可能已經不是原本那個
+  if (el.dataset.sig) { lock(); disarm(); ticks.delete(cur); }                    // 同一題但內容、選項變了：剛剛瞄準的那顆可能已經不是原本那個（勾選也作廢）
   el.dataset.sig = sig; el.dataset.seen = sig;
   const sum = c.summary && c.reportKind !== "start" ? "剛做完：" + clip(c.summary, 160) : "";
   set(".sum", sum).style.display = sum ? "" : "none";
@@ -246,14 +259,36 @@ function patch(list) {
   const d = !c.askId && c.permit?.kind === "tool" ? c.permit.summary || "" : many ? "這是多題選擇題，到它的終端機回答比較清楚。" : "";
   set(".d", d).style.display = d ? "" : "none";
   padSel = -1;
-  el.querySelector(".opts").innerHTML = xs.map((o, k) => `<button class="opt${o.rec ? " rec" : ""}" tabindex="-1" data-k="${k}">${o.rec ? "<i>建議</i>" : ""}${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o.label)}</button>`).join("");
-  el.querySelector(".free").style.display = c.askId ? "" : "none";
+  const m = isMulti(c);
+  el.querySelector(".opts").innerHTML = xs.map((o, k) => `<button class="opt${o.rec ? " rec" : ""}" tabindex="-1" data-k="${k}"${m ? ' role="checkbox" aria-checked="false"' : ""}>${m ? '<span class="box">☐</span>' : ""}${o.rec ? "<i>建議</i>" : ""}${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o.label)}</button>`).join("");
+  el.querySelector(".free").style.display = c.askId && !m ? "" : "none";
+  el.querySelector(".pick").style.display = m ? "" : "none";
+  drawTicks();
+}
+/* 勾選狀態：選項打勾、送出前看得到勾了哪幾張（單號＝選項開頭那段） */
+function drawTicks() {
+  const el = $("card"), c = live.get(cur); if (!isMulti(c)) return;
+  const t = tickOf(cur), xs = c.options || [];
+  el.querySelectorAll(".opt").forEach((b, i) => { const on = t.has(i); b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); const x = b.querySelector(".box"); if (x) x.textContent = on ? "☑" : "☐"; });
+  const ids = [...t].sort((a, b) => a - b).map(i => (xs[i] || "").split(/\s/)[0]);
+  const what = ids.length ? `已勾 ${ids.length} 張：${ids.join("、")}（沒勾的維持擋下）` : "還沒勾。按選項（或 1–" + Math.min(9, xs.length) + "）打勾／取消，按「確認放行」才送出";
+  const w = el.querySelector(".pick .what"); if (w.textContent !== what) w.textContent = what;      // 固定兩行高：字變了確認鈕也不位移（連點勾選不被鎖）
+  const b = el.querySelector("[data-confirm]"), lbl = ids.length ? `確認放行 ${ids.length} 張` : "確認放行"; b.disabled = !ids.length; if (b.textContent !== lbl) b.textContent = lbl;
+}
+function toggle(k) { const s = new Set(tickOf(cur)); s.has(k) ? s.delete(k) : s.add(k); ticks.set(cur, s); drawTicks(); }
+/* 確認放行／全部不放：照一般作答走 3 秒復原；送的是 chosen（勾了第幾個），不是字 */
+function confirmPick(none, byMouse) {
+  if (!canAct(byMouse)) return; const c = live.get(cur); if (!isMulti(c)) return;
+  const chosen = none ? [] : [...tickOf(cur)].sort((a, b) => a - b); if (!none && !chosen.length) return;
+  const ids = chosen.map(i => (c.options[i] || "").split(/\s/)[0]), label = none ? "全部不放" : `確認放行 ${ids.length} 張：${ids.join("、")}`;
+  sendLater(c, { action: "answer", sessionId: c.sessionId, askId: c.askId, chosen, text: label }, label, byMouse);
 }
 
 /* ---- 作答：每一關都過才送 ---- */
 function canAct(byMouse) { const c = live.get(cur); return (!byMouse || now() >= shiftUntil) && open && document.body.classList.contains("open") && c && !sent.has(cur) && !blockWhy(c) && now() >= lockUntil && $("card").dataset.key === cur && $("card").dataset.sig === sigOf(c); }
 function choose(k, byMouse) {
   if (!canAct(byMouse)) return; const c = live.get(cur), o = items(c)[k]; if (!o) return;
+  if (o.act.tick != null) return toggle(o.act.tick);                               // 勾選題：只切換勾選，不送出
   if (o.act.permit) return sendLater(c, { action: "permit", sessionId: c.sessionId, permitId: c.permit.id, decision: o.act.permit, answers: o.act.answers }, o.label, byMouse);
   const extra = (drafts.get(cur) || "").trim();
   sendLater(c, { action: "answer", sessionId: c.sessionId, text: extra ? o.act.text + "\n補充：" + extra : o.act.text, askId: c.askId, option: o.act.text, free: extra }, o.act.text + (extra ? "（＋補充）" : ""), byMouse);
@@ -272,7 +307,8 @@ function drawOver() {
   const msg = u ? `<div class="u" title="${esc(u.name + "：" + u.label)}"><span class="t">${undos.size > 1 ? `（${undos.size} 題待送）` : ""}3 秒後送給 ${esc(clip(u.name, 30))}：${esc(clip(u.label, 40))}</span><button tabindex="-1" data-undo="${esc(u.key)}">復原</button></div>`
     : st ? `<div class="st" title="${esc(st)}"><span class="t">${esc(st)}</span>${c?.askState === "unsure" && !ghost ? `<button tabindex="-1" data-retry title="先到它的終端機看過、確定沒送到再按：這題會重新開放，再按一次答案就送">沒送到，重送</button>` : ""}<button tabindex="-1" data-later>稍後</button><button tabindex="-1" data-jump>去看 →</button></div>`
     : barText ? `<div title="${esc(barText)}"><span class="t">${esc(barText)}</span></div>` : "";
-  const html = msg || (open_ ? `<div class="foot"><span class="hint">${(xs.length ? `點一下卡片後可按 1–${Math.min(9, xs.length)}${xs.some(o => o.rec) ? "、Enter 送建議" : ""} · ` : "") + "送出後 3 秒可復原"}</span><span class="links"><button class="lnk" tabindex="-1" data-later>稍後再答</button><button class="lnk" tabindex="-1" data-jump>跳到它的終端機 →</button></span></div>` : "");
+  const hint = isMulti(c) ? `點一下卡片後按 1–${Math.min(9, xs.length)} 勾選／取消，Enter 或「確認放行」才送出 · ` : xs.length ? `點一下卡片後可按 1–${Math.min(9, xs.length)}${xs.some(o => o.rec) ? "、Enter 送建議" : ""} · ` : "";
+  const html = msg || (open_ ? `<div class="foot"><span class="hint">${hint + "送出後 3 秒可復原"}</span><span class="links"><button class="lnk" tabindex="-1" data-later>稍後再答</button><button class="lnk" tabindex="-1" data-jump>跳到它的終端機 →</button></span></div>` : "");
   if ($("over").dataset.h !== html) { if ($("over").dataset.h) shifted(); $("over").dataset.h = html; $("over").innerHTML = html; }      // 條數、內容一變：0.5 秒內的點擊不算作答
 }
 // 「可以再按」只在原生端真的會收的時候講（送出中、沒確認到由 blockWhy 講）
@@ -299,7 +335,7 @@ function expand() { open = true; want = null; post({ action: "askOpen", open });
 function jump() { const c = live.get(cur); if (!c) return; post({ action: "focus", sessionId: c.sessionId }); collapse(false); }
 
 /* ---- 滑鼠：按下和放開要在同一題、同一顆按鈕，按下那刻也要過了 0.5 秒 ---- */
-const hit = t => t.closest("[data-k],[data-go],[data-nav],[data-later],[data-jump],[data-undo],[data-retry]");
+const hit = t => t.closest("[data-k],[data-go],[data-nav],[data-later],[data-jump],[data-undo],[data-retry],[data-confirm],[data-none]");
 document.addEventListener("pointerdown", e => {
   if (e.button !== 0) return;
   const b = hit(e.target); down = { key: cur, b, ok: now() >= lockUntil && now() >= shiftUntil };
@@ -329,6 +365,8 @@ document.addEventListener("click", e => {
   if (!d || d.b !== b || d.key !== cur || !d.ok) return;
   if (b.dataset.nav) { const l = visible(), i = l.indexOf(cur); cur = l[(i + +b.dataset.nav + l.length) % l.length] ?? null; render(); armed = true; document.body.classList.add("armed"); return; }
   if (b.dataset.go != null) return sendFree(true);
+  if (b.dataset.confirm != null) return confirmPick(false, true);
+  if (b.dataset.none != null) return confirmPick(true, true);
   if (b.dataset.k != null) return choose(+b.dataset.k, true);
 });
 /* ---- 鍵盤：只有點過卡片、焦點還在這裡才有效 ---- */
@@ -339,6 +377,7 @@ document.addEventListener("keydown", e => {
   if (e.target.tagName === "TEXTAREA") { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendFree(false); } return; }
   if (e.metaKey || e.ctrlKey) return;
   let k = -1;
+  if (e.key === "Enter" && isMulti(live.get(cur))) { e.preventDefault(); return confirmPick(false, false); }      // 勾選題：Enter＝確認放行（沒勾就不動）
   if (/^[1-9]$/.test(e.key)) k = +e.key - 1; else if (e.key === "Enter") { const c = live.get(cur); k = c ? items(c).findIndex(o => o.rec) : -1; }
   if (k >= 0) { e.preventDefault(); choose(k, false); }
 });
@@ -377,6 +416,7 @@ window.askPad = cmd => {
   if (cmd === "up" || cmd === "down") { padSel = padSel < 0 ? rec : (padSel + (cmd === "down" ? 1 : -1) + xs.length) % xs.length; padMark(); return "moved"; }
   if (cmd === "go") {
     if (padSel < 0 || padSel >= xs.length) { padSel = rec; padMark(); return "moved"; }
+    if (isMulti(c)) { toggle(padSel); return "moved"; }                             // 勾選題：搖桿 ✕ 只切換勾選；送出要按「確認放行」或 Enter
     const k = padSel, key = cur; choose(k, false);
     if (undos.has(key)) { padSel = -1; return "chose"; } return "blocked";
   }

@@ -89,22 +89,28 @@ extension CaptainLinkTests {
     func allEnv(_ tag: String) -> URL {
         LocalFixture.use()
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("\(tag)-\(UUID().uuidString)")
-        for (k, v) in ["ORBIT_CAPTAIN_INBOX": "in", "ORBIT_RELEASE_LOG": "rel.jsonl", "ORBIT_PREAPPROVAL_LOG": "pre.json", "ORBIT_TYPED_MARKS": "m", "ORBIT_ASKS_DIR": "asks"] {
+        for (k, v) in ["ORBIT_CAPTAIN_INBOX": "in", "ORBIT_RELEASE_LOG": "rel.jsonl", "ORBIT_PREAPPROVAL_LOG": "pre.json", "ORBIT_TYPED_MARKS": "m"] {
             setenv(k, dir.appendingPathComponent(v).path, 1)
         }
         return dir
     }
     func allEnvDone(_ dir: URL) {
-        for k in ["ORBIT_CAPTAIN_INBOX", "ORBIT_RELEASE_LOG", "ORBIT_PREAPPROVAL_LOG", "ORBIT_TYPED_MARKS", "ORBIT_ASKS_DIR"] { unsetenv(k) }
+        for k in ["ORBIT_CAPTAIN_INBOX", "ORBIT_RELEASE_LOG", "ORBIT_PREAPPROVAL_LOG", "ORBIT_TYPED_MARKS"] { unsetenv(k) }
         try? FileManager.default.removeItem(at: dir)
     }
     func blockAt(_ id: String, _ sid: String, at: Date, kinds: [String] = rmKind, text: String? = nil) {
         CaptainInbox.save(CaptainInboxItem(id: id, kind: .block, at: at, sid: sid, name: "組員" + sid, project: "專案" + sid, kinds: kinds, text: text ?? "rm -rf " + id, fingerprint: id))
     }
     func waitingIds() -> [String] { CaptainInbox.all().filter { $0.kind == .block && $0.released == nil }.map(\.id) }
+    /// 待答題資料夾用 TaskLocal（AskQueueTests 在別的 suite 平行跑，會改 ORBIT_ASKS_DIR）
+    func withAllEnv(_ tag: String, _ body: (URL) -> Void) {
+        let dir = allEnv(tag); defer { allEnvDone(dir) }
+        AskQueue.$testDir.withValue(dir.appendingPathComponent("asks", isDirectory: true)) { body(dir) }
+    }
+    @Test("暗號：放行！全部") func releaseWordAll() { withAllEnv("word-all", releaseWordAllBody) }
+    @Test("放行！全部：對外單改勾選卡確認") func releasePickCard() { withAllEnv("word-pick", releasePickCardBody) }
 
-    @Test("暗號：放行！全部") func releaseWordAll() {
-        let dir = allEnv("word-all"); defer { allEnvDone(dir) }
+    func releaseWordAllBody(_ dir: URL) {
         func say(_ s: String, _ who: CaptainInbox.Speaker, _ sid: String = "captain", at: Date) -> CaptainInbox.Decision {
             CaptainInbox.decide(sid: sid, text: s, speaker: who, by: "t", byName: "使用者", source: "使用者輸入", now: at)
         }
@@ -150,8 +156,7 @@ extension CaptainLinkTests {
     }
 
     /// 11-28 Keng：「放行！全部」碰到對外的（部署、LINE、GitHub⋯）改發多選答案卡，按選項只打勾、按確認才送、只放勾的
-    @Test("放行！全部：對外單改勾選卡確認") func releasePickCard() {
-        let dir = allEnv("word-pick"); defer { allEnvDone(dir) }
+    func releasePickCardBody(_ dir: URL) {
         let now = t0 + 600
         blockAt("BLOCL", "a", at: t0)                                                                    // 只動本機：直接放
         blockAt("BDEP2", "a", at: t0 + 1, kinds: ["firebase 部署"], text: "firebase deploy --only hosting")

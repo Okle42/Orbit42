@@ -38,7 +38,8 @@ public enum ReleasePick {
             let pages = stride(from: 0, to: todo.count, by: perCard).map { Array(todo[$0..<min($0 + perCard, todo.count)]) }
             let made: [PendingAsk] = pages.enumerated().map { k, page in
                 var q = PendingAsk(id: AskQueue.newID(), ask: "「放行！全部」裡有 \(todo.count) 張對外的單，要你勾選確認"
-                                   + (pages.count > 1 ? "（第 \(k + 1)/\(pages.count) 張卡）" : "") + "。勾要放的，再按「確認放行」；沒勾的維持擋下。",
+                                   + (pages.count > 1 ? "（第 \(k + 1)/\(pages.count) 張卡：\(page.map(\.id).joined(separator: "、"))）" : "（\(page.map(\.id).joined(separator: "、"))）")
+                                   + "。勾要放的，再按「確認放行」；沒勾的維持擋下。",
                                    options: page.map(option), at: now.addingTimeInterval(Double(k) * 0.001), doing: "放行！全部")
                 q.action = action; q.multi = true; q.picks = page.map(\.id)
                 return q
