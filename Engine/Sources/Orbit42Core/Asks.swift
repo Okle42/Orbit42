@@ -18,6 +18,7 @@ public struct PendingAsk: Codable, Sendable, Equatable, Identifiable {
     public var unsureAt: Date? = nil   // 答案打進終端機但沒確認到：題目留著、前面明講請看終端機
     public var sendingAt: Date? = nil  // 有人按了答案、正在送（AskQueue.claim）；App 中途當掉就一直留著，當成沒確認到
     public var action: String? = nil   // 看板自己發的題：captain＝按同意才換秘書（AI 的 card --ask 設不了這個）
+    public var task: String? = nil     // 11-28 問這題的卡片帶的 --task（答了記進這張單；不跟著之後的卡片換）
     /// 介面上顯示的題目
     public var shown: String { unsureAt == nil && (sendingAt.map { Date().timeIntervalSince($0) < 60 } ?? true) ? ask : "⚠ 剛才的答案沒確認有沒有送到，輸入框裡可能還有字，請到它的終端機看；要答請直接在那裡打。" + ask }
     /// 等了多久；沒確認到就從那時算（介面才會把它當成新的、重新可按）
@@ -90,7 +91,9 @@ public enum AskQueue {
             if out[i].sendingAt == nil, out[i].unsureAt == nil { out[i].ask = q }      // 正在送的題不改字
             return out
         }
-        out.append(PendingAsk(id: id(), ask: q, options: r.options, at: r.at, doing: r.doing))
+        var a = PendingAsk(id: id(), ask: q, options: r.options, at: r.at, doing: r.doing)
+        a.task = r.task
+        out.append(a)
         return out
     }
 
@@ -208,7 +211,8 @@ public enum AskQueue {
         guard isTerminalAnswer(prompt) else { return [] }
         let xs: [PendingAsk] = locked { let xs = load(sid); if !xs.isEmpty { save(sid, []) }; return xs }
         guard !xs.isEmpty else { return [] }
-        TaskNotes.record(sid: sid, name: name ?? NicknameStore.get(sid)?.name, cardTask: nil,
+        let tasks = Set(xs.map(\.task))
+        TaskNotes.record(sid: sid, name: name ?? NicknameStore.get(sid)?.name, cardTask: tasks.count == 1 ? tasks.first! : nil, askedAt: xs.map(\.at).min(),
                          question: xs.map(\.ask).joined(separator: "／"), answer: prompt ?? "", via: "終端機",
                          at: now, captain: captain, asks: sid == captain ? nil : [:], dir: tasksDir)
         for q in xs {

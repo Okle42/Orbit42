@@ -34,15 +34,16 @@ public enum TaskNotes {
     }
 
     /// 這次回答要附到哪張單（純函式）。
-    ///   • 卡片帶 --task 而且那張單還在進行 ⇒ 那張
-    ///   • 派給這個 session 的進行中單 ⇒ 最近更新的那張
+    ///   • 題目（或卡片）帶 --task 而且那張單還在進行 ⇒ 那張
+    ///   • 沒帶：派給這個 session、問題問出來之前就派了的進行中單只有一張 ⇒ 那張；兩張以上不猜（11-28 Keng 答待修清單被記到打包腳本單）
     ///   • 答的是秘書卡片：組員排著同一題（或很像的題）的那個人的進行中單
-    public static func target(sid: String, name: String?, cardTask: String?, question: String?, captain: String?,
+    public static func target(sid: String, name: String?, cardTask: String?, askedAt: Date? = nil, question: String?, captain: String?,
                               tasks: [CaptainTask], asks: [String: [PendingAsk]]) -> CaptainTask? {
         let live = tasks.filter(active)
         if let id = cardTask, let t = live.first(where: { $0.id == id }) { return t }
-        let mine = live.filter { assigned($0, sid: sid, name: name) }
-        if let t = mine.max(by: { $0.updatedAt < $1.updatedAt }) { return t }
+        let mine = live.filter { t in assigned(t, sid: sid, name: name) && (askedAt.map { t.createdAt <= $0 } ?? true) }
+        if mine.count == 1 { return mine[0] }
+        if mine.count > 1 { return nil }
         guard sid == captain, let q = question else { return nil }
         for (other, xs) in asks.sorted(by: { $0.key < $1.key }) where other != sid && xs.contains(where: { Answered.similar($0.ask, q) }) {
             if let t = live.filter({ $0.toSession == other }).max(by: { $0.updatedAt < $1.updatedAt }) { return t }
@@ -63,7 +64,7 @@ public enum TaskNotes {
 
     /// 找單＋附上＋存檔；回傳附上的那張單（沒有進行中的單就 nil）。name＝session 名（比對派工單的 to）；shown＝畫面上的英文名。dir 給測試用暫存資料夾
     @discardableResult
-    public static func record(sid: String, name: String?, shown: String? = nil, cardTask: String?, question: String?, answer: String, via: String,
+    public static func record(sid: String, name: String?, shown: String? = nil, cardTask: String?, askedAt: Date? = nil, question: String?, answer: String, via: String,
                               at: Date = Date(), captain: String? = CaptainStore.captain()?.sessionId,
                               asks: [String: [PendingAsk]]? = nil, dir: URL = Captain.tasksDir) -> CaptainTask? {
         let said = answer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -71,7 +72,7 @@ public enum TaskNotes {
         let all = CaptainStore.tasks(in: dir)
         // 只有秘書卡片才要翻組員的待答題（讀檔比較多）
         let queued = asks ?? (sid == captain ? AskQueue.all() : [:])
-        guard let hit = target(sid: sid, name: name, cardTask: cardTask, question: question, captain: captain, tasks: all, asks: queued),
+        guard let hit = target(sid: sid, name: name, cardTask: cardTask, askedAt: askedAt, question: question, captain: captain, tasks: all, asks: queued),
               let fresh = CaptainStore.task(hit.id, in: dir) else { return nil }
         let card = sid == captain ? Nicknames.captainTitle : (shown ?? name ?? String(sid.prefix(8)))
         guard let t = adding(KengNote(text: said, at: at, card: card, question: question, via: via), to: fresh) else { return nil }

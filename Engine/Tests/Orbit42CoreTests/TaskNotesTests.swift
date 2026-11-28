@@ -49,7 +49,8 @@ struct TaskNotesTests {
     func targetRules() {
         let ts = [task("T1", at: t0), task("T2", at: t0 + 10), task("T3", sid: "W2", at: t0)]
         #expect(TaskNotes.target(sid: "W1", name: nil, cardTask: "T1", question: nil, captain: "CAP", tasks: ts, asks: [:])?.id == "T1")
-        #expect(TaskNotes.target(sid: "W1", name: nil, cardTask: nil, question: nil, captain: "CAP", tasks: ts, asks: [:])?.id == "T2")    // 最近更新的
+        #expect(TaskNotes.target(sid: "W1", name: nil, cardTask: nil, question: nil, captain: "CAP", tasks: ts, asks: [:]) == nil)    // 兩張進行中：不猜
+        #expect(TaskNotes.target(sid: "W2", name: nil, cardTask: nil, question: nil, captain: "CAP", tasks: ts, asks: [:])?.id == "T3")  // 只有一張：那張
         #expect(TaskNotes.target(sid: "W9", name: nil, cardTask: nil, question: nil, captain: "CAP", tasks: ts, asks: [:]) == nil)
         // 舊單沒記 sessionId：用 session 名比
         let old = [task("T4", to: "you-9e", sid: nil, at: t0)]
@@ -152,5 +153,20 @@ struct TaskNotesTests {
         #expect(m.contains("只收「完成」與「卡住」") && m.contains("不再有【工作回報】"))
         #expect(m.contains("衛星終端機") && m.contains("claude --bg -n <英文名>") && m.contains("不要叫小明自己開"))
         #expect(m.contains("orbit card 會擋下"))
+    }
+
+    @Test("11-28 回答記錯單：題目記著自己問的時候的 --task；沒帶的題、派工單在題目之後才派 ⇒ 不記到那張")
+    func askKeepsItsOwnTask() {
+        let r = SelfReport(status: .review, summary: "s", ask: "待修清單要怎麼做？", task: "T9", options: ["a", "b"], at: t0)
+        #expect(AskQueue.adding(r, to: [], id: { "Q1" }).first?.task == "T9")
+        let plain = SelfReport(status: .review, summary: "s", ask: "另一題", options: ["a"], at: t0)
+        #expect(AskQueue.adding(plain, to: [], id: { "Q2" }).first?.task == nil)
+        // 08:3x 問待修清單（沒帶 --task）、08:42 才派打包腳本單 ⇒ 答待修那題不記到打包腳本單
+        let later = [task("T1128084238", at: t0 + 300)]
+        #expect(TaskNotes.target(sid: "W1", name: nil, cardTask: nil, askedAt: t0, question: "待修", captain: "CAP", tasks: later, asks: [:]) == nil)
+        #expect(TaskNotes.target(sid: "W1", name: nil, cardTask: nil, askedAt: t0 + 600, question: "x", captain: "CAP", tasks: later, asks: [:])?.id == "T1128084238")
+        // 題目帶的 --task 優先
+        let two = [task("T1", at: t0), task("T2", at: t0 + 10)]
+        #expect(TaskNotes.target(sid: "W1", name: nil, cardTask: "T1", askedAt: t0 + 20, question: nil, captain: "CAP", tasks: two, asks: [:])?.id == "T1")
     }
 }

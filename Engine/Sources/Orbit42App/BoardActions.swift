@@ -290,7 +290,7 @@ enum BoardActions {
             case .sent, .sentDropped:         // 打進終端機的不算放行（TypedMark）
                 AskQueue.resolve(sid: sid, id: ask.id)
                 if testHook == nil { BoardModel.shared.append(["ev": "answer", "id": sid, "project": c.project, "text": t, "via": "term"]) }
-                tellCaptain(c, answer: t, question: ask.ask)
+                tellCaptain(c, answer: t, question: ask.ask, ask: ask)
                 if case .sentDropped(let what) = r { done("已打進「\(c.title)」的終端機；\(what)") } else { done("已打進「\(c.title)」的終端機") }
             case .notStarted:       // 一個位元組都沒寫：題目還在、選項還對才改走訊息
                 guard let q = AskQueue.load(sid).first(where: { $0.id == ask.id }), pick?.text(for: q) == raw else { AskQueue.unclaim(sid: sid, id: ask.id); done(gone); return }
@@ -314,7 +314,7 @@ enum BoardActions {
         let judged = word ?? text      // 判原文（換行還在；line 已經把換行換成空白）
         var recorded = false
         var ok = given == nil           // 認題目的（given）：真的送到才轉秘書、才留事先放行
-        defer { if ok { tellCaptain(c, answer: (phoneTyped ? Answered.phoneTyped : recorded ? "" : relayTag) + said, question: question) } else { CaptainInbox.dropAnswer(sid: c.sessionId, answer: judged, at: recordedAt) } }
+        defer { if ok { tellCaptain(c, answer: (phoneTyped ? Answered.phoneTyped : recorded ? "" : relayTag) + said, question: question, ask: ask) } else { CaptainInbox.dropAnswer(sid: c.sessionId, answer: judged, at: recordedAt) } }
         // 同一個 AI 排了好幾題：答案後面註明答的是哪一題（不然它分不出來）
         if let a = ask, (queued ?? c.asks.count) > 1 { line += "（回答的是：\(a.ask.prefix(60))）" }
         if phoneTyped { line = Answered.phoneTyped + line }
@@ -355,12 +355,13 @@ enum BoardActions {
     /// 使用者答了組員卡片的問題 ⇒ 清掉秘書卡片上同一題（秘書 Penny 10-25：別再重複問 Kang）。
     /// 11-26 秘書省用量：不再 Peer 送「【使用者已答】」叫醒秘書（答案已直接送到那個 session）。答的是秘書自己的卡片就不用清
     /// 11-28：答的這張卡（組員或秘書）的 session 有進行中的派工單 ⇒ 原話＋時間＋哪張卡記進單（TaskNotes），秘書看單就好、不用再問組員
-    private static func tellCaptain(_ c: BoardCard, answer: String, question q: String?) {
+    /// ask：答的是哪一題（記單看那題問的時候帶的 --task，不看卡片之後換成的 --task）；沒題目的傳話才看卡片
+    private static func tellCaptain(_ c: BoardCard, answer: String, question q: String?, ask: PendingAsk? = nil) {
         guard testHook == nil else { return }
         let cap = CaptainStore.captain()?.sessionId
         var said = answer, via = "Orbit42 卡片"
         for (tag, where_) in [(Answered.phoneTyped, "手機"), (Answered.webSent, "網頁傳話")] where said.hasPrefix(tag) { said = String(said.dropFirst(tag.count)); via = where_ }
-        TaskNotes.record(sid: c.sessionId, name: c.name, shown: NicknameStore.get(c.sessionId)?.name, cardTask: c.report?.task,
+        TaskNotes.record(sid: c.sessionId, name: c.name, shown: NicknameStore.get(c.sessionId)?.name, cardTask: ask.map { $0.task } ?? c.report?.task, askedAt: ask?.at,
                          question: q, answer: said, via: via, captain: cap)
         guard let cap, cap != c.sessionId else { return }
         Answered.clearCaptainCard(sid: cap, question: q)
