@@ -298,9 +298,12 @@ function makeTerm(id) {
   if (!MIRROR) {
     term.attachCustomKeyEventHandler(e => {
       if (e.type === "keydown" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.code === "KeyC" && !term.hasSelection()) { e.preventDefault(); return false; }
+      if (e.type === "keydown" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === "KeyV") { e.preventDefault(); post({ action: "ctrlV", id }); return false; }
       return true;
     });
     el.addEventListener("copy", e => { if (!term.hasSelection()) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+    // ③ Ctrl+V：Claude Code 會自己讀剪貼簿，背景 session 沒有 UTF-8 語系就讀成 Big5 亂碼 ⇒ 交給 App：
+    //    剪貼簿是文字就由 App 用 UTF-8 讀、照終端機標準貼上（括號貼上模式）送進去；是圖片（截圖）就照舊把 Ctrl+V 交給 Claude Code
   }
   // 11-23：Claude Code 的「自動」主題會問終端機背景是什麼顏色（OSC 11／10）。xterm.js 預設不回答，
   // Claude Code 就當成深色背景、用白字 ⇒ 淺色模式下你送出的訊息、標籤都變成白字看不到。這裡照目前色票回答。
@@ -907,7 +910,8 @@ $("bgMenu").onclick = e => { const mi = e.target.closest("[data-job]"); if (!mi)
 document.addEventListener("click", () => { $("menu").classList.remove("on"); $("bgMenu").classList.remove("on"); });
 // 測試用：在目前打開的終端機打字（跟手打一樣走 input）
 document.addEventListener("paste", () => { window.__pastes = (window.__pastes || 0) + 1; }, true);
-window.orbitTest = { dom: () => { const a = document.activeElement; const t = terms.get(active); return `active=${a?.tagName}.${a?.className} xtermTA=${a === t?.term.textarea} hasFocus=${document.hasFocus()} pastes=${window.__pastes||0}`; }, clearSel: () => { const t = terms.get(active); t?.term.clearSelection(); return "ok"; }, selection: () => { const t = terms.get(active); return t ? t.term.getSelection() : "no term"; }, select: () => { const t = terms.get(active); if (!t) return ""; t.term.selectAll(); return t.term.getSelection(); }, doll: () => { const t = terms.get(active); return t?.dollCv ? t.dollCv.style.cssText : "no doll"; }, type: text => active && post({ action: "input", id: active, data: text }), active: () => active,
+window.orbitPaste = (id, text) => { const t = terms.get(id); if (t) t.term.paste(text); };
+window.orbitTest = { ctrlV: () => { const t = terms.get(active); t?.term.textarea?.dispatchEvent(new KeyboardEvent("keydown", { key: "v", code: "KeyV", keyCode: 86, ctrlKey: true, bubbles: true, cancelable: true })); return "ok"; }, dom: () => { const a = document.activeElement; const t = terms.get(active); return `active=${a?.tagName}.${a?.className} xtermTA=${a === t?.term.textarea} hasFocus=${document.hasFocus()} pastes=${window.__pastes||0}`; }, clearSel: () => { const t = terms.get(active); t?.term.clearSelection(); return "ok"; }, selection: () => { const t = terms.get(active); return t ? t.term.getSelection() : "no term"; }, select: () => { const t = terms.get(active); if (!t) return ""; t.term.selectAll(); return t.term.getSelection(); }, doll: () => { const t = terms.get(active); return t?.dollCv ? t.dollCv.style.cssText : "no doll"; }, type: text => active && post({ action: "input", id: active, data: text }), active: () => active,
   screen: () => { const t = terms.get(active); if (!t) return ""; const b = t.term.buffer.active, out = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true)); return out.join("\n"); } };
 window.orbitTheme(themeName);
 post({ action: "ready" });

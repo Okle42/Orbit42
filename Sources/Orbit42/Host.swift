@@ -397,6 +397,16 @@ final class Host: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             guard let s = sats[id] else { return }
             if s.pty == nil || s.exited != nil { start(s, cols: cols, rows: rows) }
             else { if let v = views[id] { Self.call(v, "window.orbitReplay", [id, s.snapshot().base64EncodedString()]) }; s.localResize(cols: cols, rows: rows) }
+        case "ctrlV":          // 11-28：Claude 衛星的 Ctrl+V 由 App 貼（UTF-8，不管 session 的語系）；剪貼簿是圖片、或不是 Claude 就照舊送 Ctrl+V
+            let pb = NSPasteboard.general, text = pb.string(forType: .string) ?? ""
+            let image = pb.types?.contains(where: { [.png, .tiff, .fileURL].contains($0) }) ?? false
+            if sats[id]?.brain == .claude, !text.isEmpty, !image, let v = views[id], let j = try? JSONSerialization.data(withJSONObject: [id, text]), let a = String(data: j, encoding: .utf8) {
+                v.evaluateJavaScript("window.orbitPaste(...\(a))", completionHandler: nil)
+                EditKeys.log("Ctrl+V 由 App 貼上 \(text.count) 字 衛星=\(id)")
+            } else {
+                _ = input(id, Data([0x16]))
+                EditKeys.log("Ctrl+V 照舊交給程式 圖片=\(image) 文字=\(text.count) 衛星=\(id)")
+            }
         case "clipboard":      // 終端機裡的程式用 OSC 52 叫我們拷貝（Claude Code 滑鼠選字）：只寫不讀，太大的不收
             if let t = m["text"] as? String, !t.isEmpty, t.utf8.count <= 4_000_000 {
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t, forType: .string)

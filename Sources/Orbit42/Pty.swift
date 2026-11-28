@@ -1,3 +1,4 @@
+import Orbit42App
 import Foundation
 import Darwin
 
@@ -26,7 +27,7 @@ final class Pty: @unchecked Sendable {
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         env["TERM_PROGRAM"] = "Orbit42"
-        env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
+        for (k, v) in Utf8Locale.fix(env: env, preferred: Locale.preferredLanguages, available: Utf8Locale.installed()) { env[k] = v }     // 11-28：不寫死英文，照偏好語言的 UTF-8
         for (k, v) in extra { env[k] = v }
         let shell = "/bin/zsh"
         let argv: [UnsafeMutablePointer<CChar>?] = [strdup(shell), strdup("-l"), strdup("-c"), strdup(command), nil]
