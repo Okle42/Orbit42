@@ -22,6 +22,31 @@ final class ChromeGoogleLogin: NSObject {
     }
 
     private var after: (() -> Void)?
+    private var waiters: [() -> Void] = []
+    /// 登入視窗開著：自己開的那個還在跑，或設定檔被別支 Chrome 佔著（Orbit42 重開前開的那個視窗，新程序不認得）
+    var isOpen: Bool { proc?.isRunning == true || Self.lockedByOther() }
+    /// Chrome 開著設定檔時會留 SingletonLock（指向「主機名-程序編號」）；程序還活著、又不是衛星背後那支無頭 Chrome ⇒ 被別人佔著
+    nonisolated static func lockOwner(_ profile: String) -> pid_t? {
+        guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: profile + "/SingletonLock"),
+              let n = dest.split(separator: "-").last.flatMap({ Int32($0) }), n > 0 else { return nil }
+        return n
+    }
+    static func lockedByOther() -> Bool {
+        guard let p = lockOwner(ChromeBrowser.profile), p != ChromeBrowser.shared.pid else { return false }
+        return kill(p, 0) == 0
+    }
+    /// 登入視窗關掉之後要做的事（衛星網頁面板在等它讓出設定檔）
+    func whenClosed(_ f: @escaping () -> Void) {
+        waiters.append(f)
+        guard proc?.isRunning != true, !polling else { return }      // 不是自己開的視窗 ⇒ 沒有結束通知，每 2 秒看一次鎖還在不在
+        polling = true
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] t in MainActor.assumeIsolated {
+            guard let self, !Self.lockedByOther() else { return }
+            t.invalidate(); self.polling = false
+            let w = self.waiters; self.waiters = []; w.forEach { $0() }
+        } }
+    }
+    private var polling = false
     @objc func openFromMenu() { open(url: Self.loginURL) }
     /// url：正常 Chrome 視窗一開就停在哪一頁（網站的登入頁）；then：視窗關掉、登入記好之後要做的事（例如面板重新載入原頁）
     func open(url: String, then: (() -> Void)? = nil) {
@@ -43,8 +68,9 @@ final class ChromeGoogleLogin: NSObject {
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 self.proc = nil
                 let f = self.after; self.after = nil
+                let w = self.waiters; self.waiters = []
                 OrbitWindow.shared.toast("Google 登入已記住：衛星裡的網頁重新載入就是登入狀態")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { f?() } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { w.forEach { $0() }; f?() } }
             } }
         }
         do { try p.run(); proc = p; OrbitWindow.shared.toast("在跳出的 Chrome 視窗登入（可以用 Google），登完按 ⌘Q 關掉那個視窗，衛星網頁會自己重新載入") }
