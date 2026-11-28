@@ -176,4 +176,24 @@ final class HoverLiftTests: XCTestCase {
         // 收起來的（不在 shown 裡）不給
         XCTAssertNil(EditKeys.route(focus: .nowhere, canPerform: false, hover: "c", lifted: "d", shown: shown))
     }
+
+    /// 11-28 Keng「貼上的中文變亂碼」＋「要符合 18 國語言」：沒有 UTF-8 語系就照偏好語言補，不寫死英文
+    func testUtf8Locale() {
+        let av: Set<String> = ["zh_TW.UTF-8", "zh_CN.UTF-8", "ja_JP.UTF-8", "ko_KR.UTF-8", "fr_FR.UTF-8", "en_US.UTF-8", "ar_AE.UTF-8", "ar_SA.UTF-8", "zh_TW.Big5"]
+        func f(_ env: [String: String], _ pref: [String]) -> [String: String] { Utf8Locale.fix(env: env, preferred: pref, available: av) }
+        XCTAssertEqual(f([:], ["zh-Hant-TW", "en-US"]), ["LANG": "zh_TW.UTF-8", "LC_CTYPE": "zh_TW.UTF-8"])
+        XCTAssertEqual(f([:], ["zh-Hant"])["LANG"], "zh_TW.UTF-8")
+        XCTAssertEqual(f([:], ["zh-Hans"])["LANG"], "zh_CN.UTF-8")
+        XCTAssertEqual(f([:], ["ja-JP"])["LANG"], "ja_JP.UTF-8")
+        XCTAssertEqual(f([:], ["ko"])["LANG"], "ko_KR.UTF-8")
+        XCTAssertEqual(f([:], ["fr-CA"])["LANG"], "fr_FR.UTF-8")             // 沒有 fr_CA ⇒ 同語言的別地區
+        XCTAssertEqual(f([:], ["ar"])["LANG"], "ar_AE.UTF-8")
+        XCTAssertEqual(f([:], ["xx-YY"]), ["LC_CTYPE": "UTF-8"])               // 對不到：只管編碼，不改語言
+        XCTAssertEqual(f(["LANG": ""], ["sw"]), ["LC_CTYPE": "UTF-8"])
+        XCTAssertEqual(f(["LANG": "de_DE.UTF-8"], ["zh-Hant-TW"]), [:])        // 本來就是 UTF-8：不動
+        XCTAssertEqual(f(["LC_CTYPE": "UTF-8"], ["zh-Hant-TW"]), [:])
+        XCTAssertEqual(f(["LANG": "zh_TW.Big5"], ["zh-Hant-TW"])["LANG"], "zh_TW.UTF-8")   // 舊編碼：換成 UTF-8
+        XCTAssertEqual(f(["LC_ALL": "C", "LANG": "en_US.UTF-8"], ["ja-JP"])["LC_ALL"], "ja_JP.UTF-8")   // LC_ALL 蓋過 LANG，C 不算 UTF-8 ⇒ LC_ALL 也要換
+        XCTAssertEqual(f(["LC_ALL": "C"], ["xx"])["LC_ALL"], "UTF-8")
+    }
 }

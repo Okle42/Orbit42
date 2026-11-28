@@ -137,6 +137,43 @@ extension OrbitWindow {
                 }
             }
         }
+        /// 11-28 Keng「貼上的中文全變亂碼」＋「要符合 18 國語言」
+        @MainActor func i18n() {
+            let mixed = "中文測試 English 日本語 한국어 العربية Ελληνικά ✓🙂"
+            let occ = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+            // ① Ctrl+V 由 App 貼（Claude 衛星）：中英日韓阿希臘文＋emoji 原樣出現
+            pb.clearContents(); pb.setString(mixed, forType: .string)
+            let d = host.runCommand(name: "測試 D", brain: .claude, command: "/bin/cat")
+            // ② 衛星環境是 UTF-8：直接跑 pbpaste 讀得出多國文字；對照組拿掉語系變數 ⇒ 讀不出（證明這道測得到）
+            let e = host.runCommand(name: "測試 E", brain: .claude, command: "/bin/sh -c 'sleep 2; echo OK1:$(pbpaste); echo OK2:$(env -u LANG -u LC_ALL -u LC_CTYPE pbpaste | head -c 60); cat'")
+            for x in [d, e] { let v = host.view(for: x); if v.responds(to: occ) { v.perform(occ, with: nil) } }
+            after(5) {
+                self.window.makeFirstResponder(self.satWins[d]?.content)
+                js(d, "window.orbitTest.ctrlV()") { _ in
+                    after(1.5) {
+                        js(d, "window.orbitTest.screen()") { scr in
+                            check("Ctrl+V 多國文字原樣貼上", scr.contains(mixed), "screen=\(scr.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80).debugDescription)")
+                            js(e, "window.orbitTest.screen()") { s2 in
+                                let lines = s2.split(separator: "\n").map(String.init)
+                                let ok1 = lines.first { $0.hasPrefix("OK1:") } ?? "-", ok2 = lines.first { $0.hasPrefix("OK2:") } ?? "-"
+                                check("衛星裡 pbpaste 讀得出多國文字（UTF-8 語系）", ok1.contains("中文測試") && ok1.contains("한국어") && ok1.contains("العربية"), ok1.debugDescription)
+                                check("對照組：沒有語系時 pbpaste 讀不出中文（證明測得到）", !ok2.contains("中文測試"), ok2.debugDescription)
+                                // ③ 剪貼簿是圖片：Ctrl+V 照舊交給程式（cat 收到 ^V，畫面不會多出一份文字）
+                                pb.clearContents(); pb.setData(NSImage(size: NSSize(width: 4, height: 4)).tiffRepresentation ?? Data(), forType: .tiff)
+                                js(d, "window.orbitTest.ctrlV()") { _ in
+                                    after(1.2) {
+                                        js(d, "window.orbitTest.screen()") { s3 in
+                                            check("剪貼簿是圖片 ⇒ Ctrl+V 照舊交給程式", s3.components(separatedBy: mixed).count == 2, "貼了 \(s3.components(separatedBy: mixed).count - 1) 次")
+                                            finish()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         after(3) {
             self.login.web.isHidden = true; self.liftTest = true
             let a = self.host.runCommand(name: "測試 A", brain: .claude, command: "/bin/cat")
@@ -197,7 +234,7 @@ extension OrbitWindow {
                                                                             check("沒選字按 ⌘C 剪貼簿不變", kept == "KEEP42-原本的剪貼簿", "pb=\(kept.debugDescription) \(responder())")
                                                                             // 接著 ⌘V 要把原本的剪貼簿貼進去
                                                                             key("v", 9)
-                                                                            after(1.5) { js(c, "window.orbitTest.screen()") { scr in check("沒選字 ⌘C 後 ⌘V 照樣貼得出來", scr.contains("KEEP42"), responder()); finish() } }
+                                                                            after(1.5) { js(c, "window.orbitTest.screen()") { scr in check("沒選字 ⌘C 後 ⌘V 照樣貼得出來", scr.contains("KEEP42"), responder()); i18n() } }
                                                                         }
                                                                     }
                                                                 }
@@ -231,6 +268,6 @@ extension OrbitWindow {
                 }
             }
         }
-        after(70) { print("copypaste timeout"); fails += 1; finish() }
+        after(95) { print("copypaste timeout"); fails += 1; finish() }
     }
 }

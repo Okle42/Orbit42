@@ -146,6 +146,7 @@ final class HiddenTestWindow: NSWindow {
 }
 
 Legacy.adoptEnv()                       // 11-26 改名：舊名環境變數照讀
+Utf8Locale.applyToProcess()             // 11-28 沒有 UTF-8 語系就照系統偏好語言補上（貼上中文變 Big5 亂碼；18 國語言不寫死英文）
 let orbitEnv = ProcessInfo.processInfo.environment
 let orbitTest = orbitEnv["ORBIT_OFFSCREEN"] != nil
 if orbitEnv["ORBIT_TEST_DISKS"] != nil { print(MainActor.assumeIsolated { DiskWatch.dump() }); exit(0) }
