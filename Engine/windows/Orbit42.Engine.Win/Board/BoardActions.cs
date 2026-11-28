@@ -208,10 +208,14 @@ static class BoardActions
         var t = now ?? DateTime.UtcNow;
         try
         {
-            var r = TypeInto(c.SessionId, line, true);
-            Log.Note($"BOARD answer {Short(c.SessionId)} term → {r.Outcome} {r.Message}");
-            if (r.Ok)
+            // 11-28 待修⑥（同 Mac TypedMark）：打字前先留「這句是卡片打的」記號，hook 看到就不當鍵盤、不當場放行；記號寫不進去就不打字，改走直送
+            var marked = TypedMark.Put(c.SessionId, line, t);
+            var r = marked ? TypeInto(c.SessionId, line, true) : default;
+            Log.Note($"BOARD answer {Short(c.SessionId)} term → {(marked ? $"{r.Outcome} {r.Message}" : "沒留到記號，不打字")}");
+            if (marked && r.Ok)
             {
+                // 卡片打的只記事先放行（放行！種類），不當場放單號（跟 Mac 一樣：答案卡不提早放行）
+                if (ReleaseWord.Parse(text).Kind == "kind") CaptainInbox.RecordAnswer(c.SessionId, text, c.Report?.Ask, t);
                 BoardHistory.Append(new Dictionary<string, string> { ["ev"] = "sendback", ["id"] = c.SessionId, ["project"] = c.Project, ["text"] = line });
                 return $"已送進「{c.Title}」";
             }

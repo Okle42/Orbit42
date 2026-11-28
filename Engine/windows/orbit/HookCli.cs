@@ -189,7 +189,9 @@ static class HookCli
         // 放行只認「放行！」開頭（ReleaseWord）；其他話不記任何放行。其他 session／系統訊息（NeedsStart 擋掉的 <…> 標籤）不算
         // 收尾後只有使用者本人又下指令才不自動 /clear；其他 session／看板的訊息回一段「交接中」提醒（T1026230337）
         if (ev == "UserPromptSubmit" && sid != null) handoverNote = Handover.NoteNewPrompt(sid, prompt, now);
-        if (ev == "UserPromptSubmit" && sid != null && CaptainLink.NeedsStart(prompt))
+        // 11-28 待修⑥：答案卡打進來的（看板先留了 TypedMark）不是鍵盤 ⇒ 不在這裡判放行（看板那邊已記事先放行）
+        var fromCard = ev == "UserPromptSubmit" && sid != null && TypedMark.Take(sid, prompt, now);
+        if (ev == "UserPromptSubmit" && sid != null && !fromCard && CaptainLink.NeedsStart(prompt))
         {
             var p = prompt!.Trim();
             var who = NicknameStore.Get(sid)?.Name ?? "使用者";
