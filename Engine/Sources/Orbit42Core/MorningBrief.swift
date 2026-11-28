@@ -69,7 +69,13 @@ public enum MorningBrief {
     static func short(_ s: String, _ n: Int) -> String {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: #"^(Re|RE|Fwd|FW|回覆|轉寄)[:：]\s*"#, with: "", options: .regularExpression)
-        return t.count <= n ? t : String(t.prefix(n))
+        guard t.count > n else { return t }
+        // 11-28 真資料試跑：截在半句（「…要多推」）AI 會自己補完 ⇒ 截在最後一個逗號／句號，結尾標「⋯」，AI 規則說⋯後面不准猜
+        let head = String(t.prefix(n))
+        if let r = head.lastIndex(where: { "，。？！；,;?!".contains($0) }), head.distance(from: head.startIndex, to: r) >= n / 2 {
+            return String(head[..<r]) + "⋯"
+        }
+        return head + "⋯"
     }
 
     static func person(_ who: String?) -> String {
@@ -110,7 +116,8 @@ public enum MorningBrief {
     你是老闆的語音秘書，要把一份「晨報事實」改寫成早上念給他聽的口語稿。規則：繁體中文（台灣用語）；\
     念出來一分鐘內，全文不超過 260 個字；像同事早上當面跟他講，先講最要緊的（快到的行程、重要的信、在等他決定的事）；\
     時間念成「十點半」「下午兩點」；拿掉網址、信箱地址、編號、英文程式名稱、括號註解；人名、公司名照原文；\
-    只能用事實裡有的內容，不可以補、不可以猜；事實說「沒接上」的就照講沒接上；只輸出稿子本身，不要標題、不要引號、不要條列符號。
+    只能用事實裡有的內容，不可以補、不可以猜；結尾是「⋯」的那句是被截斷的，只講看得到的部分，不要推測後面；\
+    在等他回答的事超過三件，只講前三件、其他講件數；事實說「沒接上」的就照講沒接上；只輸出稿子本身，不要標題、不要引號、不要條列符號。
     """
 
     /// claude -p 的參數：不帶 hook、不存對話、不給工具、不接 MCP（事實清單從 stdin 送）
@@ -126,7 +133,7 @@ public enum MorningBrief {
         if f.missing.contains(.mail) { l.append("信箱：還沒接上") }
         else { l.append("要處理的信 \(f.mails.count) 封：") ; l += f.mails.map { "- \(person($0.who))：\(short($0.title, 40))" + (($0.flags ?? []).contains("IMPORTANT") ? "（標重要）" : "") } }
         l.append("Orbit42 看板上在等他回答的事 \(f.waiting.count) 件：")
-        l += f.waiting.prefix(5).map { "- \($0.who) 問：\(short($0.ask, 50))" }
+        l += f.waiting.prefix(3).map { "- \($0.who) 問：\(short($0.ask, 50))" }
         return l.joined(separator: "\n")
     }
 

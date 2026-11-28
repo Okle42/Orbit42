@@ -133,6 +133,16 @@ import Testing
         #expect(!s.contains("chen@example.com"))
     }
 
+    @Test func 太長的事實截在逗號並標截斷() {
+        let ask = "答案卡磁吸做好、已裝好並重開：答案卡展開時，用觸控板或左搖桿移游標，靠近選項就會吸到選項中間，要多推一點才離得開"
+        let s = MorningBrief.short(ask, 50)
+        #expect(s.hasSuffix("⋯"))
+        #expect(!s.contains("要多推"))
+        #expect(s.count <= 51)
+        #expect(MorningBrief.short("短句", 50) == "短句")
+        #expect(MorningBrief.system.contains("⋯"))
+    }
+
     @Test func AI稿把關() {
         #expect(MorningBrief.tidy("```\nx\n```") == nil)
         #expect(MorningBrief.tidy("OK") == nil)
