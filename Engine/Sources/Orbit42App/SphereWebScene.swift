@@ -122,7 +122,8 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             if blocked { return say("測試：不送出「\(text)」。") }
             let sid = c.sessionId, aid = str("askId") ?? ""
             let tell: @MainActor (String) -> Void = { [weak self] in self?.say($0 + "。"); SphereEmbed.askResult?(sid, aid, $0) }
-            tell(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free")) }, source: .user) { tell($0) })
+            let chosen = (m["chosen"] as? [NSNumber])?.map(\.intValue)          // 勾選題按「確認放行」：勾了第幾個
+            tell(BoardActions.answer(c, pick: str("askId").map { AnswerPick(askId: $0, option: str("option"), free: str("free"), chosen: chosen) }, source: .user) { tell($0) })
         case "askRetry":        // 11-28 待修⑤「沒送到，重送」：只把那題重新開放作答，送字還是要使用者再按一次答案（走原本 answer 那條）
             guard let sid = str("sessionId"), let aid = str("askId"), !blocked else { return }
             if AskQueue.reopen(sid: sid, id: aid) { BoardModel.shared.append(["ev": "answer-reopen", "id": sid, "ask": aid]) }
@@ -438,6 +439,7 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             if let a = c.asks.first {
                 t["ask"] = a.shown; t["askId"] = a.id
                 if let opts = a.options, !opts.isEmpty { t["options"] = opts }
+                if a.multi == true { t["multi"] = true }                        // 11-28 勾選題：按選項只打勾，按「確認放行」才送
                 if a.unsureAt != nil { t["askState"] = "unsure" }                // 11-25 浮層：送出中／沒確認到要看得出來、不可再按
                 else if let x = a.sendingAt { t["askState"] = now.timeIntervalSince(x) < 60 ? "sending" : "unsure" }
             } else if let p = c.permit {

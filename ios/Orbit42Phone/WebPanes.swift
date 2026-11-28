@@ -118,7 +118,8 @@ final class SphereModel: NSObject, ObservableObject, WKScriptMessageHandler {
             guard let sid = o["sessionId"] as? String, let text = o["text"] as? String else { return }
             if link.isDemo { return toast("示範模式：不送出") }
             Task {
-                do { toast(try await OrbitAPI(link: link).answer(session: sid, text: text, askId: o["askId"] as? String, option: o["option"] as? String, free: o["free"] as? String)) }
+                do { toast(try await OrbitAPI(link: link).answer(session: sid, text: text, askId: o["askId"] as? String, option: o["option"] as? String, free: o["free"] as? String,
+                                                                    chosen: (o["chosen"] as? [NSNumber])?.map(\.intValue))) }
                 catch { toast("沒送出：\(error.localizedDescription)") }
             }
         case "order":          // 11-25 名卡拖動排序

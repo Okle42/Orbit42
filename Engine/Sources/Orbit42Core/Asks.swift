@@ -19,6 +19,10 @@ public struct PendingAsk: Codable, Sendable, Equatable, Identifiable {
     public var sendingAt: Date? = nil  // 有人按了答案、正在送（AskQueue.claim）；App 中途當掉就一直留著，當成沒確認到
     public var action: String? = nil   // 看板自己發的題：captain＝按同意才換秘書（AI 的 card --ask 設不了這個）
     public var task: String? = nil     // 11-28 問這題的卡片帶的 --task（答了記進這張單；不跟著之後的卡片換）
+    public var multi: Bool? = nil      // 11-28 多選：按選項只打勾，另按確認才送（目前只有 release-pick）
+    public var picks: [String]? = nil  // release-pick：每個選項對應的擋單號（跟 options 同順序）
+    /// 只能用勾選送的題（一般文字答案、終端機打字、AI 撤回都碰不到）
+    public var pickOnly: Bool { action == ReleasePick.action }
     /// 介面上顯示的題目
     public var shown: String { unsureAt == nil && (sendingAt.map { Date().timeIntervalSince($0) < 60 } ?? true) ? ask : "⚠ 剛才的答案沒確認有沒有送到，輸入框裡可能還有字，請到它的終端機看；要答請直接在那裡打。" + ask }
     /// 等了多久；沒確認到就從那時算（介面才會把它當成新的、重新可按）
@@ -189,7 +193,7 @@ public enum AskQueue {
     public static func resolve(sid: String, question: String?) -> Bool {
         locked {
             let xs = load(sid)
-            let ys = xs.filter { !Answered.same($0.ask, question) }
+            let ys = xs.filter { $0.pickOnly || !Answered.same($0.ask, question) }
             if ys.count != xs.count { save(sid, ys); return true }
             return false
         }
@@ -199,7 +203,8 @@ public enum AskQueue {
     public static func withdraw(sid: String, id: String) -> Int {
         locked {
         let xs = load(sid)
-        let ys = id == "all" ? [] : xs.filter { $0.id.caseInsensitiveCompare(id) != .orderedSame }
+        // 勾選放行的題 AI 撤不掉（Keng 要自己勾；AI 照提醒 withdraw all 時不能順手收掉）
+        let ys = xs.filter { $0.pickOnly || (id != "all" && $0.id.caseInsensitiveCompare(id) != .orderedSame) }
         save(sid, ys)
         return xs.count - ys.count
         }
@@ -215,7 +220,7 @@ public enum AskQueue {
     /// 好幾題在等、這句對不上任何選項 ⇒ 給 AI 的提醒：它看得懂使用者答了哪題，答到的自己撤回（使用者不用手按）
     public static func leftoverNote(sid: String, prompt: String?, orbit: String, now: Date = Date()) -> String? {
         guard isTerminalAnswer(prompt) else { return nil }
-        let xs = live(load(sid), now: now)
+        let xs = live(load(sid), now: now).filter { !$0.pickOnly }
         guard !xs.isEmpty else { return nil }
         let list = xs.map { "\($0.id)：\($0.ask.replacingOccurrences(of: "\n", with: " ").prefix(60))" }.joined(separator: "；")
         return "【Orbit42】使用者剛在終端機回了話，看板「等你回答」還掛著 \(xs.count) 題（\(list)）。這句話答到哪一題，就跑 \"\(orbit)\" asks withdraw <編號>（都答到就 withdraw all）；沒答到的留著，不用跟使用者提這件事。"
@@ -240,7 +245,8 @@ public enum AskQueue {
         guard isTerminalAnswer(prompt) else { return [] }
         let typed = prompt ?? ""
         let xs: [PendingAsk] = locked {
-            let all = load(sid), hit = all.count == 1 ? all : all.filter { typedOption(typed, of: $0) }
+            let all = load(sid), open = all.filter { !$0.pickOnly }      // 勾選放行的題：終端機打什麼都不算答它
+            let hit = open.count == 1 ? open : open.filter { typedOption(typed, of: $0) }
             if !hit.isEmpty { save(sid, all.filter { q in !hit.contains { $0.id == q.id } }) }
             return hit
         }
@@ -263,7 +269,8 @@ public enum AskQueue {
 /// 介面上對某一題的回答：哪一題、按了哪個選項、補充框打了什麼
 public struct AnswerPick: Sendable, Equatable {
     public var askId: String, option: String?, free: String?
-    public init(askId: String, option: String?, free: String? = nil) { self.askId = askId; self.option = option; self.free = free }
+    public var chosen: [Int]? = nil          // 多選題按「確認放行」：勾了第幾個（0 起算；空＝全部不放）
+    public init(askId: String, option: String?, free: String? = nil, chosen: [Int]? = nil) { self.askId = askId; self.option = option; self.free = free; self.chosen = chosen }
     /// 一個字串：跟某個選項全文一樣就當按選項，不然是補充框打的
     public init?(askId: String?, text: String, options: [String]) {
         guard let askId else { return nil }
@@ -281,7 +288,7 @@ public struct AnswerPick: Sendable, Equatable {
     }
     /// 對某一題
     public func text(for q: PendingAsk) -> String? {
-        guard q.id == askId else { return nil }
+        guard q.id == askId, !q.pickOnly else { return nil }        // 勾選題沒有「要送的字」：只走 ReleasePick.answer
         let f = free?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard let option else { return f.isEmpty ? nil : f }
         let given = (q.options ?? []).isEmpty ? Inbox.genericOptions : q.options!

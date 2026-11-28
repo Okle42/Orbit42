@@ -65,7 +65,7 @@ extension CaptainInbox {
         case none
         case released(CaptainInboxItem)
         case recorded(String)           // 事先放行的種類
-        case releasedAll([CaptainInboxItem])    // 放行！全部：這次放掉的單（按下當下就在等的）
+        case releasedAll([CaptainInboxItem], asking: [CaptainInboxItem])    // 放行！全部：直接放掉的（只動本機的）、改發勾選卡等確認的（對外的）
         case missed(String)             // 有暗號但沒放行：要告訴 AI 的話
     }
 
@@ -97,31 +97,38 @@ extension CaptainInbox {
             // 只放按下這一刻已經在等的（所有 session）；每張照單張放行寫一筆紀錄、一樣 30 分鐘一次。不留任何「一直開著」的狀態，之後的新單照擋
             let xs = all().filter { $0.kind == .block && $0.released == nil && now.timeIntervalSince($0.at) < blockWindow }
             guard !xs.isEmpty else { return miss("沒有單可放") }
-            let tag = "（放行！全部，共 \(xs.count) 張一起放）"
-            let done = xs.compactMap { release(id: $0.id, target: nil, by: by, byName: byName + tag, source: source + "・放行！全部", now: now) }
-            guard !done.isEmpty else { return miss("找不到單") }
-            return .releasedAll(done)
+            // 11-28 Keng：對外的（部署、LINE、GitHub⋯）不直接放，改發多選答案卡讓他勾（ReleasePick）；只動本機的照放
+            let local = xs.filter { !ReleasePick.isOutward($0) }, outward = xs.filter(ReleasePick.isOutward)
+            let tag = "（放行！全部，共 \(local.count) 張一起放）"
+            let done = local.compactMap { release(id: $0.id, target: nil, by: by, byName: byName + tag, source: source + "・放行！全部", now: now) }
+            if !outward.isEmpty { ReleasePick.put(sid: sid, items: outward, now: now) }
+            guard !done.isEmpty || !outward.isEmpty else { return miss("找不到單") }
+            return .releasedAll(done, asking: outward)
         case .kind(let k):
             recordAnswer(sid: sid, answer: text, question: question, now: now)
             return .recorded(k)
         }
     }
     /// 「放行！全部」的明細：放了哪些單、各是誰的、要做什麼
-    public static func allDetail(_ xs: [CaptainInboxItem]) -> String {
-        "已放行 \(xs.count) 張（放行！全部）：\n" + xs.map { i in
-            "・\(i.id)　\(CaptainLink.label(i.name, i.project))：" + (i.kinds.isEmpty ? "" : i.kinds.joined(separator: "、") + "・") + i.text
-        }.joined(separator: "\n")
+    public static func allDetail(_ xs: [CaptainInboxItem], tag: String = "放行！全部") -> String {
+        func line(_ i: CaptainInboxItem) -> String { "・\(i.id)　\(CaptainLink.label(i.name, i.project))：" + (i.kinds.isEmpty ? "" : i.kinds.joined(separator: "、") + "・") + i.text }
+        return xs.isEmpty ? "直接放行 0 張（\(tag)）" : "已放行 \(xs.count) 張（\(tag)）：\n" + xs.map(line).joined(separator: "\n")
     }
-    /// 「放行！全部」放到別的 session 的單：通知那個 session 可以重跑，也把明細送秘書。except＝按的那個 session（它自己從 hook／答案就看得到）
-    public static func announceAll(_ xs: [CaptainInboxItem], except sid: String, whereSaid: String) {
+    /// 加上等勾選的對外單
+    public static func allDetail(_ xs: [CaptainInboxItem], asking: [CaptainInboxItem]) -> String {
+        allDetail(xs) + (asking.isEmpty ? "" : "\n對外的 \(asking.count) 張先不放，已發勾選答案卡等使用者確認：\n"
+            + asking.map { "・\($0.id)　\(CaptainLink.label($0.name, $0.project))：\($0.kinds.joined(separator: "、"))・\($0.text)" }.joined(separator: "\n"))
+    }
+    /// 放到別的 session 的單：通知那個 session 可以重跑，也把明細送秘書。except＝按的那個 session（它自己從 hook／答案就看得到）
+    public static func announceAll(_ xs: [CaptainInboxItem], asking: [CaptainInboxItem] = [], except sid: String, whereSaid: String, how: String = "打了「放行！全部」") {
         let cap = CaptainStore.captain()?.sessionId
         for (owner, mine) in Dictionary(grouping: xs, by: \.sid) where owner != sid {
             guard let to = Peer.find(owner) else { continue }
-            _ = Peer.send(to: to, text: "【已放行 \(mine.map(\.id).joined(separator: "、"))】使用者\(whereSaid)打了「放行！全部」，你被擋下的已放行："
+            _ = Peer.send(to: to, text: "【已放行 \(mine.map(\.id).joined(separator: "、"))】使用者\(whereSaid)\(how)，你被擋下的已放行："
                           + mine.map(\.text).joined(separator: "；") + "。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。", fromName: "Orbit42（動作預告）")
         }
-        if let cap, cap != sid, let to = Peer.find(cap) {
-            _ = Peer.send(to: to, text: "【放行！全部】使用者\(whereSaid)一次放行：\n" + allDetail(xs), fromName: "Orbit42（動作預告）")
+        if let cap, cap != sid, xs.count + asking.count > 0, let to = Peer.find(cap) {
+            _ = Peer.send(to: to, text: "【放行！全部】使用者\(whereSaid)\(how)：\n" + allDetail(xs, asking: asking), fromName: "Orbit42（動作預告）")
         }
     }
     static func open(_ sid: String, _ now: Date) -> [CaptainInboxItem] {
