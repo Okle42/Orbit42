@@ -56,6 +56,15 @@ import Testing
         #expect(Set(try ix.search("合約 預算").map(\.doc.ref)) == ["m1", "f1"])
     }
 
+    @Test func 英文檔名用開頭比對() throws {
+        let ix = try tmpIndex()
+        try ix.upsert([PersonalDoc(source: .drive, ref: "s1", title: "PENDANT010.stl", body: "", at: date("2026-11-08T00:00:00Z")),
+                       PersonalDoc(source: .drive, ref: "s2", title: "lamp3_shade_whole.stl", body: "", at: date("2026-11-05T00:00:00Z"))])
+        #expect(try ix.search("pendant").map(\.doc.ref) == ["s1"])
+        #expect(try ix.search("lamp shade").map(\.doc.ref) == ["s2"])
+        #expect(try ix.search("stl").count == 2)
+    }
+
     @Test func 同一筆重抓是更新不是多一筆() throws {
         let ix = try tmpIndex()
         try ix.upsert(sample)

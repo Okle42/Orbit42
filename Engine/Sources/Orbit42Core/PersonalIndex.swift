@@ -104,7 +104,11 @@ public final class PersonalIndex {
     public func search(_ question: String, sources: Set<PersonalDoc.Source>? = nil, limit: Int = 8) throws -> [PersonalHit] {
         let terms = Self.keywords(question)
         guard !terms.isEmpty else { return [] }
-        let phrases = terms.map { "\"" + Self.spaced($0).replacingOccurrences(of: "\"", with: "") + "\"" }
+        // 英數字的詞用開頭比對（"pendant"* 也中 PENDANT010.stl、lamp 中 lamp3）；中文照字相連的片語
+        let phrases = terms.map { t -> String in
+            let q = "\"" + Self.spaced(t).replacingOccurrences(of: "\"", with: "") + "\""
+            return t.unicodeScalars.contains(where: Self.isCJK) ? q : q + "*"
+        }
         for joiner in [" AND ", " OR "] {
             let hits = try query(phrases.joined(separator: joiner), terms: terms, sources: sources, limit: limit)
             if !hits.isEmpty || phrases.count == 1 { return hits }
