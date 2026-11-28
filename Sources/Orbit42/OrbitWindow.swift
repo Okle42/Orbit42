@@ -682,6 +682,7 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
             MainActor.assumeIsolated {
                 guard let self, e.window === self.window else { return }
                 if e.type == .scrollWheel { self.lastScroll = CACurrentMediaTime(); self.liftStep() }
+                else if e.modifierFlags.contains(.command) { self.routeEditKey(e) }
                 else if !e.modifierFlags.contains(.command), let s = self.typingSat, self.pinned != s || self.lift.lifted != s {      // 在裡面打字：那顆留在上面
                     self.pinned = s; self.lift.settle(s, hover: self.hoverSat()); self.restack()
                 }
@@ -695,6 +696,26 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         for n in [NSWindow.didResignKeyNotification, NSWindow.didMiniaturizeNotification] {
             nc.addObserver(forName: n, object: window, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.mouse = nil; self?.liftStep() } }
         }
+    }
+    /// ⌘C／⌘X／⌘V／⌘A 按下去那一刻（主選單分派之前）：目前的焦點接不住這個動作 ⇒ 把焦點交給滑鼠底下／浮著的那顆衛星（EditKeys.swift）
+    func routeEditKey(_ e: NSEvent) {
+        let f = e.modifierFlags
+        guard let name = EditKeys.action(keyCode: e.keyCode, command: f.contains(.command), others: !f.intersection([.control, .option, .shift]).isEmpty) else { return }
+        let sel = NSSelectorFromString(name)
+        let (can, who) = canPerform(sel)
+        let shown = Set(satWins.filter { !$0.value.isHidden && $0.value.wantShown && !$0.value.yieldingToAsk }.map(\.key))
+        let to = EditKeys.route(focus: focusNow, canPerform: can, hover: hoverSat(), lifted: lift.lifted ?? pinned, shown: shown)
+        if let to, let w = satWins[to] { window.makeFirstResponder(w.content) }
+        EditKeys.log("⌘\(e.charactersIgnoringModifiers ?? "?") \(name) key=\(window.isKeyWindow) fr=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") 原本接手=\(who) 給按=\(can) 轉給=\(to ?? "-") 滑鼠下=\(hoverSat() ?? "-") 浮著=\(lift.lifted ?? "-")")
+    }
+    /// 從目前焦點沿 responder chain 找第一個接得住 sel 的，問它給不給按（跟主選單決定反灰的方式一樣）
+    func canPerform(_ sel: Selector) -> (Bool, String) {
+        var r: NSResponder? = window.firstResponder
+        while let x = r, !x.responds(to: sel) { r = x.nextResponder }
+        guard let t = r else { return (false, "無") }
+        let item = NSMenuItem(title: "", action: sel, keyEquivalent: "")
+        let ok = (t as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item) ?? true
+        return (ok, String(describing: type(of: t)))
     }
     func raiseUnder(_ e: NSEvent) {
         guard e.window === window, let root = window.contentView else { return }

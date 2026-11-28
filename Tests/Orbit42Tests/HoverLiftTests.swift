@@ -150,4 +150,30 @@ final class HoverLiftTests: XCTestCase {
         h.settle("b", hover: "a")
         XCTAssertNil(h.reclaim(hover: "a", inside: true, paused: false, focus: .sat("b")))
     }
+
+    /// 11-28 Keng「複製貼上還是不能用」：⌘C／⌘V 按下去那一刻，焦點不在終端機就交給滑鼠底下／浮著的那顆
+    func testEditKeyAction() {
+        XCTAssertEqual(EditKeys.action(keyCode: 8, command: true, others: false), "copy:")
+        XCTAssertEqual(EditKeys.action(keyCode: 9, command: true, others: false), "paste:")
+        XCTAssertEqual(EditKeys.action(keyCode: 7, command: true, others: false), "cut:")
+        XCTAssertEqual(EditKeys.action(keyCode: 0, command: true, others: false), "selectAll:")
+        XCTAssertNil(EditKeys.action(keyCode: 8, command: false, others: true))      // ⌃C：終端機的中斷，不動
+        XCTAssertNil(EditKeys.action(keyCode: 8, command: true, others: true))       // ⇧⌘C 等：不是拷貝
+        XCTAssertNil(EditKeys.action(keyCode: 9, command: false, others: false))
+        XCTAssertNil(EditKeys.action(keyCode: 31, command: true, others: false))     // ⌘O 等其他快捷鍵
+    }
+    func testEditKeyRoute() {
+        let shown: Set<String> = ["a", "b"]
+        // 焦點在衛星外、滑鼠在 a 上 ⇒ 給 a（就算球體也接得住貼上）
+        XCTAssertEqual(EditKeys.route(focus: .elsewhere, canPerform: true, hover: "a", lifted: "b", shown: shown), "a")
+        XCTAssertEqual(EditKeys.route(focus: .nowhere, canPerform: false, hover: "a", lifted: "b", shown: shown), "a")
+        // 滑鼠不在衛星上：焦點接不住才給浮著那顆；接得住（球體裡選了字要拷貝）就不動
+        XCTAssertEqual(EditKeys.route(focus: .nowhere, canPerform: false, hover: nil, lifted: "b", shown: shown), "b")
+        XCTAssertNil(EditKeys.route(focus: .elsewhere, canPerform: true, hover: nil, lifted: "b", shown: shown))
+        // 焦點已在某顆衛星裡、或在答案卡：不動
+        XCTAssertNil(EditKeys.route(focus: .sat("b"), canPerform: true, hover: "a", lifted: "b", shown: shown))
+        XCTAssertNil(EditKeys.route(focus: .ask, canPerform: true, hover: "a", lifted: "a", shown: shown))
+        // 收起來的（不在 shown 裡）不給
+        XCTAssertNil(EditKeys.route(focus: .nowhere, canPerform: false, hover: "c", lifted: "d", shown: shown))
+    }
 }
