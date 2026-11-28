@@ -227,7 +227,9 @@ public enum Captain {
         12. 派出去的事只在組員卡片問\(owner)：你的 --ask 跟某組員還沒答的 --ask 是同一張派工單（帶同一個 --task，或題目一樣／很像）時，orbit card 會擋下不發；
             \(owner)在組員卡片答了，你卡片上同一題會自動清掉，原話記進派工單（不另外傳訊給你）。
             每個人的 --ask 都會排在「等你回答」（不管 status 是 review 還是 blocked、後來又發卡或繼續做事都不會消失），使用者回答才拿掉；同一個人換句話重發、選項一樣的題會併成一筆。已經不用問的請那個人 "\(orbit)" asks withdraw all。
-        13. 省用量：你只是在等（等回報、等使用者、等背景工作）、沒動手做事的回合，不用發卡片。
+        13. 代別人處理完一件事（你替組員併 main、裝、push、改掉它在問的東西），當下就通知原組員撤題：SendMessage 給它「這題已在秘書視窗處理：<做了什麼，例如 main 3b97f08 已裝好已推>，請 "\(orbit)" asks withdraw all 並發 done 卡」。
+            不要等看板自己發現：派工單完成／取消、或它問的 commit／分支已進 main（push 要 origin/main）、已裝上時看板會自動撤並傳話給它，但解析不到單號／commit 的題它不會撤。
+        14. 省用量：你只是在等（等回報、等使用者、等背景工作）、沒動手做事的回合，不用發卡片。
         取消："\(orbit)" task cancel <單號>。
         """
     }
@@ -277,7 +279,10 @@ public enum Captain {
     public static func cancel(_ id: String, now: Date = Date()) -> (task: CaptainTask, notified: Bool)? {
         guard var t = CaptainStore.task(id) else { return nil }
         t.state = .cancelled; t.updatedAt = now; CaptainStore.save(t)
-        let note = "【秘書取消 \(id)】這張派工不用做了：\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(60))。已經做到一半的就停在安全的地方，回報目前狀態即可。"
+        // 11-28：這張單的 --ask 一起撤（StaleAsks ①），通知裡講，對方不用再問
+        let gone = StaleAsks.apply(StaleAsks.closedTasks(asks: AskQueue.all(), tasks: [t]), captain: CaptainStore.captain()?.sessionId)
+        let asks = gone.isEmpty ? "" : "看板上你為這張單等使用者回答的 \(gone.count) 題已一起撤掉，不用再問。"
+        let note = "【秘書取消 \(id)】這張派工不用做了：\(t.text.replacingOccurrences(of: "\n", with: " ").prefix(60))。\(asks)已經做到一半的就停在安全的地方，回報目前狀態即可。"
         // /clear 換了 sessionId：單子還記著舊的 ⇒ 找接手的那個（跟標題同一份 prev）
         let heir = t.toSession.flatMap { s in JobStore.heir(of: s, live: Peer.sessions().map(\.sessionId), jobs: JobStore.all()) }
         switch (Peer.find(t.toSession ?? t.to) ?? heir.flatMap { Peer.find($0) }).map({ Peer.send(to: $0, text: note, fromName: "Orbit42") }) {

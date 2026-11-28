@@ -743,3 +743,72 @@ extension BoardActions {
 private extension Result {
     func get(or fallback: String) -> String where Success == String { (try? get()) ?? fallback }
 }
+
+// MARK: - 11-28 別處處理完自動撤題（規則在 Orbit42Core/StaleAsks.swift）
+
+/// 每次刷新看一遍「等你回答」：派工單完成／取消、或在問 push／併／裝的東西已經進 main／已裝 ⇒ 撤題、看板記一筆、傳短訊給那個 session。
+/// git 要跑指令 ⇒ 放背景；同一題 60 秒內不重查。只有正式 agent 會動手（測試視窗不動）
+@MainActor
+final class StaleAskSweeper {
+    static let shared = StaleAskSweeper()
+    private var checked: [String: Date] = [:]          // sid#askId → 上次查 git 的時間
+    private var running = false
+    private let queue = DispatchQueue(label: "orbit.staleasks")
+    static let recheck: TimeInterval = 60
+
+    struct Job: Sendable { var sid: String; var ask: PendingAsk; var card: SelfReport?; var cwd: String? }
+
+    func check(asks: [String: [PendingAsk]], tasks: [CaptainTask], cards: [BoardCard], captain: String?) {
+        guard Engine.current != nil, !running, !asks.isEmpty else { return }
+        let now = Date()
+        let closed = StaleAsks.closedTasks(asks: asks, tasks: tasks)
+        let byId = Dictionary(cards.filter { !$0.id.contains("#") }.map { ($0.sessionId, $0) }, uniquingKeysWith: { a, _ in a })
+        var jobs: [Job] = []
+        for (sid, xs) in asks where sid != captain {
+            for q in AskQueue.live(xs, now: now) where !closed.contains(where: { $0.ask.id == q.id }) && !StaleAsks.shipVerbs(q.ask).isEmpty {
+                let k = sid + "#" + q.id
+                if let t = checked[k], now.timeIntervalSince(t) < Self.recheck { continue }
+                checked[k] = now
+                jobs.append(Job(sid: sid, ask: q, card: byId[sid]?.report, cwd: byId[sid]?.cwd))
+            }
+        }
+        let live = Set(asks.flatMap { s, xs in xs.map { s + "#" + $0.id } })
+        checked = checked.filter { live.contains($0.key) }
+        guard !closed.isEmpty || !jobs.isEmpty else { return }
+        running = true
+        let todo = jobs
+        queue.async {
+            StaleAskSweeper.sweep(closed: closed, jobs: todo, captain: captain)
+            DispatchQueue.main.async { MainActor.assumeIsolated { StaleAskSweeper.shared.running = false; BoardModel.shared.refresh() } }
+        }
+    }
+
+    /// 裝著的 App 是哪個 commit（build_app.sh 寫進 Info.plist 的 OrbitGitCommit；舊版沒有就 nil）
+    nonisolated static func installedCommit() -> String? {
+        let p = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Orbit42.app/Contents/Info.plist")
+        return (NSDictionary(contentsOf: p)?["OrbitGitCommit"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    nonisolated static func sweep(closed: [StaleAsks.Hit], jobs: [Job], captain: String?) {
+        let git = SystemGit(), inst = installedCommit()
+        var hits = closed
+        for j in jobs {
+            if let why = StaleAsks.shipped(j.ask, card: j.card, cwd: j.cwd, installed: inst, git: git) { hits.append(.init(sid: j.sid, ask: j.ask, why: why)) }
+        }
+        let gone = StaleAsks.apply(hits, captain: captain)
+        guard !gone.isEmpty else { return }
+        for (sid, hs) in Dictionary(grouping: gone, by: \.sid) {
+            var sent = "nopeer"
+            if let peer = Peer.find(sid) {
+                switch Peer.send(to: peer, text: StaleAsks.message(hs, orbit: TaskRouter.orbit), fromName: "Orbit42") {
+                case .success: sent = "sent"
+                case .failure(let e): sent = e.message
+                }
+            }
+            Log.note("STALEASK \(sid) \(hs.map(\.ask.id)) \(sent)")
+            let rows = hs.map { h in ["ev": "ask-withdrawn", "id": sid, "ask": h.ask.id, "question": String(h.ask.ask.prefix(120)),
+                                      "note": StaleAsks.boardNote(h), "sent": sent] }
+            DispatchQueue.main.async { MainActor.assumeIsolated { rows.forEach { BoardModel.shared.append($0) } } }
+        }
+    }
+}

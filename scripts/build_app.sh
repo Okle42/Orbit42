@@ -10,6 +10,8 @@ SW="Engine"   # 引擎和球體網頁都在這個 repo（2026-11-24 起不再抓
 rm -rf "$TMP"; mkdir -p "$TMP/Contents/MacOS" "$TMP/Contents/Resources"
 cp .build/release/Orbit42 "$TMP/Contents/MacOS/Orbit42"
 cp Support/Info.plist "$TMP/Contents/Info.plist"
+# 11-28 記下這包是哪個 commit：組員問「要不要裝 xxx」而裝著的版本已經含它 ⇒ 看板自動撤題（StaleAsks.swift）
+/usr/bin/plutil -replace OrbitGitCommit -string "$(git rev-parse HEAD)" "$TMP/Contents/Info.plist"
 # 11-26 Orbit42 帳號（Google 登入）的金鑰和用戶端 ID 不進 repo：打包時從本機檔讀進 Info.plist
 #   檔案：~/Library/Application Support/Orbit42/secrets.plist（ORBIT_SECRETS 可換路徑），要有 OrbitFirebaseAPIKey、OrbitGoogleClientID 兩個字串
 #   沒有這個檔：照樣打包，但會清楚說明；App 的帳號頁會顯示「這版還沒設定 Google 登入」

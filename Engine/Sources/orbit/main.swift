@@ -3,6 +3,7 @@
 //   orbit brief          SessionStart hook：印出給 AI 的Orbit42說明
 //   orbit card --status … AI 每輪自報（完成度／信心度／要你決定的事），存給Orbit42
 //   orbit asks [withdraw <編號|all>]  這個 session 排在「等你回答」的 --ask；使用者已在終端機答了／不用問了就撤回
+//   orbit asks stale                  只看不撤：哪些題已在別處處理、看板會自動撤（派工單結束、commit 已進 main／已裝）
 //   orbit names          活著的 session：英文名、SendMessage 地址、正在做的任務
 //   orbit title [--done]  hook：回傳 terminalSequence，把視窗標題改成「職責 · 主專案｜工作標題」
 //   orbit permit         PermissionRequest hook：等你在Orbit42收件匣按允許／拒絕（會讀 stdin、最久等 1 小時）
@@ -422,6 +423,25 @@ if args.first == "asks" {
         FileHandle.standardError.write(Data("orbit asks：找不到 CLAUDE_CODE_SESSION_ID（要在 Claude Code 裡跑）\n".utf8)); exit(1)
     }
     if let why = Caller.check(sid) { FileHandle.standardError.write(Data("orbit asks：\(why)（已記錄）\n".utf8)); exit(1) }
+    // 11-28 只看不撤：哪些題看板會當成「已在別處處理」自動撤（StaleAsks.swift；cwd 用 session 啟動的資料夾，看板用最後做事的資料夾）
+    if args.count >= 2, args[1] == "stale" {
+        let all = AskQueue.all(), tasks = CaptainStore.tasks()
+        let cdir = Paths.supportDir.appendingPathComponent("board/cards", isDirectory: true)
+        let cards = all.keys.reduce(into: [String: SelfReport]()) { m, s in
+            m[s] = (try? Data(contentsOf: cdir.appendingPathComponent(s + ".json"))).flatMap { try? BoardJSON.decoder.decode(SelfReport.self, from: $0) }
+        }
+        let cwd = Dictionary(Peer.sessions().map { ($0.sessionId, $0.cwd) }, uniquingKeysWith: { a, _ in a })
+        let names = NicknameStore.all().mapValues(\.name)
+        var hits = StaleAsks.closedTasks(asks: all, tasks: tasks)
+        for (s, xs) in all.sorted(by: { $0.key < $1.key }) {
+            for q in AskQueue.live(xs, now: Date()) where !hits.contains(where: { $0.ask.id == q.id }) {
+                if let why = StaleAsks.shipped(q, card: cards[s], cwd: cwd[s], installed: nil, git: SystemGit()) { hits.append(.init(sid: s, ask: q, why: why)) }
+            }
+        }
+        if hits.isEmpty { print("（沒有會被自動撤的題）") }
+        for h in hits { print("\(names[h.sid] ?? String(h.sid.prefix(8)))\t\(h.ask.id)\t\(h.ask.ask.prefix(60))\n\t→ \(StaleAsks.boardNote(h))") }
+        exit(0)
+    }
     if args.count >= 2, args[1] == "withdraw" {
         guard args.count >= 3 else { FileHandle.standardError.write(Data("用法：orbit asks withdraw <編號|all>\n".utf8)); exit(1) }
         let n = AskQueue.withdraw(sid: sid, id: args[2])

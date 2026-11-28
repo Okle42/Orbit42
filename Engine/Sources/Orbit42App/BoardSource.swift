@@ -538,6 +538,7 @@ final class BoardModel: ObservableObject {
         CtxGuard.shared.check(cards)
         HandoverClear.shared.check(cards, records: s.handovers, captain: captain)
         TaskRouter.shared.check(s.tasks)
+        StaleAskSweeper.shared.check(asks: s.asks, tasks: s.tasks, cards: cards, captain: captain)
         let rv = Set(cards.map(\.sessionId).filter { Reviewer.shared.isRunning($0) })
         if rv != reviewing { reviewing = rv }
         if s.rateLimits != rateLimits { rateLimits = s.rateLimits }
