@@ -256,6 +256,19 @@ enum BoardActions {
         let sid = c.sessionId, gone = "「\(c.title)」這題已經答過或已收掉，沒有送出"
         // 驗題目與選項、標成送出中：一把鎖。不行就什麼都不送、不記、不轉
         guard pick != nil else { return (false, "「\(c.title)」這題不在待答清單裡，這裡答不了，沒有送出；請到它的終端機回答") }
+        // 11-28 Keng：「放行！全部」的對外單勾選卡。只認介面送來的勾選（chosen）；不打進終端機、不當文字答案
+        if let q = AskQueue.load(sid).first(where: { $0.id == pick?.askId }), q.pickOnly {
+            guard let chosen = pick?.chosen else { return (false, "這題要勾選後按「確認放行」（或「全部不放」），沒有送出，題目留著") }
+            let o = ReleasePick.answer(sid: sid, askId: q.id, chosen: chosen, speaker: source == .other ? .none : .card, by: "Orbit42",
+                                       byName: source == .phone ? "使用者（手機／網頁答案卡）" : "使用者（Orbit42答案卡）", source: "Orbit42回答", now: Date())
+            guard case .done(let xs, let kept) = o else { return (false, ReleasePick.summary(o)) }
+            if testHook == nil, testDeliver == nil {
+                CaptainInbox.announceAll(xs, except: "", whereSaid: "在答案卡上", how: "勾選確認放行")
+                if let r = Peer.find(sid) { _ = Peer.send(to: r, text: "【放行！全部・勾選確認】" + ReleasePick.summary(o) + "\n請把明細回報給使用者；沒勾的維持擋下。", fromName: "Orbit42（動作預告）") }
+                BoardModel.shared.append(["ev": "release-pick", "id": sid, "released": xs.map(\.id).joined(separator: ","), "kept": kept.joined(separator: ",")])
+            }
+            return (true, ReleasePick.summary(o))
+        }
         if let q = AskQueue.load(sid).first(where: { $0.id == pick?.askId }), CaptainClaim.needsMac(q, option: pick?.option, fromMac: source == .user) {
             return (false, "換秘書要在 Mac 的介面按同意，這裡沒有送出，題目留著")
         }
@@ -331,6 +344,11 @@ enum BoardActions {
         switch decision {
         case .missed(let m): line += "（Orbit42：\(m)）"
         case .recorded, .released: recorded = true
+        case .releasedAll(let xs, let asking):
+            recorded = true
+            line += "（Orbit42：" + CaptainInbox.allDetail(xs, asking: asking).replacingOccurrences(of: "\n", with: " ") + "。請把明細回報給使用者；你自己的單可以重跑一次，30 分鐘內有效"
+                + (asking.isEmpty ? "" : "；對外的在勾選答案卡上等使用者確認，不要替他答、不要撤回") + "）"
+            if testHook == nil, testDeliver == nil { CaptainInbox.announceAll(xs, asking: asking, except: c.sessionId, whereSaid: "在 Orbit42 卡片上") }
         case .none: break
         }
         if let t = testDeliver { return t(line) ? delivered("已送給「\(c.title)」") : "沒送到" }

@@ -175,8 +175,11 @@ struct OrbitAPI: Sendable {
     /// 11-25 名卡順序（ids 可以只有一部分；nil＝恢復預設）
     func order(_ ids: [String]?) async throws { _ = try await request("api/order", body: ids.map { ["ids": $0] } ?? ["reset": true]) }
     /// 回答答案卡（走 Mac 跟收件匣按鈕同一條路；Mac 那端會記稽核）
-    func answer(session: String, text: String, askId: String?, option: String? = nil, free: String? = nil) async throws -> String {
-        let d = try await request("api/answer", body: ["id": session, "text": text, "askId": askId, "option": option, "free": free].compactMapValues { $0 })
+    /// chosen：勾選題（放行！全部的對外單）按「確認放行」時勾了第幾個；有 chosen 就不帶 option／free
+    func answer(session: String, text: String, askId: String?, option: String? = nil, free: String? = nil, chosen: [Int]? = nil) async throws -> String {
+        var body: [String: Any] = ["id": session, "text": text].merging(["askId": askId, "option": option, "free": free].compactMapValues { $0 }) { a, _ in a }
+        if let chosen { body["chosen"] = chosen; body["option"] = nil; body["free"] = nil }
+        let d = try await request("api/answer", body: body)
         return (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["message"] as? String ?? "已送出"
     }
 }

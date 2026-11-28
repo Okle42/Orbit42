@@ -220,6 +220,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
         public var canAnswer: Bool         // 只有「要你決定」（一般輸入框等你）能從網頁按選項；權限／選擇題／選單要回終端機或原生 App
         public var answeredAt: Date?
         public var askId: String? = nil          // 回答時要帶回來（認得出答哪一題才送）
+        public var multi: Bool? = nil            // 11-28 勾選題（放行！全部的對外單）：按選項只打勾，按「確認放行」才送 chosen
     }
     public struct Task: Codable, Sendable, Equatable {
         public var id: String
@@ -263,7 +264,8 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
                            summary: summary.map { String($0.prefix(400)) },
                            idleSeconds: c.lastActivity.map { max(0, Int(now.timeIntervalSince($0))) }, captain: c.captain,
                            question: it.map { $0.more > 0 ? $0.question + "（答完後面還有 \($0.more) 題）" : $0.question }, options: it?.kind == .reply ? it!.options : [],
-                           canAnswer: it?.kind == .reply, answeredAt: it?.answered, askId: it?.askId)
+                           canAnswer: it?.kind == .reply, answeredAt: it?.answered, askId: it?.askId,
+                           multi: c.asks.first { $0.id == it?.askId }?.multi)
         }.sorted { a, b in
             let ra = a.question != nil ? 0 : rank[BoardColumn(rawValue: a.column) ?? .todo] ?? 9
             let rb = b.question != nil ? 0 : rank[BoardColumn(rawValue: b.column) ?? .todo] ?? 9
@@ -283,16 +285,22 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
     /// 手機球體另外帶 option／free（11-25）：選項可以是去掉「（建議）」的、可以加補充或只打字；要送的字由 AnswerPick 組，不用對方給的整句。
     /// 沒帶題目 id（舊版 App）＝認不出答哪一題 ⇒ 不送
     public struct Answer: Sendable { public let card: BoardCard, pick: AnswerPick, text: String }
-    public static func validate(answer text: String, askId: String?, option: String? = nil, free: String? = nil, for id: String, cards: [BoardCard]) -> Result<Answer, CardError> {
+    public static func validate(answer text: String, askId: String?, option: String? = nil, free: String? = nil, chosen: [Int]? = nil, for id: String, cards: [BoardCard]) -> Result<Answer, CardError> {
         guard let c = cards.first(where: { $0.sessionId == id }) else { return .failure(.init("找不到這個 session，可能已經關了")) }
         guard let it = Inbox.items([c]).first, it.kind == .reply else { return .failure(.init("它現在沒有在等你回答")) }
         guard it.askId != nil else { return .failure(.init("這題不在待答清單裡，這裡答不了，請到它的終端機回答")) }
         guard let askId else { return .failure(.init("App 版本太舊，請更新或到電腦答")) }
         guard let q = c.asks.first(where: { $0.id == askId }) else { return .failure(.init("這題已經答過或已收掉，沒有送出")) }
+        // 勾選題：只收 chosen（不收選項字、不收打字）；真正驗勾選、放行在 ReleasePick.answer
+        if q.pickOnly {
+            guard let chosen, option == nil, free == nil else { return .failure(.init("這題要勾選後按「確認放行」，App 太舊的話請更新或到電腦答")) }
+            return .success(Answer(card: c, pick: AnswerPick(askId: askId, option: nil, chosen: chosen), text: text))
+        }
+        guard chosen == nil else { return .failure(.init("這題不是勾選題，沒有送出")) }
         let pick = option == nil && free == nil ? AnswerPick(askId: askId, option: text) : AnswerPick(askId: askId, option: option, free: free.map(cleanTyped))
         if option == nil, free != nil, cleanTyped(free!).isEmpty { return .failure(.init("沒有看得到的字")) }
         guard let t = pick.text(for: q) else { return .failure(.init("只能按卡片上的選項")) }
-        if pick.free?.isEmpty == false, soundsLikeRelease(t) { return .failure(.init("答案卡打字不能放行，請到電腦打「放行！單號」")) }
+        if pick.free?.isEmpty == false, soundsLikeRelease(t) { return .failure(.init("答案卡打字不能放行，請到電腦打「放行！單號」或「放行！全部」")) }
         return .success(Answer(card: c, pick: pick, text: t))
     }
     /// 「放行」開頭（全形半形、夾空白標點也算）
@@ -323,7 +331,7 @@ public struct WebSnapshot: Codable, Sendable, Equatable {
 
 /// 網頁能做的事只有這五種：沒有跑指令、看檔案、關／重開 session、改名字或設定
 public enum WebAction: Equatable, Sendable {
-    case answer(session: String, text: String, askId: String? = nil, option: String? = nil, free: String? = nil)     // 按卡片選項（跟原生收件匣同一條 BoardActions.answer）
+    case answer(session: String, text: String, askId: String? = nil, option: String? = nil, free: String? = nil, chosen: [Int]? = nil)     // 按卡片選項（跟原生收件匣同一條 BoardActions.answer）；chosen＝勾選題按「確認放行」
     case send(session: String, text: String)       // 傳話給某個 session（BoardActions.answer 同一條送法，前面加 sendPrefix）
     case dispatch(session: String, text: String)   // 開派工單（BoardActions.dispatch，跟看板「派工」同一條；內文加 sendPrefix）
     case cancel(task: String)                      // 取消派工單（Captain.cancel，跟 orbit task cancel 同一條）
@@ -333,10 +341,10 @@ public enum WebAction: Equatable, Sendable {
         switch self { case .answer: "answer"; case .send: "send"; case .dispatch: "dispatch"; case .cancel: "cancel"; case .ack: "ack" }
     }
     public var target: String {
-        switch self { case .answer(let s, _, _, _, _), .send(let s, _), .dispatch(let s, _): s; case .cancel(let t): t; case .ack(let i): i }
+        switch self { case .answer(let s, _, _, _, _, _), .send(let s, _), .dispatch(let s, _): s; case .cancel(let t): t; case .ack(let i): i }
     }
     public var text: String? {
-        switch self { case .answer(_, let t, _, _, _), .send(_, let t), .dispatch(_, let t): t; default: nil }
+        switch self { case .answer(_, let t, _, _, _, _), .send(_, let t), .dispatch(_, let t): t; default: nil }
     }
 
     public static let paths = ["/api/answer", "/api/send", "/api/task", "/api/task/cancel", "/api/inbox/ack"]
@@ -356,6 +364,14 @@ public enum WebAction: Equatable, Sendable {
         switch path {
         case "/api/answer", "/api/send", "/api/task":
             guard let id = str("id"), sessionOK(id) else { return .failure(.init("缺 id 或格式不對")) }
+            // 勾選題（放行！全部的對外單）：chosen 是勾了第幾個（最多 perCard 個、不重複）；不帶選項字、不帶打字
+            if path == "/api/answer", let raw = o["chosen"] {
+                guard let xs = raw as? [Any], xs.count <= ReleasePick.perCard else { return .failure(.init("勾選格式不對")) }
+                let ns = xs.compactMap { ($0 as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0.intValue } }
+                guard ns.count == xs.count, Set(ns).count == ns.count, ns.allSatisfy({ (0..<ReleasePick.perCard).contains($0) }), str("option") == nil, str("free") == nil,
+                      let ask = str("askId") else { return .failure(.init("勾選格式不對")) }
+                return .success(.answer(session: id, text: "勾選確認放行：" + (ns.isEmpty ? "全部不放" : ns.map { String($0 + 1) }.joined(separator: "、")), askId: ask, chosen: ns))
+            }
             if path == "/api/answer", str("option") != nil || str("free") != nil {
                 let option = str("option"), free = str("free")
                 guard (option?.count ?? 0) <= maxAnswer else { return .failure(.init("選項太長了（最多 \(maxAnswer) 字）")) }

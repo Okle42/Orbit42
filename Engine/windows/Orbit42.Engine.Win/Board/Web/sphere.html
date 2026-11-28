@@ -170,6 +170,12 @@
   #askCard .pill.opt b { font-weight: 600; color: var(--ink-dim); margin-right: 6px; font-size: 11px; }
   #askCard .opts > .pill.opt:last-child:nth-child(odd) { grid-column: 1 / -1; }
   #askCard .pill.opt i { display: block; font-style: normal; font-size: 11px; letter-spacing: .12em; color: var(--acc); margin-bottom: 2px; }
+  /* 11-28 勾選題（放行！全部的對外單）：按選項只打勾，按「確認放行」才送 */
+  #askCard .pill.opt .box { display: inline-block; width: 1.3em; font-weight: 700; color: var(--ink-dim); }
+  #askCard .pill.opt.on { border-color: var(--acc); background: var(--acc-soft); } #askCard .pill.opt.on .box { color: var(--acc); }
+  #askCard .pick { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  #askCard .pick .what { flex: 1 1 100%; font-size: 12px; color: var(--ink-dim); overflow-wrap: anywhere; min-height: 2.9em; }
+  #askCard .pick [data-confirm] { border-color: var(--acc); font-weight: 600; } #askCard .pick button:disabled { opacity: .4; cursor: default; }
   #askCard .free { margin-top: 8px; display: flex; gap: 6px; align-items: flex-end; }
   #askCard .free textarea { flex: 1; min-width: 0; resize: vertical; min-height: 2.6em; max-height: 9em; background: var(--soft); color: var(--ink);
     border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; line-height: 1.45; outline: none; }
@@ -502,6 +508,22 @@
     svg#links text { font: 600 12px ui-monospace, Menlo, monospace; letter-spacing: .04em; stroke-width: 4px; }
   }
   button:focus-visible, textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* 11-28 A 組：語音晨報（重念／跳過）與個人資料搜尋的浮層 */
+  #pBox { position: fixed; left: 50%; transform: translateX(-50%); bottom: 84px; width: min(520px, calc(100% - 32px)); z-index: 6;
+    background: var(--panel-solid); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--ink);
+    font-size: 13px; line-height: 1.5; display: none; max-height: 60vh; overflow: auto; }
+  #pBox.on { display: block; }
+  #pBox .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  #pBox .hd b { flex: 1; font-weight: 600; }
+  #pBox .ln { color: var(--ink-dim); margin: 2px 0; }
+  #pBox .ln.now { color: var(--ink); }
+  #pBox input { width: 100%; box-sizing: border-box; background: var(--soft); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 10px; font: inherit; }
+  #pBox .hit { border-top: 1px solid var(--line); padding: 8px 0 6px; }
+  #pBox .hit .c { font-weight: 600; }
+  #pBox .hit .s { color: var(--ink-dim); }
+  #pBox .hit a { color: var(--acc); cursor: pointer; text-decoration: underline; }
+  #pBox .dim { color: var(--ink-faint); }
 </style>
 </head>
 <body>
@@ -554,6 +576,7 @@
 <div id="voiceMenu" class="dropMenu" role="menu" aria-label="語音與音量"></div>
 <div id="themeMenu" class="dropMenu" role="menu" aria-label="配色"></div>
 <div class="card pop" id="pop" role="status"></div>
+<div id="pBox" role="dialog" aria-label="晨報與搜尋"></div>
 <div id="banner" role="alert"><div class="in"></div></div>
 
 <div id="deskBar" aria-hidden="true"><i></i><span class="brand">OKLE<b>42</b></span><span class="brand dim wide">· ORBIT<b>42</b> · 智能體</span></div>
@@ -562,7 +585,7 @@
 <div id="tools">
   <button class="pill sm on" id="bNewSat" title="開一顆新衛星（新的 AI 工作者，Orbit42）" hidden>＋ 新衛星</button>
   <button class="pill sm" id="bFull" title="全螢幕桌面模式（⌃⌘F）" hidden>⛶</button>
-  <button class="pill sm" id="bBrief" title="唸一次早報（今天的狀況與額度）">早報</button>
+  <button class="pill sm" id="bBrief" title="唸一次早報（今天的狀況與額度）">早報</button><button class="pill sm" id="bSearch" title="搜尋我的信、行程、檔案、訊息（本機索引）" style="display:none">搜尋</button>
   <button class="pill sm" id="bWrap" title="唸收工總結（今天做完什麼、還剩什麼）">收工</button>
   <button class="pill sm" id="bTl" title="今天每個 session 的狀態變化">時間<span class="wide">軸</span></button>
   <button class="pill sm" id="bMini" title="智能體桌面版：開／關">桌面版</button>
@@ -1704,7 +1727,8 @@ async function spokenLine(text, mute = false) {
 const queue = []; let talkingNow = false;
 // v5：一句話可以帶 { pop: 事件卡, banner: 警示橫幅 }，唸的同時彈出來
 function announce(text, extra = {}) { if (window.__said) window.__said.push(text);    // 測試：window.__said = [] 就記下每句播報
-  if (queue.length < 6) queue.push({ text, ...extra }); else if (extra.banner) showBanner(extra.banner); pump(); }
+  // 11-28：晨報一句一句排，不受 6 句上限
+  if (queue.length < 6 || extra.morning) queue.push({ text, ...extra }); else if (extra.banner) showBanner(extra.banner); pump(); }
 async function pump() {
   if (talkingNow || demoRunning || listening || askTyping()) return;
   talkingNow = true;
@@ -1715,7 +1739,9 @@ async function pump() {
     if (q.pop) showPop(q.pop); else hidePop();
     const mute = q.auto && !DESK && deskOn;
     const line = await spokenLine(q.text, mute);     // 11-28：字幕和聲音都用改寫後這一句
+    morningProgress(q, false);
     setState("speaking"); await speak(line, mute);
+    morningProgress(q, true);
     if (q.pop) hidePop(2600);
   }
   $("capQ").textContent = "";
@@ -2437,6 +2463,7 @@ window.karaPrefs = (p) => {
     sel.value = p.voice; sel.hidden = false; if (ORBIT && typeof applyPanels === "function") try { applyPanels(); } catch {}
   }
   deskOn = !!p.mini;
+  nativeMorning = !!p.morning;            // 11-28 A 組：Mac 版晨報／搜尋走原生端（Windows 版沒有這個欄位＝照舊）
   spokenAIAvail = !!p.spokenAI;          // 11-28：原生端找得到 claude 才能開 AI 口語改寫（Windows 版沒有這個欄位＝不顯示）
   $("bMini").classList.toggle("on", deskOn); $("bMini").title = deskOn ? "智能體桌面版：開（點一下關掉）" : "智能體桌面版：關（點一下打開）";
   if (p.deskSize) $("bSize").innerHTML = `<span class="wide">尺寸 · </span>${esc(p.deskSize)}`;
@@ -2522,7 +2549,7 @@ function brief() {
   const once = (k, fn) => { let d = null; try { d = localStorage.getItem(k); } catch {} if (d === day) return; try { localStorage.setItem(k, day); } catch {} setTimeout(() => announce(fn(), { auto: true }), 1500); };
   // 11-22 Keng：自檢環開工／收工各跑一次（跟早報、收工總結同一個時機；分頁和桌面版共用 localStorage，只跑一次）
   const auditOnce = k => { let d = null; try { d = localStorage.getItem(k); } catch {} if (d === day) return; try { localStorage.setItem(k, day); } catch {} post({ action: "audit" }); };
-  if (h >= 5 && h < 11) { once("sphere.brief", briefText); auditOnce("sphere.audit.am"); }
+  if (h >= 5 && h < 11) { if (!nativeMorning) once("sphere.brief", briefText); auditOnce("sphere.audit.am"); }   // 11-28：Mac 版晨報由原生端排程（MorningService）
   else if (h >= 19) { once("sphere.wrap", wrapText); auditOnce("sphere.audit.pm"); }
 }
 // 11-23 Orbit42：＋ 新衛星（選大腦）
@@ -2550,7 +2577,7 @@ if (ORBIT) {
     post({ action: "newSatellite", brain: mi.dataset.off ? "accounts" : mi.dataset.brain }); };   // brain "accounts"＝打開 Orbit42 帳號頁
   document.addEventListener("click", () => m.classList.remove("on"));
 }
-$("bBrief").onclick = () => { announce(briefText()); post({ action: "audit" }); };
+$("bBrief").onclick = () => { if (nativeMorning) { post({ action: "morning" }); return; } announce(briefText()); post({ action: "audit" }); };
 $("bWrap").onclick = () => { announce(wrapText()); post({ action: "audit" }); };
 $("bMini").onclick = () => post({ action: "mini" });
 $("voiceSel").onchange = e => {
@@ -2599,7 +2626,7 @@ function renderAsk() {
   // 每種卡片都用同款大按鈕（2 欄、數字鍵）；只有 Claude 自己標「（建議）」／(Recommended) 的才有建議框和 Enter
   const grid = items => `<div class="opts">${items.map((o, k) => `<button class="pill opt${o.rec ? " rec" : ""}"${o.rec ? " data-rec" : ""} data-k="${k + 1}" data-label="${esc(o.label)}" data-act='${esc(JSON.stringify(o.act))}'>${o.rec ? '<i>建議</i>' : ""}${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o.label)}</button>`).join("")}</div>`;
   const isRec = o => /（建議）|\(建議\)|\(Recommended\)/i.test(o);
-  let btns = "", free = false, detail = "", n = 0, hasRec = false;
+  let btns = "", free = false, detail = "", n = 0, hasRec = false, multi = false;
   if (p?.kind === "tool") {
     detail = p.summary || "";
     btns = grid([{ label: "允許", act: { permit: "allow" } }, { label: "一律允許", act: { permit: "always" } }, { label: "拒絕", act: { permit: "deny" } }]); n = 3;
@@ -2611,6 +2638,11 @@ function renderAsk() {
       const os = qs[0].options; n = os.length; hasRec = os.some(isRec);
       btns = grid(os.map(o => ({ label: o, rec: isRec(o), act: { permit: "allow", answers: { [qs[0].question]: [o] } } })));
     } else detail = `${qs.length} 題選擇題，到它的視窗回答比較清楚。`;
+  } else if (c.multi && c.askId) {
+    // 11-28 勾選題：每個選項是一張對外單；按了只打勾（.box），送出要按「確認放行」／「全部不放」
+    const opts = c.options || []; n = opts.length; multi = true;
+    btns = `<div class="opts">${opts.map((o, k) => `<button class="pill opt" role="checkbox" aria-checked="false" data-k="${k + 1}" data-tick="${k}"><span class="box">☐</span>${k < 9 ? `<b>${k + 1}</b>` : ""}${esc(o)}</button>`).join("")}</div>`
+      + `<div class="pick"><span class="what"></span><button class="pill sm" data-confirm disabled>確認放行</button><button class="pill sm" data-none>全部不放</button></div>`;
   } else {
     // 11-23 Keng「每次作業完跳 4 選項答案卡，有預設建議，最下面還要能打字補充」：建議的那個（結尾「（建議）」，沒標就第一個）紅框；送出時去掉「（建議）」
     const opts = c.options || [], rec = Math.max(0, opts.findIndex(isRec));
@@ -2618,7 +2650,8 @@ function renderAsk() {
     if (opts.length) { btns = grid(opts.map((o, k) => ({ label: clean(o), rec: k === rec, act: { text: clean(o), opt: 1 } }))); n = opts.length; hasRec = true; }
     free = true;
   }
-  const hint = [n ? `按 1–${Math.min(9, n)} 選選項` : "", hasRec ? "Enter 送建議" : "", "送出後 3 秒內可復原"].filter(Boolean).join(" · ");
+  const hint = multi ? `按選項或 1–${Math.min(9, n)} 勾選／取消 · Enter 或「確認放行」才送出 · 送出後 3 秒內可復原`
+    : [n ? `按 1–${Math.min(9, n)} 選選項` : "", hasRec ? "Enter 送建議" : "", "送出後 3 秒內可復原"].filter(Boolean).join(" · ");
   const sum = c.summary && c.reportKind !== "start" ? c.summary : "";
   card.innerHTML = `<div class="top"><span>需要你</span><span class="nm">${esc(c.name || "")}${c.doing ? ` · ${esc(c.doing)}` : ""}</span><span class="ago">${agoText(c.ago)}</span>
       ${list.length > 1 ? `<span class="nav"><button class="pill sm" data-nav="-1">‹</button>${i + 1}/${list.length}<button class="pill sm" data-nav="1">›</button></span>` : ""}</div>
@@ -2629,8 +2662,23 @@ function renderAsk() {
     <div class="foot"><span>${hint}</span><span class="links"><button class="lnk" data-snooze>Esc 稍後再答</button><button class="lnk" data-act='{"focus":1}'>跳到它的視窗 →</button></span></div>`;
   const ta = card.querySelector(".free textarea");
   if (ta) { ta.value = drafts.get(c.sessionId) || ""; if (hadFocus) { ta.focus(); const n = ta.value.length; ta.setSelectionRange(Math.min(sel0[0], n), Math.min(sel0[1], n)); } }   // Xena3 驗收：游標留在原位，不跳到最後
+  if (multi) drawPick(c);
   card.classList.add("on");
   document.body.classList.add("asking");
+}
+/* 勾選題的勾選狀態：key＝session＋題目（askKey 含題目字；題目換了就是新的、舊勾選不帶過去）。復原時勾選還在 */
+const picked = new Map(), pickKey = c => c.sessionId + "|" + c.askId + "|" + JSON.stringify(c.options || []);
+function drawPick(c) {
+  const card = $("askCard"), t = picked.get(pickKey(c)) || new Set(), xs = c.options || [];
+  card.querySelectorAll(".pill.opt[data-tick]").forEach(b => { const on = t.has(+b.dataset.tick); b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); b.querySelector(".box").textContent = on ? "☑" : "☐"; });
+  const ids = [...t].sort((a, b) => a - b).map(i => (xs[i] || "").split(/\s/)[0]);
+  const w = card.querySelector(".pick .what"); if (w) w.textContent = ids.length ? `已勾 ${ids.length} 張：${ids.join("、")}（沒勾的維持擋下）` : "還沒勾。按選項打勾／取消，按「確認放行」才送出";
+  const b = card.querySelector("[data-confirm]"); if (b) { b.disabled = !ids.length; b.textContent = ids.length ? `確認放行 ${ids.length} 張` : "確認放行"; }
+}
+function confirmPick(c, none) {
+  const xs = c.options || [], chosen = none ? [] : [...(picked.get(pickKey(c)) || [])].sort((a, b) => a - b); if (!none && !chosen.length) return;
+  const ids = chosen.map(i => (xs[i] || "").split(/\s/)[0]), label = none ? "全部不放" : `確認放行 ${ids.length} 張：${ids.join("、")}`;
+  sendLater(c, { action: "answer", sessionId: c.sessionId, askId: c.askId, chosen, text: label }, label);
 }
 /* 11-23 Keng「答案卡位置讓版面變化不太對 ⇒ 改成在戰情卡那一列直接展開回答」（只在 Orbit42）：
    #askCard 搬進 #teamRows、插在正在問的那一列下面（不在前 6 列就放最上面）；小紅點（稍後再答）放在戰情卡標題下。
@@ -2705,6 +2753,12 @@ $("askCard").addEventListener("click", e => {
   const nav = e.target.closest("[data-nav]");
   if (nav) { const list = pending(); let i = list.findIndex(c => c.sessionId === askSid); askSid = list[(i + +nav.dataset.nav + list.length) % list.length]?.sessionId; renderAsk(); return; }
   if (e.target.closest("[data-snooze]")) return snoozeAsk();
+  {   // 勾選題：選項只切換勾選；確認／全部不放才送
+    const c = (data.team || []).find(x => x.sessionId === askSid), tk = e.target.closest("[data-tick]");
+    if (c && tk) { const k = pickKey(c), s = new Set(picked.get(k) || []), i = +tk.dataset.tick; s.has(i) ? s.delete(i) : s.add(i); picked.set(k, s); return drawPick(c); }
+    if (c && e.target.closest("[data-confirm]")) return confirmPick(c, false);
+    if (c && e.target.closest("[data-none]")) return confirmPick(c, true);
+  }
   const b = e.target.closest("[data-act]"); if (!b) return;
   const c = (data.team || []).find(x => x.sessionId === askSid); if (!c) return;
   const a = JSON.parse(b.dataset.act);
@@ -2753,7 +2807,7 @@ document.addEventListener("keydown", e => {
   if (e.target.closest && e.target.closest("textarea, input, select, [contenteditable]")) return;
   let b = null;
   if (/^[1-9]$/.test(e.key)) b = card.querySelector(`.pill.opt[data-k="${e.key}"]`);
-  else if (e.key === "Enter") b = card.querySelector(".pill.opt[data-rec]");
+  else if (e.key === "Enter") b = card.querySelector("[data-confirm]") || card.querySelector(".pill.opt[data-rec]");      // 勾選題：Enter＝確認放行（沒勾時鈕停用、按了不動）
   if (b) { e.preventDefault(); b.click(); }
 });
 function done(c) { sentKey.set(c.sessionId, askKey(c)); askSid = null; $("askCard").dataset.sig = ""; renderAsk(); autoState(); }
@@ -2773,6 +2827,66 @@ window.karaSats = () => [...sats.values()].map(s => ({ name: s.c?.name, sid: s.c
 window.karaAnchor = (x, y) => { satAnchor = { x, y }; };
 window.karaSay = (text) => announce(text);
 window.karaToast = (text) => announce(text);
+/* ---------- 11-28 A 組：語音晨報（原生端組稿、這裡一句一句念，可重念／跳過）＋個人資料搜尋 ---------- */
+let nativeMorning = false, morningId = 0;
+const pBox = $("pBox");
+function closeBox() { pBox.classList.remove("on"); pBox.innerHTML = ""; pBox.dataset.kind = ""; }
+window.karaMorning = (p) => {
+  const lines = (p && p.lines && p.lines.length) ? p.lines : (p && p.text ? [p.text] : []);
+  if (!lines.length) return;
+  morningId = p.id || Date.now();
+  for (let i = queue.length - 1; i >= 0; i--) if (queue[i].morning) queue.splice(i, 1);     // 重念：上一份還沒念完的拿掉
+  pBox.dataset.kind = "morning";
+  pBox.innerHTML = `<div class="hd"><b>晨報</b><span class="dim">${p.ai ? "AI 口語稿" : "規則稿"}</span>`
+    + `<button class="pill sm" id="mbAgain">重念</button><button class="pill sm" id="mbSkip">跳過</button></div>`
+    + lines.map((l, i) => `<div class="ln" data-i="${i}">${esc(l)}</div>`).join("");
+  pBox.classList.add("on");
+  $("mbAgain").onclick = () => post({ action: "morningReplay" });
+  $("mbSkip").onclick = () => skipMorning();
+  const id = morningId;
+  lines.forEach((l, i) => announce(l, { morning: id, mIndex: i, mLast: i === lines.length - 1, auto: !!p.auto }));
+};
+function skipMorning() {
+  for (let i = queue.length - 1; i >= 0; i--) if (queue[i].morning) queue.splice(i, 1);
+  post({ action: "stopSpeaking" });
+  if (pBox.dataset.kind === "morning") closeBox();
+}
+// 播報佇列唸到晨報的第幾句：浮層把那句標亮；最後一句唸完 15 秒收起來
+function morningProgress(q, done) {
+  if (!q.morning || q.morning !== morningId || pBox.dataset.kind !== "morning") return;
+  pBox.querySelectorAll(".ln").forEach(el => el.classList.toggle("now", !done && +el.dataset.i === q.mIndex));
+  if (done && q.mLast) setTimeout(() => { if (pBox.dataset.kind === "morning" && q.morning === morningId) closeBox(); }, 15000);
+}
+// 「找／搜尋／查一下 …」「…的信在哪」⇒ 搜尋本機個人資料
+function searchIntent(text) {
+  const t = text.trim();
+  const m = t.match(/^(?:幫我)?(?:搜尋|搜|找一下|找|查一下|查)\s*(.+)$/);
+  if (m && !/秘書|隊長|session|進度/.test(m[1])) return m[1].replace(/[。？?！!]+$/, "");
+  if (/(信|郵件|檔案|文件|行程|會議|訊息|簡訊).*(在哪|哪一封|哪個|什麼時候)/.test(t)) return t.replace(/[。？?！!]+$/, "");
+  return null;
+}
+function openSearch(q = "") {
+  if (!nativeMorning) { announce("這個版本還不能搜尋個人資料。"); return; }
+  pBox.dataset.kind = "search";
+  pBox.innerHTML = `<div class="hd"><b>搜尋我的資料</b><span class="dim">信、行程、檔案、訊息（只在這台 Mac）</span><button class="pill sm" id="psX">關閉</button></div>`
+    + `<input id="psQ" placeholder="例如：王董的報價單" value="${esc(q)}"><div id="psR"></div>`;
+  pBox.classList.add("on");
+  $("psX").onclick = closeBox;
+  const inp = $("psQ");
+  inp.onkeydown = e => { if (e.key === "Enter" && inp.value.trim()) { $("psR").innerHTML = `<div class="dim">找⋯</div>`; post({ action: "search", q: inp.value.trim() }); } if (e.key === "Escape") closeBox(); };
+  if (q) { $("psR").innerHTML = `<div class="dim">找⋯</div>`; post({ action: "search", q }); } else inp.focus();
+}
+window.karaSearch = (r) => {
+  if (pBox.dataset.kind !== "search") openSearch(r.q || "");
+  const hits = r.hits || [];
+  $("psR").innerHTML = hits.length ? hits.map(h => `<div class="hit"><div class="c">${esc(h.cite)}</div>${h.snippet ? `<div class="s">${esc(h.snippet)}</div>` : ""}`
+      + (h.link ? `<a data-url="${esc(h.link)}">打開原件</a>` : "") + `</div>`).join("")
+    : `<div class="dim">${r.empty ? "索引還是空的：Gmail／行事曆／Drive／iMessage 還沒抓進來。" : `找不到「${esc(r.q)}」。`}</div>`;
+  $("psR").querySelectorAll("a[data-url]").forEach(a => a.onclick = () => post({ action: "openLink", url: a.dataset.url }));
+  announce(hits.length ? `找到 ${hits.length} 筆，最相關的是${hits[0].source}「${clip(hits[0].title, 20)}」。` : (r.empty ? "個人資料還沒抓進來，找不到。" : `找不到${clip(r.q, 16)}。`));
+};
+$("bSearch").onclick = () => openSearch();
+
 window.karaQueue = () => ({ q: queue.length, talking: talkingNow });      // 測試：播報佇列（答案卡打字中要先停）
 let embedded = false;
 async function poll() {
@@ -2912,6 +3026,9 @@ function finishListen() {
   listening = false;
   const text = heard.trim();
   if (!text) { announce("沒聽清楚，再按住智能體講一次。"); return; }
+  const sq = nativeMorning && searchIntent(text);
+  if (sq) { openSearch(sq); return; }
+  if (nativeMorning && /^(念|唸|播)?(一下)?(今天的)?晨報/.test(text.replace(/\s+/g, ""))) { post({ action: "morning" }); return; }
   const local = /^(交給|跟|告訴|請)(?:秘書|隊長)/.test(text) ? null : answerLocal(text);
   if (local) { announce(local); return; }
   const order = text.replace(/^(交給|跟|告訴|請)(?:秘書|隊長)(說)?[，,：:\s]*/, "") || text;
@@ -3336,7 +3453,7 @@ function applyPanels() {
   $("bPanels").classList.toggle("on", !ORBIT && hidden.size > 0);
   $("bPanels").textContent = ORBIT ? "⋯" : hidden.size ? `面板 ${TOGGLES.length - hidden.size}/${TOGGLES.length}` : "面板";
   $("panelMenu").innerHTML = TOGGLES.map(([id, name]) => `<label><input type="checkbox" data-p="${id}"${hidden.has(id) ? "" : " checked"}>${esc(name)}</label>`).join("")
-    + `<div class="more"><button data-go="bBrief">早報</button><button data-go="bWrap">收工總結</button><button data-go="bTl">今日時間軸</button>`
+    + `<div class="more"><button data-go="bBrief">晨報</button><button data-go="bSearch">搜尋</button><button data-go="bWrap">收工總結</button><button data-go="bTl">今日時間軸</button>`
     + (ORBIT ? `<button data-go="bAuto">自動排版${$("bAuto").classList.contains("on") ? " ✓" : ""}</button>` : "") + `</div>`;
   // Orbit42：工具列只留常用的，播報聲音也收進這個選單
   if (ORBIT && !VOICE_SEL.hidden) { const w = document.createElement("div"); w.className = "more"; w.append(VOICE_SEL); $("panelMenu").append(w); }
