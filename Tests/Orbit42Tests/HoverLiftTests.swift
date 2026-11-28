@@ -118,4 +118,36 @@ final class HoverLiftTests: XCTestCase {
         XCTAssertEqual(SatStack.dimmed(o, lifted: "b", typing: "a"), ["c", "s"])                // 正在打字的不變暗
         XCTAssertEqual(SatStack.dimmed(o, lifted: "b", typing: "b"), ["a", "c", "s"])
     }
+
+    /// 11-28 Keng「衛星終端機 ⌘C／⌘V 不能用」：焦點被拿走後滑回原本浮著的那顆，要把輸入點還給它
+    func testReclaimAfterFocusTaken() {
+        var h = HoverLift(); _ = run(&h, ["a"])
+        func r(_ hover: String?, _ f: HoverLift.Focus, paused: Bool = false, fast: Bool = false) -> String? {
+            h.reclaim(hover: hover, inside: true, paused: paused, fast: fast, focus: f)
+        }
+        XCTAssertNil(r("a", .sat("a")))                       // 焦點本來就在 a：不用動
+        XCTAssertNil(r(nil, .elsewhere))                      // 滑到球體、點了球體
+        XCTAssertEqual(r("a", .elsewhere), "a")               // 滑回 a（a 還是浮著那顆，step 不會換）⇒ 還給 a
+        XCTAssertNil(r("a", .elsewhere))                      // 停在 a 裡面：只在滑進來那一下拿，不一直搶
+        XCTAssertEqual(r("a", .nowhere), "a")                 // 焦點掉回視窗本身（誰都收不到按鍵）⇒ 滑鼠一動就還給 a
+        XCTAssertNil(r(nil, .ask)); XCTAssertNil(r("a", .ask))  // 在答案卡裡作答：滑過終端機不搶
+        XCTAssertNil(r("b", .elsewhere))                      // b 不是浮著那顆：交給 step 處理
+    }
+    func testReclaimWaitsForSlowAndUnpaused() {
+        var h = HoverLift(); _ = run(&h, ["a"])
+        XCTAssertNil(h.reclaim(hover: nil, inside: true, paused: false, focus: .elsewhere))
+        XCTAssertNil(h.reclaim(hover: "a", inside: true, paused: false, fast: true, focus: .elsewhere))     // 快速路過：先不拿
+        XCTAssertEqual(h.reclaim(hover: "a", inside: true, paused: false, focus: .elsewhere), "a")          // 慢下來：還算「滑進來」
+        h = HoverLift(); _ = run(&h, ["a"])
+        XCTAssertNil(h.reclaim(hover: nil, inside: true, paused: false, focus: .elsewhere))
+        XCTAssertNil(h.reclaim(hover: "a", inside: true, paused: true, focus: .elsewhere))                  // 拖曳中
+        XCTAssertNil(h.reclaim(hover: "a", inside: false, paused: false, focus: .elsewhere))                // 視窗沒焦點
+        XCTAssertEqual(h.reclaim(hover: "a", inside: true, paused: false, focus: .elsewhere), "a")
+    }
+    /// 在別顆打字（settle 到 b、滑鼠停在 a）：不搶回 a
+    func testReclaimRespectsSettle() {
+        var h = HoverLift(); _ = run(&h, ["a"])
+        h.settle("b", hover: "a")
+        XCTAssertNil(h.reclaim(hover: "a", inside: true, paused: false, focus: .sat("b")))
+    }
 }

@@ -76,4 +76,28 @@ public struct HoverLift: Equatable, Sendable {
     public mutating func settle(_ id: String?, hover: String?) { lifted = id; mute = hover == id ? nil : .some(hover) }
     /// 視窗不在了
     public mutating func drop(_ id: String) { if lifted == id { lifted = nil }; if mute == .some(id) { mute = nil } }
+
+    /// 鍵盤焦點現在在哪（reclaim 用）
+    public enum Focus: Equatable, Sendable {
+        case sat(String)       // 某顆衛星裡（終端機、它的網頁位址列⋯）
+        case ask               // 答案卡（正在答題：不搶）
+        case nowhere           // 視窗本身（答案卡收起、面板關掉後焦點掉回視窗）：誰都收不到按鍵
+        case elsewhere         // 球體、智能體網頁等衛星以外的地方
+    }
+    private var lastHover: String??
+    /// 11-28 Keng「衛星終端機裡 ⌘C／⌘V 不能用」：輸入點被拿走（點了球體、焦點掉回視窗）再滑回「原本就浮著」的那顆，
+    /// step 只看浮起有沒有換 ⇒ 回 nil、不重新聚焦 ⇒ ⌘C／⌘V 送到球體或視窗本身，終端機收不到
+    /// ⇒ 滑「進」浮著的那顆、或焦點根本沒落在任何地方時，把輸入點還給它（回傳那顆；nil＝不用動）。在答案卡裡不搶
+    /// 先呼叫 step；step 已經換過去就不用再呼叫
+    public mutating func reclaim(hover: String?, inside: Bool, paused: Bool, fast: Bool = false, focus: Focus) -> String? {
+        guard inside, !paused, !fast else { return nil }               // 快速路過、拖曳中：不算「滑進來」，停下來再看
+        let entered = lastHover != .some(hover); lastHover = .some(hover)
+        guard let h = hover, h == lifted, mute == nil else { return nil }
+        switch focus {
+        case .sat(let s) where s == h: return nil                       // 已經在它裡面
+        case .ask: return nil
+        case .nowhere: return h
+        case .sat, .elsewhere: return entered ? h : nil                 // 只在滑進來那一下拿回；停在裡面不跟別處搶
+        }
+    }
 }

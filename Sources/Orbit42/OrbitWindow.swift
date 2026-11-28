@@ -605,26 +605,36 @@ final class OrbitWindow: NSObject, NSWindowDelegate {
         guard let v = window.firstResponder as? NSView else { return nil }
         return satWins.first { v.isDescendant(of: $0.value.content) }?.key
     }
+    /// 鍵盤焦點現在在哪：哪顆衛星裡（含它的網頁、3D 面板）／答案卡／沒落在任何 view 上（視窗本身）／其他
+    var focusNow: HoverLift.Focus {
+        guard let v = window.firstResponder as? NSView else { return .nowhere }
+        if let s = satWins.first(where: { v.isDescendant(of: $0.value) })?.key { return .sat(s) }
+        if let a = askFloat?.view, v.isDescendant(of: a) { return .ask }
+        return .elsewhere
+    }
     private func raise(_ w: NSView) {
         pinned = id(of: w); lift.settle(pinned, hover: hoverSat()); restack()
     }
     private var stackOrder: [String] { SatStack.order(stackWins, pinned: pinned, lifted: nil) }
-    private func hoverSat() -> String? {
+    func hoverSat() -> String? {
         guard let p = mouse else { return nil }
         if askFloat?.covers(p) == true { return nil }       // 在答案卡上：不算碰到底下的終端機
         let shown = satWins.filter { !$0.value.isHidden && $0.value.wantShown }
         return SatStack.hit(p, order: stackOrder, frames: shown.mapValues(\.frame))
     }
-    private var liftPaused: Bool {
+    var liftPaused: Bool {
         NSEvent.pressedMouseButtons != 0 || CACurrentMediaTime() - lastScroll < 0.3 || menuOpen > 0 || window.attachedSheet != nil || NSApp.modalWindow != nil
             || host.composing.contains { satWins[$0]?.isHidden == false } || askFloat?.dragging == true
     }
     /// 每次滑鼠移動跑一次：滑進別顆而且滑鼠慢下來／停下來 ⇒ 浮到最上＋拿輸入點；快速路過不換
     func liftStep() {
         let hover = hoverSat(), paused = liftPaused, fast = mouseSpeed.isFast(CACurrentMediaTime())
-        if let id = lift.step(hover: hover, inside: mouse != nil && (window.isKeyWindow || liftTest), paused: paused, fast: fast), let w = satWins[id] {
+        let inside = mouse != nil && (window.isKeyWindow || liftTest)
+        if let id = lift.step(hover: hover, inside: inside, paused: paused, fast: fast), let w = satWins[id] {
             pinned = id; restack()
             if typingSat != id { window.makeFirstResponder(w.content) }      // 已經在它裡面（例如它的網頁位址列）就不搶
+        } else if let id = lift.reclaim(hover: hover, inside: inside, paused: paused, fast: fast, focus: focusNow), let w = satWins[id] {
+            window.makeFirstResponder(w.content)                              // 焦點被拿走後滑回浮著的這顆：還給它（不然 ⌘C／⌘V、打字都送不到終端機）
         }
         liftTimer?.invalidate(); liftTimer = nil
         // 拖曳／組字／捲動中滑到別顆：結束後要補換 ⇒ 0.1 秒再看；沒事就完全不跑

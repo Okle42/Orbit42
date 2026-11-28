@@ -888,7 +888,7 @@ window.orbitBg = list => {
 $("bgMenu").onclick = e => { const mi = e.target.closest("[data-job]"); if (!mi) return; $("bgMenu").classList.remove("on"); post({ action: "attach", job: mi.dataset.job, name: mi.dataset.name, cwd: mi.dataset.cwd }); };
 document.addEventListener("click", () => { $("menu").classList.remove("on"); $("bgMenu").classList.remove("on"); });
 // 測試用：在目前打開的終端機打字（跟手打一樣走 input）
-window.orbitTest = { doll: () => { const t = terms.get(active); return t?.dollCv ? t.dollCv.style.cssText : "no doll"; }, type: text => active && post({ action: "input", id: active, data: text }), active: () => active,
+window.orbitTest = { select: () => { const t = terms.get(active); if (!t) return ""; t.term.selectAll(); return t.term.getSelection(); }, doll: () => { const t = terms.get(active); return t?.dollCv ? t.dollCv.style.cssText : "no doll"; }, type: text => active && post({ action: "input", id: active, data: text }), active: () => active,
   screen: () => { const t = terms.get(active); if (!t) return ""; const b = t.term.buffer.active, out = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true)); return out.join("\n"); } };
 window.orbitTheme(themeName);
 post({ action: "ready" });

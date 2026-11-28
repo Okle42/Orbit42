@@ -140,7 +140,8 @@ final class HiddenTestWindow: NSWindow {
     override func constrainFrameRect(_ r: NSRect, to s: NSScreen?) -> NSRect { r }
     override func toggleFullScreen(_ sender: Any?) {}
     override func makeKeyAndOrderFront(_ sender: Any?) { orderBack(sender) }
-    override var canBecomeKey: Bool { false }
+    static var allowKey = false          // 只有 ORBIT_TEST_COPYPASTE=real 打開：要當 key window 才能走真的 ⌘C／⌘V（視窗還是在螢幕外）
+    override var canBecomeKey: Bool { Self.allowKey }
     override var canBecomeMain: Bool { false }
 }
 
