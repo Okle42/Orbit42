@@ -12,6 +12,9 @@
 //   orbit task add --to <英文名，例如 Chris> --text "…"   建派工單，印出要用 SendMessage 送的全文
 //   orbit task cancel <單號>    orbit tasks [--all]
 //   orbit web enable [--port N] | disable | status | rotate   Orbit42 網頁版（只綁 Tailscale；要本人在終端機跑）
+//   orbit cost [--week] | tasks | weekly [--save]   花費紀錄（CostLog.swift，約當 API 牌價）
+//   orbit learn scan | list | approve <編號> | reject <編號>   從過去紀錄整理建議（Lessons.swift；核可才生效）
+//   orbit skill search | list | preview | install   匯入公開 skill（SkillImport.swift；預覽＋危險掃描，核可才裝）
 //   orbit seccheck [--card] [--json] [--wait] [--accept-network] [--open]   本機資安體檢（只看不改，SecCheck.swift）
 //
 // Contract with the AI tools that call us (hooks): this must NEVER slow them down or fail them.
@@ -249,6 +252,18 @@ func ghExempt(_ hs: inout [(rule: CaptainLink.Rule, segment: String)], _ cmd: St
 if args.first == "guard-push" {
     guard isatty(0) == 0, let o = try? JSONSerialization.jsonObject(with: FileHandle.standardInput.readDataToEndOfFile()) as? [String: Any],
           let cmd = (o["tool_input"] as? [String: Any])?["command"] as? String else { exit(0) }
+    // 11-28 B 組⑥：gh 留言／LINE／寄信 的內容掃密鑰（擋）與個資（警告＋遮好的版本），規則在 OutboundScan.swift
+    if !isReviewer {
+        let hits = OutboundScan.check(cmd, cwd: o["cwd"] as? String ?? FileManager.default.currentDirectoryPath,
+                                      keywords: PushGuard.list(PushGuard.dir.appendingPathComponent("keywords.txt")),
+                                      read: { try? String(contentsOfFile: $0, encoding: .utf8) })
+        if !hits.isEmpty {
+            let sid = o["session_id"] as? String
+            let acked = !hits.contains(where: \.blocked) && OutboundScan.acknowledged(OutboundScan.fingerprint(cmd, session: sid))
+            OutboundScan.log(hits, session: sid, released: acked)
+            if let out = OutboundScan.hookOutput(hits, acked: acked) { print(out); exit(0) }
+        }
+    }
     if !isReviewer, let sid = o["session_id"] as? String, CaptainStore.captain()?.sessionId != sid {   // 秘書自己不擋不預告（秘書只審不做）
         var hs = CaptainLink.hits(cmd, rules: CaptainLink.loadRules())
         let ghWhy = ghExempt(&hs, cmd, cwd: o["cwd"] as? String ?? FileManager.default.currentDirectoryPath)
@@ -448,6 +463,15 @@ if args.first == "web" {
     exit(WebCLI.run(args))
 }
 
+if args.first == "cost" {
+    exit(CostCLI.run(args))
+}
+if args.first == "learn" {
+    exit(LearnCLI.run(args))
+}
+if args.first == "skill" {
+    exit(SkillCLI.run(args))
+}
 if args.first == "b1" {
     exit(B1CLI.run(args))
 }

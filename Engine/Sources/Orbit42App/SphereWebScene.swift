@@ -431,6 +431,9 @@ final class SphereWebHost: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             t["reason"] = c.reason
             if c.report?.isStart == true { t["reportKind"] = "start" }
             if let x = c.ctx { t["ctx"] = x.percent.rounded() }          // v5：戰情卡每列的記憶量
+            if let k = CostBoard.shared.cost(c.sessionId) {               // 11-28 B 組⑤：今天花費（約當 API 牌價）
+                t["cost"] = (k.usd * 100).rounded() / 100; t["costMin"] = k.minutes
+            }
             if let t0 = c.lastActivity { t["ago"] = max(0, Int(now.timeIntervalSince(t0) / 60)) }
             if let a = c.asks.first {
                 t["ask"] = a.shown; t["askId"] = a.id
