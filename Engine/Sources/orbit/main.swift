@@ -179,6 +179,12 @@ if args.first == "title" {
                 _ = Peer.send(to: to, text: "【已放行 \(i.id)】使用者在 \(who) 的終端機放行：\(i.text)", fromName: "Orbit42（動作預告）")
             }
             return "使用者剛放行了單號 \(i.id)（\(i.text)）。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。"
+        case .releasedAll(let xs):
+            CaptainInbox.announceAll(xs, except: sid, whereSaid: "在 \(NicknameStore.get(sid)?.name ?? "使用者") 的終端機")
+            let mine = xs.filter { $0.sid == sid }.map(\.id)
+            return "使用者打了「放行！全部」。" + CaptainInbox.allDetail(xs) + "\n"
+                + (mine.isEmpty ? "這個 session 沒有自己的單；別人的已經各自通知。" : "你自己的是 \(mine.joined(separator: "、"))：現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。")
+                + "請把上面的明細照抄回報給使用者。之後才出現的新單不算，照樣要再放行。"
         case .recorded(let k): return "使用者事先放行了：\(k)（30 分鐘內、一次）。"
         case .missed(let m): return m
         case .none: if ReleaseWord.nearMiss(p) { return "這句沒有放行任何東西。" + ReleaseWord.how + "。" }

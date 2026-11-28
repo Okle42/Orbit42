@@ -298,7 +298,7 @@ public enum CaptainLink {
     public static func denyReason(_ item: CaptainInboxItem) -> String {
         let owner = LocalConfig.current.ownerName
         return "⛔️ 這個指令需要放行才能跑（\(item.kinds.joined(separator: "、"))，單號 \(item.id)）。已通知秘書，不要重試、不要換寫法繞過，也不要自己跑 orbit release。\n"
-            + "要放行請秘書轉述\(owner)的決定（秘書跑 orbit release \(item.id)），或\(owner)在這個 session 打：放行！\(item.id)（要用打的、要有驚嘆號；說「部署」「push」不算，語音聽寫通常沒有驚嘆號）。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
+            + "要放行請秘書轉述\(owner)的決定（秘書跑 orbit release \(item.id)），或\(owner)在這個 session 打：放行！\(item.id)（一次放行所有在等的單＝放行！全部；要用打的、要有驚嘆號；說「部署」「push」不算，語音聽寫通常沒有驚嘆號）。放行後再跑一次同一個指令（30 分鐘內有效、只能用一次）。\n"
             + (item.kinds.contains(opaqueRule) ? "這次是看不出要跑什麼：請把當指令用的變數、eval、sh -c \"$變數\"、管線餵給 sh 這類寫法，換成實際的指令直接寫出來再跑，就會照內容判斷（這不算繞過）。\n" : "")
             + "等的時候用 orbit card --status blocked 回報卡在哪；能改用暫存區（scratchpad、/tmp）的就改用。"
     }

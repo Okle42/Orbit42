@@ -331,6 +331,10 @@ enum BoardActions {
         switch decision {
         case .missed(let m): line += "（Orbit42：\(m)）"
         case .recorded, .released: recorded = true
+        case .releasedAll(let xs):
+            recorded = true
+            line += "（Orbit42：" + CaptainInbox.allDetail(xs).replacingOccurrences(of: "\n", with: " ") + "。請把明細回報給使用者；你自己的單可以重跑一次，30 分鐘內有效）"
+            if testHook == nil, testDeliver == nil { CaptainInbox.announceAll(xs, except: c.sessionId, whereSaid: "在 Orbit42 卡片上") }
         case .none: break
         }
         if let t = testDeliver { return t(line) ? delivered("已送給「\(c.title)」") : "沒送到" }

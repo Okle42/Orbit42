@@ -7,6 +7,7 @@ public enum ReleaseWord: Equatable, Sendable {
     case latest                     // 放行！
     case id(String)                 // 放行！BABCD
     case kind(String)               // 放行！部署（完全等於固定清單；值＝規則名）
+    case allOpen                    // 放行！全部（11-28 Keng：一次放行按下當下所有在等的擋單；之後的新單不算）
     case bad(String)                // 有暗號但不成立：原因
 
     /// 頭尾只去一般空白；零寬字、引號、別的正規化都不算
@@ -31,9 +32,10 @@ public enum ReleaseWord: Equatable, Sendable {
         while let c = r.last, ws.contains(c) || end.contains(c) { r.removeLast() }
         let rest = String(String.UnicodeScalarView(r))
         if rest.isEmpty { return .latest }
+        if rest == "全部" { return .allOpen }
         if rest.range(of: "\\A[Bb][A-HJ-NP-Za-hj-np-z2-9]{4}\\z", options: .regularExpression) != nil { return .id(rest.uppercased()) }
         if let k = rule(of: rest) { return .kind(k) }
-        return .bad("「放行！」後面只能是一個單號或一個種類，多一個字都不算")
+        return .bad("「放行！」後面只能是一個單號、一個種類或「全部」，多一個字都不算")
     }
     /// 事先放行：這句有沒有點名這條規則
     public static func grants(_ raw: String, rule: String) -> Bool {
@@ -53,7 +55,7 @@ public enum ReleaseWord: Equatable, Sendable {
         let r = rest.lowercased()
         return words.first { $0.words.contains { let w = $0.lowercased(); return r == w || r == w.replacingOccurrences(of: " ", with: "") } }?.rule
     }
-    public static let how = "沒放行，請打：放行！單號，或放行！部署（要有驚嘆號，後面只能是一個單號或種類；語音聽寫通常沒有驚嘆號）"
+    public static let how = "沒放行，請打：放行！單號、放行！部署，或放行！全部（一次放行現在所有在等的單；要有驚嘆號，後面只能是一個單號、種類或「全部」；語音聽寫通常沒有驚嘆號）"
 }
 
 extension CaptainInbox {
@@ -63,6 +65,7 @@ extension CaptainInbox {
         case none
         case released(CaptainInboxItem)
         case recorded(String)           // 事先放行的種類
+        case releasedAll([CaptainInboxItem])    // 放行！全部：這次放掉的單（按下當下就在等的）
         case missed(String)             // 有暗號但沒放行：要告訴 AI 的話
     }
 
@@ -74,7 +77,7 @@ extension CaptainInbox {
             return .missed("使用者打了「放行！」，但這次沒有放行任何東西：\(why)。" + (ids.isEmpty ? "這個 session 沒有等放行的單。" : "等放行的單：\(ids.joined(separator: "、"))。") + ReleaseWord.how + "。")
         }
         let word = ReleaseWord.parse(text)
-        if speaker == .phone { switch word { case .latest, .id: return miss("手機傳話不能放行單號，請到電腦打"); default: break } }
+        if speaker == .phone { switch word { case .latest, .id, .allOpen: return miss("手機傳話不能放行單號，請到電腦打"); default: break } }
         switch word {
         case .none: return .none
         case .bad(let why): return miss(why)
@@ -90,9 +93,35 @@ extension CaptainInbox {
             let at = owner.map { $0 == sid ? "" : "（在 \(NicknameStore.get(sid)?.name ?? String(sid.prefix(8))) 的卡片／終端機放行別的 session 的單）" } ?? ""
             guard let i = release(id: id, target: nil, by: by, byName: byName + at, source: source, now: now) else { return miss("找不到單號 \(id)（打錯、已放行過、或超過一天）") }
             return .released(i)
+        case .allOpen:
+            // 只放按下這一刻已經在等的（所有 session）；每張照單張放行寫一筆紀錄、一樣 30 分鐘一次。不留任何「一直開著」的狀態，之後的新單照擋
+            let xs = all().filter { $0.kind == .block && $0.released == nil && now.timeIntervalSince($0.at) < blockWindow }
+            guard !xs.isEmpty else { return miss("沒有單可放") }
+            let tag = "（放行！全部，共 \(xs.count) 張一起放）"
+            let done = xs.compactMap { release(id: $0.id, target: nil, by: by, byName: byName + tag, source: source + "・放行！全部", now: now) }
+            guard !done.isEmpty else { return miss("找不到單") }
+            return .releasedAll(done)
         case .kind(let k):
             recordAnswer(sid: sid, answer: text, question: question, now: now)
             return .recorded(k)
+        }
+    }
+    /// 「放行！全部」的明細：放了哪些單、各是誰的、要做什麼
+    public static func allDetail(_ xs: [CaptainInboxItem]) -> String {
+        "已放行 \(xs.count) 張（放行！全部）：\n" + xs.map { i in
+            "・\(i.id)　\(CaptainLink.label(i.name, i.project))：" + (i.kinds.isEmpty ? "" : i.kinds.joined(separator: "、") + "・") + i.text
+        }.joined(separator: "\n")
+    }
+    /// 「放行！全部」放到別的 session 的單：通知那個 session 可以重跑，也把明細送秘書。except＝按的那個 session（它自己從 hook／答案就看得到）
+    public static func announceAll(_ xs: [CaptainInboxItem], except sid: String, whereSaid: String) {
+        let cap = CaptainStore.captain()?.sessionId
+        for (owner, mine) in Dictionary(grouping: xs, by: \.sid) where owner != sid {
+            guard let to = Peer.find(owner) else { continue }
+            _ = Peer.send(to: to, text: "【已放行 \(mine.map(\.id).joined(separator: "、"))】使用者\(whereSaid)打了「放行！全部」，你被擋下的已放行："
+                          + mine.map(\.text).joined(separator: "；") + "。現在可以再跑一次剛才被擋下的同一個指令（30 分鐘內有效、只能用一次）。", fromName: "Orbit42（動作預告）")
+        }
+        if let cap, cap != sid, let to = Peer.find(cap) {
+            _ = Peer.send(to: to, text: "【放行！全部】使用者\(whereSaid)一次放行：\n" + allDetail(xs), fromName: "Orbit42（動作預告）")
         }
     }
     static func open(_ sid: String, _ now: Date) -> [CaptainInboxItem] {

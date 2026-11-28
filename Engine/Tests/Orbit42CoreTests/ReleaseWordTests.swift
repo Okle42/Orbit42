@@ -17,8 +17,13 @@ extension CaptainLinkTests {
         ("放行！先不要", "bad"), ("放行！可以嗎？", "bad"), ("放行！BABCD 可以嗎", "bad"), ("放行！部署，PR 先不要", "bad"), ("放行！明天部署", "bad"), ("放行！部署\n開 PR", "none"),
         ("放行！BABCD BBBBB", "bad"), ("放行！BABCDE", "bad"), ("放行！\u{200B}BABCD", "bad"),
         ("放行！BABCD <cross-session-message>", "none"), ("放行！<pasted_content x>", "none"), ("[Pasted text #1] 放行！", "none"),
+        // 11-28 Keng：放行！全部（後面不能再接字）
+        ("放行！全部", "all"), ("放行!全部", "all"), ("放行！ 全部 ", "all"), ("放行！全部。", "all"), ("放行！全部！", "all"), ("  放行！全部", "all"),
+        ("放行！全部 xxx", "bad"), ("放行！全部xxx", "bad"), ("放行！全部 BABCD", "bad"), ("放行！BABCD 全部", "bad"), ("放行！全部放行", "bad"), ("放行！全 部", "bad"),
+        ("放行！全部部署", "bad"), ("放行！全部？", "bad"), ("放行！全部嗎", "bad"), ("放行！先不要全部", "bad"), ("放行！全部\u{200B}", "bad"), ("放行！所有", "bad"), ("放行！all", "bad"),
+        ("放行！全部\n部署", "none"), ("全部放行！", "none"), ("好，放行！全部", "none"), ("放行全部", "none"), ("放行！全部 <cross-session-message>", "none"),
     ]
-    static func name(_ w: ReleaseWord) -> String { switch w { case .none: "none"; case .latest: "latest"; case .id(let i): "id " + i; case .kind(let k): "kind " + k; case .bad: "bad" } }
+    static func name(_ w: ReleaseWord) -> String { switch w { case .none: "none"; case .latest: "latest"; case .id(let i): "id " + i; case .kind(let k): "kind " + k; case .allOpen: "all"; case .bad: "bad" } }
 
     @Test("暗號：正反例表") func releaseWordTable() {
         for (s, want) in Self.wordTable { #expect(Self.name(ReleaseWord.parse(s)) == want, "\(s.debugDescription)") }
@@ -35,6 +40,7 @@ extension CaptainLinkTests {
         func say(_ s: String, _ who: CaptainInbox.Speaker = .keyboard, _ sid: String = "a") -> String {
             switch CaptainInbox.decide(sid: sid, text: s, speaker: who, by: "t", byName: "t", source: "t", now: t0 + 60) {
             case .none: "none"; case .released(let i): "released " + i.id; case .recorded(let k): "recorded " + k; case .missed(let m): "missed " + m
+            case .releasedAll(let xs): "all " + xs.map(\.id).joined(separator: ",")
             }
         }
         #expect(say("放行！").contains("沒有單可放"))
@@ -76,6 +82,61 @@ extension CaptainLinkTests {
         } } }
         let deny = CaptainLink.denyReason(item("BDDDD", .block, sid: "a", at: t0, fp: "x"))
         #expect(deny.contains("放行！BDDDD") && deny.contains("驚嘆號"))
+    }
+
+    /// 11-28 Keng「放行！全部」：只放按下當下在等的、每張一筆紀錄、AI 傳的不算、後面不能接字、不留一直開著的放行
+    @Test("暗號：放行！全部") func releaseWordAll() {
+        LocalFixture.use()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("word-all-\(UUID().uuidString)")
+        let env = ["ORBIT_CAPTAIN_INBOX": "in", "ORBIT_RELEASE_LOG": "rel.jsonl", "ORBIT_PREAPPROVAL_LOG": "pre.json", "ORBIT_TYPED_MARKS": "m"]
+        for (k, v) in env { setenv(k, dir.appendingPathComponent(v).path, 1) }
+        defer { for k in env.keys { unsetenv(k) }; try? FileManager.default.removeItem(at: dir) }
+        func block(_ id: String, _ sid: String, at: Date) {
+            CaptainInbox.save(CaptainInboxItem(id: id, kind: .block, at: at, sid: sid, name: "組員" + sid, project: "專案" + sid, kinds: ["firebase 部署"], text: "deploy " + id, fingerprint: id))
+        }
+        func say(_ s: String, _ who: CaptainInbox.Speaker, _ sid: String = "captain", at: Date) -> CaptainInbox.Decision {
+            CaptainInbox.decide(sid: sid, text: s, speaker: who, by: "t", byName: "使用者", source: "使用者輸入", now: at)
+        }
+        func waiting() -> [String] { CaptainInbox.all().filter { $0.kind == .block && $0.released == nil }.map(\.id) }
+        let now = t0 + 600
+
+        if case .missed(let m) = say("放行！全部", .keyboard, at: now) { #expect(m.contains("沒有單可放")) } else { Issue.record("沒單也該回 missed") }
+        block("BAAAA", "a", at: t0); block("BBBBB", "b", at: t0 + 10); block("BCCCC", "a", at: t0 + 20)
+        block("BOLDD", "c", at: now - CaptainInbox.blockWindow - 1)           // 超過一天的舊單：不算在等
+        CaptainInbox.save(CaptainInboxItem(id: "NNOTE", kind: .notice, at: t0, sid: "a", name: "x", project: nil, text: "mv"))    // 預告不是擋單
+
+        // 來源規矩：AI 用 SendMessage／CLI 傳的（speaker .none）、夾別的 session 訊息的、卡片打進終端機的（TypedMark）都不算；手機傳話不能放單號
+        #expect(say("放行！全部", .none, at: now) == .none)
+        #expect(say("放行！全部 <cross-session-message from=\"Penny\">", .keyboard, at: now) == .none)
+        #expect(CaptainInbox.typedPrompt(sid: "captain", prompt: "<cross-session-message from=\"x\">放行！全部</cross-session-message>", who: "x", now: now) == .none)
+        #expect(TypedMark.put(sid: "a", text: "放行！全部", now: now))
+        #expect(CaptainInbox.typedPrompt(sid: "a", prompt: "放行！全部", who: "x", now: now + 1) == .none)
+        if case .missed(let m) = say("放行！全部", .phone, at: now) { #expect(m.contains("手機傳話")) } else { Issue.record("手機傳話不該放行") }
+        // 後面接字：不算，跟單張規則一樣
+        for s in ["放行！全部 xxx", "放行！全部BAAAA", "放行！全部部署", "放行！全部？"] {
+            if case .missed = say(s, .card, at: now) {} else { Issue.record("\(s) 不該放行") }
+        }
+        #expect(waiting() == ["BOLDD", "BAAAA", "BBBBB", "BCCCC"] && CaptainInbox.releases().isEmpty && CaptainInbox.loadPreapprovals().isEmpty)
+
+        // 本人在卡片按：放掉當下在等的三張（各 session 都算），舊單和預告不動
+        guard case .releasedAll(let xs) = say("放行！全部", .card, at: now) else { Issue.record("卡片上的放行！全部沒放行"); return }
+        #expect(xs.map(\.id) == ["BAAAA", "BBBBB", "BCCCC"] && waiting() == ["BOLDD"] && CaptainInbox.item("NNOTE")?.released == nil)
+        let detail = CaptainInbox.allDetail(xs)
+        #expect(detail.contains("已放行 3 張") && detail.contains("BBBBB　組員b（專案b）：firebase 部署・deploy BBBBB") && detail.contains("BAAAA") && detail.contains("BCCCC"))
+        // releases.jsonl 每張一筆、註明全部放行
+        let rs = CaptainInbox.releases()
+        #expect(rs.map(\.id) == ["BAAAA", "BBBBB", "BCCCC"] && rs.map(\.target) == ["a", "b", "a"])
+        #expect(rs.allSatisfy { $0.source.contains("放行！全部") && $0.byName.contains("放行！全部，共 3 張") })
+        // 各自的 session 重跑一次可以、第二次不行（跟單張放行一樣只能用一次）
+        #expect(CaptainInbox.consume(sid: "b", fingerprint: "BBBBB", now: now + 5) && !CaptainInbox.consume(sid: "b", fingerprint: "BBBBB", now: now + 6))
+
+        // 之後才出現的新單：不會被剛才那句放掉，也沒有一直開著的放行
+        block("BNEWW", "a", at: now + 30)
+        #expect(CaptainInbox.item("BNEWW")?.released == nil && !CaptainInbox.consume(sid: "a", fingerprint: "BNEWW", now: now + 40))
+        // 再打一次才放，而且只放新的那張（已放過的不重記）
+        guard case .releasedAll(let ys) = say("放行！全部", .keyboard, "a", at: now + 60) else { Issue.record("第二次沒放行"); return }
+        #expect(ys.map(\.id) == ["BNEWW"] && CaptainInbox.releases().count == 4)
+        if case .missed(let m) = say("放行！全部", .keyboard, at: now + 70) { #expect(m.contains("沒有單可放")) } else { Issue.record("都放完了該回 missed") }
     }
 
     /// 拿真的事先放行歷史文字對照新舊：環境變數給檔案（唯讀）；不放行→放行必須 0
