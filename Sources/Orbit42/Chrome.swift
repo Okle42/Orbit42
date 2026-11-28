@@ -136,8 +136,18 @@ final class ChromeBrowser {
         guard t["type"] as? String == "page", let id = t["targetId"] as? String, ours[id] == nil,
               let opener = t["openerId"] as? String, let v = ours[opener],
               let u = (t["url"] as? String).flatMap(WebPane.parse) else { return }
-        send("Target.closeTarget", ["targetId": id]); v.load(u)
+        send("Target.closeTarget", ["targetId": id])
+        // 11-28 Keng「蝦皮用 Google 登入後畫面一片空白」：Google 登入要靠彈窗把結果傳回原頁，
+        // 改在原面板開會蓋掉原頁、卡在 accounts.google.com/gsi/transform。Google 也擋無頭瀏覽器登入 ⇒
+        // 原頁留著，改用同一個設定檔開正常 Chrome 視窗、停在原頁讓人親手登；關掉視窗後面板重新載入原頁（共用 cookie）
+        if Self.isGoogleLogin(u) {
+            let back = v.url
+            ChromeGoogleLogin.shared.open(url: back?.absoluteString ?? ChromeGoogleLogin.loginURL) { [weak v] in if let back { v?.load(back) } }
+            return
+        }
+        v.load(u)
     }
+    nonisolated static func isGoogleLogin(_ u: URL) -> Bool { u.host?.lowercased() == "accounts.google.com" }
 }
 
 /// 一頁 Chrome：畫面用 screencast 收，滑鼠、鍵盤、中文輸入法送回去

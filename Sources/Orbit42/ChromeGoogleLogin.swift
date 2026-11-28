@@ -12,7 +12,7 @@ final class ChromeGoogleLogin: NSObject {
     private(set) var proc: Process?
 
     func installMenu() {
-        let i = NSMenuItem(title: "在衛星的 Chrome 登入 Google⋯", action: #selector(open), keyEquivalent: "")
+        let i = NSMenuItem(title: "在衛星的 Chrome 登入 Google⋯", action: #selector(openFromMenu), keyEquivalent: "")
         i.target = self; _ = EditMenu.addAppItem(i)
     }
 
@@ -21,27 +21,33 @@ final class ChromeGoogleLogin: NSObject {
         ["--user-data-dir=" + profile, "--no-first-run", "--no-default-browser-check", "--new-window", url]
     }
 
-    @objc func open() {
+    private var after: (() -> Void)?
+    @objc func openFromMenu() { open(url: Self.loginURL) }
+    /// url：正常 Chrome 視窗一開就停在哪一頁（網站的登入頁）；then：視窗關掉、登入記好之後要做的事（例如面板重新載入原頁）
+    func open(url: String, then: (() -> Void)? = nil) {
+        if let then { after = then }
         if let p = proc, p.isRunning { NSRunningApplication(processIdentifier: p.processIdentifier)?.activate(); return }
         guard let app = ChromeBrowser.appURL else { return OrbitWindow.shared.toast("這台 Mac 沒有裝 Google Chrome") }
         // 同一個設定檔同時只能給一支 Chrome 用：先關掉衛星背後的無頭 Chrome（衛星網頁之後重新載入時會自己再開）
         ChromeBrowser.shared.quit()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { MainActor.assumeIsolated { self.launch(app) } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { MainActor.assumeIsolated { self.launch(app, url: url) } }
     }
 
-    private func launch(_ app: URL) {
+    private func launch(_ app: URL, url: String) {
         try? FileManager.default.createDirectory(atPath: ChromeBrowser.profile, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let p = Process()
         p.executableURL = app.appendingPathComponent("Contents/MacOS/Google Chrome")
-        p.arguments = Self.arguments(profile: ChromeBrowser.profile)
+        p.arguments = Self.arguments(profile: ChromeBrowser.profile, url: url)
         p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
         p.terminationHandler = { _ in
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 self.proc = nil
+                let f = self.after; self.after = nil
                 OrbitWindow.shared.toast("Google 登入已記住：衛星裡的網頁重新載入就是登入狀態")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { f?() } }
             } }
         }
-        do { try p.run(); proc = p; OrbitWindow.shared.toast("在跳出的 Chrome 視窗登入 Google，登完把那個視窗關掉（⌘Q）") }
-        catch { OrbitWindow.shared.toast("Chrome 開不起來：\(error.localizedDescription)") }
+        do { try p.run(); proc = p; OrbitWindow.shared.toast("在跳出的 Chrome 視窗登入（可以用 Google），登完按 ⌘Q 關掉那個視窗，衛星網頁會自己重新載入") }
+        catch { after = nil; OrbitWindow.shared.toast("Chrome 開不起來：\(error.localizedDescription)") }
     }
 }
