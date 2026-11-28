@@ -20,6 +20,10 @@ enum OrbitLog {
 /// 11-28 Keng「桌面 Chrome 關掉後點圖示沒反應」。20:25 實測：Chrome 有啟動、卻沒開出一般視窗（不是被導去衛星背後的無頭 Chrome）。
 /// 32306a2 曾用「沒視窗就轉送 --new-window 補開」繞過；Keng 11-28「改成把功能修好就好…未來也不用補檢查或者是再開什麼」⇒ 補開拿掉，
 /// 這裡只留紀錄（chrome-click.log：桌面 Chrome 什麼時候啟動、1.5／6 秒時有幾個視窗），給查根本原因用。
+/// 根本原因（20:53 帶 --enable-logging 重現，chrome_debug.log 有 kProfilePickerView）：Keng 有 3 個 Chrome 設定檔，
+/// Chrome 每次啟動先開「設定檔選擇器」，而且開在左邊電視上 ⇒ 主螢幕看起來沒反應。跟 Orbit42 無關。
+/// 20:57 已把 Keng 的 Chrome 設定 Local State「profile.show_picker_on_startup」改 false（原檔備份在 Local State.bak-before-picker-off-20261128），
+/// 重開 0.6 秒就在主螢幕開出視窗、分頁都回來
 /// 另外：登入用的 Chrome 視窗全關了、程式還留著佔住衛星的設定檔 ⇒ 把它結束，衛星網頁面板才接得回來（跟上面那題無關，保留）
 @MainActor
 final class ChromeClickGuard {
